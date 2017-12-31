@@ -15,15 +15,18 @@ pub struct RcptCommand<'a> {
     to: &'a [u8],
 }
 
+pub struct DataCommand<'a> {
+    // Still SMTP-escaped (ie. leading ‘.’ doubled) message
+    data: &'a [u8],
+}
+
 pub enum Command<'a> {
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
-    Data,                  // DATA <CRLF>
-    DataItem(&'a [u8]),    // Data item between DATA and end of mail data indicator
-    EndOfData,             // . <CRLF>
+    Data(DataCommand<'a>), // DATA <CRLF>
 }
 
-pub struct Reply {
+pub struct Reply<'a> {
     code: u16,
-    text: &[u8],
+    text: &'a [u8],
 }
