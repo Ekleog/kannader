@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate nom;
+
 mod parser;
 
 // TODO: transform all CR or LF to CRLF
