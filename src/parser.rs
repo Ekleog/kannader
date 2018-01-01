@@ -77,7 +77,11 @@ named!(command_helo_args(&[u8]) -> HeloCommand,
 
 named!(command_mail_args(&[u8]) -> MailCommand,
     sep!(eat_spaces, do_parse!(
-        tag_no_case!("FROM:") >> from: full_maybe_bracketed_path >>
+        tag_no_case!("FROM:") >>
+        from: alt!(
+            tag!("<>") |
+            full_maybe_bracketed_path
+        ) >>
         // TODO: support the SP arguments
         crlf >>
         (MailCommand {
@@ -214,6 +218,9 @@ mod tests {
             }),
             (&b"FrOm: quux@example.net  \t \r\n"[..], MailCommand {
                 from: &b"quux@example.net"[..],
+            }),
+            (&b"FROM:<>\r\n"[..], MailCommand {
+                from: &b"<>"[..],
             }),
         ];
         for (s, r) in tests.into_iter() {
