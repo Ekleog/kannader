@@ -1,19 +1,9 @@
-use ::{Command, HeloCommand};
+use ::Command;
 use data::*;
 use ehlo::*;
+use helo::*;
 use mail::*;
 use rcpt::*;
-use parse_helpers::*;
-
-named!(command_helo_args(&[u8]) -> HeloCommand,
-    sep!(eat_spaces, do_parse!(
-        domain: hostname >>
-        tag!("\r\n") >>
-        (HeloCommand {
-            domain: domain
-        })
-    ))
-);
 
 named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
@@ -25,23 +15,7 @@ named!(pub command(&[u8]) -> Command, alt!(
 
 #[cfg(test)]
 mod tests {
-    use nom::*;
     use parser::*;
-
-    #[test]
-    fn valid_command_helo_args() {
-        let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], HeloCommand {
-                domain: &b"hello.world"[..],
-            }),
-            (&b"hello.world\r\n"[..], HeloCommand {
-                domain: &b"hello.world"[..],
-            }),
-        ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(command_helo_args(s), IResult::Done(&b""[..], r));
-        }
-    }
 
     #[test]
     fn valid_command() {
@@ -55,10 +29,9 @@ mod tests {
                     else { false }
             )),
             (&b"HELO foo.bar.baz\r\n"[..], Box::new(
-                |x| x == Command::Helo(HeloCommand {
-                    domain: &b"foo.bar.baz"[..],
-                }))
-            ),
+                |x| if let Command::Helo(r) = x { r.domain() == b"foo.bar.baz" }
+                    else { false }
+            )),
             (&b"MAIL FROM:<hello@world.example>\r\n"[..], Box::new(
                 |x| if let Command::Mail(r) = x { r.raw_from() == b"<hello@world.example>" }
                     else { false }
