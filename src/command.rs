@@ -1,9 +1,19 @@
-use ::Command;
-use data::*;
-use ehlo::*;
-use helo::*;
-use mail::*;
-use rcpt::*;
+use ::*;
+use data::command_data_args;
+use ehlo::command_ehlo_args;
+use helo::command_helo_args;
+use mail::command_mail_args;
+use rcpt::command_rcpt_args;
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub enum Command<'a> {
+    Data(DataCommand<'a>), // DATA <CRLF>
+    Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
+    Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
+    Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
+    Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+}
 
 named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
@@ -15,7 +25,7 @@ named!(pub command(&[u8]) -> Command, alt!(
 
 #[cfg(test)]
 mod tests {
-    use parser::*;
+    use super::*;
 
     #[test]
     fn valid_command() {
