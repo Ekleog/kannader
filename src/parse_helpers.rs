@@ -3,6 +3,7 @@ macro_rules! alpha_upper { () => ("ABCDEFGHIJKLMNOPQRSTUVWXYZ") }
 macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
 macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
+macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
 
 // TODO: strip return-path in MAIL FROM, like OpenSMTPD does, in order to not be thrown out by mail
 // systems like orange's, maybe?
@@ -15,8 +16,25 @@ named!(pub hostname(&[u8]) -> &[u8],
     )
 );
 
+named!(dot_string(&[u8]) -> &[u8], recognize!(
+    separated_list!(tag!("."), is_a!(atext!()))
+));
+
+// See RFC 5321 § 4.1.2
+named!(quoted_string(&[u8]) -> &[u8], recognize!(do_parse!(
+    tag!("\"") >>
+    many0!(alt!(
+        preceded!(tag!("\\"), verify!(take!(1), |x: &[u8]| 32 <= x[0] && x[0] <= 126)) |
+        verify!(take!(1), |x: &[u8]| 32 <= x[0] && x[0] != 34 && x[0] != 92 && x[0] <= 126)
+    )) >>
+    tag!("\"") >>
+    ()
+)));
+
+named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
+
 named!(email(&[u8]) -> &[u8], recognize!(do_parse!(
-    take_until_and_consume!("@") >> hostname >> ()
+    localpart >> tag!("@") >> hostname >> ()
 )));
 
 named!(address_in_path(&[u8]) -> &[u8], do_parse!(
@@ -65,9 +83,34 @@ mod tests {
     }
 
     #[test]
+    fn valid_dot_strings() {
+        let tests: &[&[u8]] = &[
+            // Adding an '@' so that tests do not return Incomplete
+            b"helloooo@",
+            b"test.ing@",
+        ];
+        for test in tests {
+            assert_eq!(dot_string(test), IResult::Done(&b"@"[..], &test[0..test.len()-1]));
+        }
+    }
+
+    #[test]
+    fn valid_quoted_strings() {
+        let tests: &[&[u8]] = &[
+            br#""hello""#,
+            br#""hello world. This |$ a g#eat place to experiment !""#,
+            br#""\"escapes\", useless like h\ere, except for quotes and \\backslashes""#,
+        ];
+        for test in tests {
+            assert_eq!(quoted_string(test), IResult::Done(&b""[..], *test));
+        }
+    }
+
+    #[test]
     fn valid_emails() {
-        let tests = &[
-            &b"t+e-s.t_i+n-g@foo.bar.baz"[..],
+        let tests: &[&[u8]] = &[
+            b"t+e-s.t_i+n-g@foo.bar.baz",
+            br#""quoted\"example"@example.org"#,
         ];
         for test in tests {
             assert_eq!(email(test), IResult::Done(&b""[..], *test));
