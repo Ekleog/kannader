@@ -1,20 +1,9 @@
-use nom::crlf;
-
-use ::{Command, DataCommand, EhloCommand, HeloCommand};
+use ::{Command, HeloCommand};
 use data::*;
+use ehlo::*;
 use mail::*;
 use rcpt::*;
 use parse_helpers::*;
-
-named!(command_ehlo_args(&[u8]) -> EhloCommand,
-    sep!(eat_spaces, do_parse!(
-        domain: hostname >>
-        tag!("\r\n") >>
-        (EhloCommand {
-            domain: domain
-        })
-    ))
-);
 
 named!(command_helo_args(&[u8]) -> HeloCommand,
     sep!(eat_spaces, do_parse!(
@@ -40,21 +29,6 @@ mod tests {
     use parser::*;
 
     #[test]
-    fn valid_command_ehlo_args() {
-        let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], EhloCommand {
-                domain: &b"hello.world"[..],
-            }),
-            (&b"hello.world\r\n"[..], EhloCommand {
-                domain: &b"hello.world"[..],
-            }),
-        ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(command_ehlo_args(s), IResult::Done(&b""[..], r));
-        }
-    }
-
-    #[test]
     fn valid_command_helo_args() {
         let tests = vec![
             (&b" \t hello.world \t \r\n"[..], HeloCommand {
@@ -77,10 +51,9 @@ mod tests {
                     else { false }
             )),
             (&b"EHLO foo.bar.baz\r\n"[..], Box::new(
-                |x| x == Command::Ehlo(EhloCommand {
-                    domain: &b"foo.bar.baz"[..],
-                }))
-            ),
+                |x| if let Command::Ehlo(r) = x { r.domain() == b"foo.bar.baz" }
+                    else { false }
+            )),
             (&b"HELO foo.bar.baz\r\n"[..], Box::new(
                 |x| x == Command::Helo(HeloCommand {
                     domain: &b"foo.bar.baz"[..],
