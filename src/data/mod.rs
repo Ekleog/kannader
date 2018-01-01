@@ -15,6 +15,20 @@ impl<'a> DataCommand<'a> {
     pub fn raw_data(&self) -> &'a [u8] {
         self.data
     }
+
+    pub fn data(&self) -> Vec<u8> {
+        #[derive(Copy, Clone)]
+        enum State { Start, CrPassed, CrlfPassed };
+
+        self.data.iter().scan(State::Start, |state, &x| {
+            match (*state, x) {
+                (_, b'\r')                => { *state = State::CrPassed;   Some(Some(x)) },
+                (State::CrPassed, b'\n')  => { *state = State::CrlfPassed; Some(Some(x)) },
+                (State::CrlfPassed, b'.') => { *state = State::Start;      Some(None   ) },
+                _                         => { *state = State::Start;      Some(Some(x)) },
+            }
+        }).filter_map(|x| x).collect()
+    }
 }
 
 impl<'a> fmt::Debug for DataCommand<'a> {
@@ -43,6 +57,20 @@ named!(pub command_data_args(&[u8]) -> DataCommand, do_parse!(
 mod tests {
     use super::*;
     use nom::*;
+
+    #[test]
+    fn data_looks_good() {
+        let tests: &[(&[u8], &[u8])] = &[
+            (b"hello\r\nworld\r\n..\r\n", b"hello\r\nworld\r\n.\r\n"),
+            (b"hello\r\nworld\r\n.. see ya\r\n", b"hello\r\nworld\r\n. see ya\r\n"),
+            (b"hello\r\nworld\r\n .. see ya\r\n", b"hello\r\nworld\r\n .. see ya\r\n"),
+            (b"hello\r\nworld\r\n ..\r\n", b"hello\r\nworld\r\n ..\r\n"),
+        ];
+        for &(s, r) in tests.into_iter() {
+            let d = DataCommand { data: s };
+            assert_eq!(d.data(), r);
+        }
+    }
 
     #[test]
     fn valid_command_data_args() {

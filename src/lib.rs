@@ -30,6 +30,3 @@ pub use rcpt::RcptCommand;
 pub use rset::RsetCommand;
 pub use vrfy::VrfyCommand;
 pub use command::command as parse_command; // TODO: give a nicer interface
-
-// TODO: escape initial '.' in DataItem by adding another '.' in front (and opposite when
-// receiving)
