@@ -17,3 +17,4 @@ mod rset;
 mod vrfy;
 
 pub mod command;
+pub mod reply;
