@@ -11,7 +11,6 @@ macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
 
 // TODO: strip return-path in MAIL FROM, like OpenSMTPD does, in order to not be thrown out by mail
 // systems like orange's, maybe?
-// TODO: RFC5321 §4.1.2 for local-part all quoted forms MUST be treated as equivalent
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone)]
@@ -23,6 +22,28 @@ pub struct Email<'a> {
 impl<'a> Email<'a> {
     pub fn raw_localpart(&self) -> &[u8] {
         self.localpart
+    }
+
+    // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for details
+    // This is a canonicalized version of the potentially quoted localpart, not designed to be
+    // sent over the wire as it is no longer correctly quoted
+    pub fn localpart(&self) -> Vec<u8> {
+        if self.localpart[0] != b'"' {
+            self.localpart.to_owned()
+        } else {
+            #[derive(Copy, Clone)]
+            enum State { Start, Backslash }
+
+            let mut res = self.localpart.iter().skip(1).scan(State::Start, |state, &x| {
+                match (*state, x) {
+                    (State::Backslash, _) => { *state = State::Start;     Some(Some(x)) },
+                    (_, b'\\')            => { *state = State::Backslash; Some(None   ) },
+                    (_, _)                => { *state = State::Start;     Some(Some(x)) },
+                }
+            }).filter_map(|x| x).collect::<Vec<u8>>();
+            assert_eq!(res.pop().unwrap(), b'"');
+            res
+        }
     }
 
     pub fn raw_hostname(&self) -> &[u8] {
@@ -167,6 +188,18 @@ mod tests {
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(email(s), IResult::Done(&b""[..], r));
+        }
+    }
+
+    #[test]
+    fn nice_localpart() {
+        let tests: Vec<(&[u8], &[u8])> = vec![
+            (b"t+e-s.t_i+n-g@foo.bar.baz", b"t+e-s.t_i+n-g"),
+            (br#""quoted\"example"@example.org"#, br#"quoted"example"#),
+            (br#""escaped\\exa\mple"@example.org"#, br#"escaped\example"#),
+        ];
+        for (s, r) in tests {
+            assert_eq!(email(s).unwrap().1.localpart(), r);
         }
     }
 
