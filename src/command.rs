@@ -3,6 +3,7 @@ use data::command_data_args;
 use ehlo::command_ehlo_args;
 use expn::command_expn_args;
 use helo::command_helo_args;
+use help::command_help_args;
 use mail::command_mail_args;
 use rcpt::command_rcpt_args;
 use rset::command_rset_args;
@@ -15,6 +16,7 @@ pub enum Command<'a> {
     Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
     Expn(ExpnCommand<'a>), // EXPN <name> <CRLF>
     Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
+    Help(HelpCommand<'a>), // HELP [<subject>] <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
@@ -26,6 +28,7 @@ named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |
     map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
+    map!(preceded!(tag_no_case!("HELP"), command_help_args), Command::Help) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
     map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset) |
@@ -53,6 +56,18 @@ mod tests {
             )),
             (&b"HELO foo.bar.baz\r\n"[..], Box::new(
                 |x| if let Command::Helo(r) = x { r.domain() == b"foo.bar.baz" }
+                    else { false }
+            )),
+            (&b"HELP foo.bar.baz\r\n"[..], Box::new(
+                |x| if let Command::Help(r) = x { r.subject() == b"foo.bar.baz" }
+                    else { false }
+            )),
+            (&b"HELP \r\n"[..], Box::new(
+                |x| if let Command::Help(r) = x { r.subject() == b"" }
+                    else { false }
+            )),
+            (&b"HELP\r\n"[..], Box::new(
+                |x| if let Command::Help(r) = x { r.subject() == b"" }
                     else { false }
             )),
             (&b"MAIL FROM:<hello@world.example>\r\n"[..], Box::new(
