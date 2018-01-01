@@ -1,15 +1,14 @@
-use ::*;
-use data::command_data_args;
-use ehlo::command_ehlo_args;
-use expn::command_expn_args;
-use helo::command_helo_args;
-use help::command_help_args;
-use mail::command_mail_args;
-use noop::command_noop_args;
-use quit::command_quit_args;
-use rcpt::command_rcpt_args;
-use rset::command_rset_args;
-use vrfy::command_vrfy_args;
+use data::*;
+use ehlo::*;
+use expn::*;
+use helo::*;
+use help::*;
+use mail::*;
+use noop::*;
+use quit::*;
+use rcpt::*;
+use rset::*;
+use vrfy::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -27,7 +26,7 @@ pub enum Command<'a> {
     Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
 }
 
-named!(pub command(&[u8]) -> Command, alt!(
+named!(pub command(&[u8]) -> Command, alt!( // TODO: give a nicer interface
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |
