@@ -5,6 +5,7 @@ use helo::command_helo_args;
 use mail::command_mail_args;
 use rcpt::command_rcpt_args;
 use rset::command_rset_args;
+use vrfy::command_vrfy_args;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -15,6 +16,7 @@ pub enum Command<'a> {
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
+    Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
 }
 
 named!(pub command(&[u8]) -> Command, alt!(
@@ -23,7 +25,8 @@ named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
-    map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset)
+    map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset) |
+    map!(preceded!(tag_no_case!("VRFY "), command_vrfy_args), Command::Vrfy)
 ));
 
 #[cfg(test)]
@@ -63,6 +66,10 @@ mod tests {
             )),
             (&b"RsEt \t \r\n"[..], Box::new(
                 |x| if let Command::Rset(_) = x { true }
+                    else { false }
+            )),
+            (&b"VRFY  root\r\n"[..], Box::new(
+                |x| if let Command::Vrfy(r) = x { r.name() == b" root" }
                     else { false }
             )),
         ];
