@@ -12,6 +12,12 @@ mod parser;
 // receiving)
 
 #[cfg_attr(test, derive(PartialEq))]
+pub struct DataCommand<'a> {
+    // Still SMTP-escaped (ie. leading ‘.’ doubled) message
+    data: &'a [u8],
+}
+
+#[cfg_attr(test, derive(PartialEq))]
 pub struct MailCommand<'a> {
     from: &'a [u8],
 }
@@ -20,11 +26,6 @@ pub struct MailCommand<'a> {
 pub struct RcptCommand<'a> {
     // TO: parameter with the “@ONE,@TWO:” portion removed, as per RFC5321 Appendix C
     to: &'a [u8],
-}
-
-pub struct DataCommand<'a> {
-    // Still SMTP-escaped (ie. leading ‘.’ doubled) message
-    data: &'a [u8],
 }
 
 pub enum Command<'a> {
@@ -43,6 +44,12 @@ fn bytes_to_dbg(b: &[u8]) -> String {
         format!("b\"{}\"", s.chars().flat_map(|x| x.escape_default()).collect::<String>())
     } else {
         format!("{:?}", b)
+    }
+}
+
+impl<'a> fmt::Debug for DataCommand<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "DataCommand {{ data: {} }}", bytes_to_dbg(self.data))
     }
 }
 

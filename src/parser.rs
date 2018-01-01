@@ -1,4 +1,4 @@
-use ::{MailCommand, RcptCommand};
+use ::{DataCommand, MailCommand, RcptCommand};
 
 use nom::crlf;
 
@@ -41,6 +41,19 @@ named!(address_in_maybe_bracketed_path(&[u8]) -> &[u8],
 named!(full_maybe_bracketed_path(&[u8]) -> &[u8], recognize!(address_in_maybe_bracketed_path));
 
 named!(spaces, eat_separator!(" \t"));
+
+named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
+    eat_separator!(" \t") >> crlf >>
+    data: recognize!(do_parse!(
+        take_until!("\r\n.\r\n") >>
+        tag!("\r\n") >>
+        ()
+    )) >>
+    tag!(".\r\n") >>
+    (DataCommand {
+        data: data,
+    })
+));
 
 named!(command_mail_args(&[u8]) -> MailCommand,
     sep!(spaces, do_parse!(
@@ -125,6 +138,14 @@ mod tests {
         for test in tests {
             assert_eq!(full_maybe_bracketed_path(test), IResult::Done(&b""[..], *test));
         }
+    }
+
+    #[test]
+    fn valid_command_data_args() {
+        assert_eq!(command_data_args(b"  \r\nhello\r\nworld\r\n..\r\n.\r\n"),
+                   IResult::Done(&b""[..], DataCommand {
+                       data: &b"hello\r\nworld\r\n..\r\n"[..]
+                   }));
     }
 
     #[test]
