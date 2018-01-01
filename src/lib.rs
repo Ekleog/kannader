@@ -16,6 +16,7 @@ pub struct MailCommand<'a> {
     from: &'a [u8],
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 pub struct RcptCommand<'a> {
     // TO: parameter with the “@ONE,@TWO:” portion removed, as per RFC5321 Appendix C
     to: &'a [u8],
@@ -37,12 +38,22 @@ pub struct Reply<'a> {
     text: &'a [u8],
 }
 
+fn bytes_to_dbg(b: &[u8]) -> String {
+    if let Ok(s) = str::from_utf8(b) {
+        format!("b\"{}\"", s.chars().flat_map(|x| x.escape_default()).collect::<String>())
+    } else {
+        format!("{:?}", b)
+    }
+}
+
 impl<'a> fmt::Debug for MailCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        if let Ok(s) = str::from_utf8(self.from) {
-            write!(f, "MailCommand {{ from: b\"{}\" }}", s)
-        } else {
-            write!(f, "MailCommand {{ from: {:?} }}", self.from)
-        }
+        write!(f, "MailCommand {{ from: {} }}", bytes_to_dbg(self.from))
+    }
+}
+
+impl<'a> fmt::Debug for RcptCommand<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "RcptCommand {{ to: {} }}", bytes_to_dbg(self.to))
     }
 }

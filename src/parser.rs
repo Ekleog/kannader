@@ -1,4 +1,4 @@
-use ::MailCommand;
+use ::{MailCommand, RcptCommand};
 
 use nom::crlf;
 
@@ -49,6 +49,17 @@ named!(command_mail_args(&[u8]) -> MailCommand,
         crlf >>
         (MailCommand {
             from: from,
+        })
+    ))
+);
+
+named!(command_rcpt_args(&[u8]) -> RcptCommand,
+    sep!(spaces, do_parse!(
+        tag_no_case!("TO:") >> to: address_in_maybe_bracketed_path >>
+        // TODO: support the SP arguments
+        crlf >>
+        (RcptCommand {
+            to: to,
         })
     ))
 );
@@ -128,6 +139,21 @@ mod tests {
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_mail_args(s), IResult::Done(&b""[..], r));
+        }
+    }
+
+    #[test]
+    fn valid_command_rcpt_args() {
+        let tests = vec![
+            (&b" TO:<@one,@two:foo@bar.baz>\r\n"[..], RcptCommand {
+                to: &b"foo@bar.baz"[..],
+            }),
+            (&b"tO: quux@example.net  \t \r\n"[..], RcptCommand {
+                to: &b"quux@example.net"[..],
+            }),
+        ];
+        for (s, r) in tests.into_iter() {
+            assert_eq!(command_rcpt_args(s), IResult::Done(&b""[..], r));
         }
     }
 }
