@@ -87,7 +87,7 @@ named!(command_rcpt_args(&[u8]) -> RcptCommand,
     ))
 );
 
-named!(command(&[u8]) -> Command, alt!(
+named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |

@@ -5,6 +5,8 @@ use std::{fmt, str};
 
 mod parser;
 
+pub use parser::command as parse_command; // TODO: give a nicer interface
+
 // TODO: transform all CR or LF to CRLF
 // TODO: return "500 syntax error - invalid character" if receiving a non-ASCII character in
 // envelope commands
@@ -40,11 +42,6 @@ pub enum Command<'a> {
     Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
-}
-
-pub struct Reply<'a> {
-    code: u16,
-    text: &'a [u8],
 }
 
 fn bytes_to_dbg(b: &[u8]) -> String {
