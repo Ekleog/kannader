@@ -44,11 +44,14 @@ named!(eat_spaces, eat_separator!(" \t"));
 
 named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
     eat_spaces >> crlf >>
-    data: recognize!(do_parse!(
-        take_until!("\r\n.\r\n") >>
-        tag!("\r\n") >>
-        ()
-    )) >>
+    data: alt!(
+        map!(peek!(tag!(".\r\n")), |_| &b""[..]) |
+        recognize!(do_parse!(
+            take_until!("\r\n.\r\n") >>
+            tag!("\r\n") >>
+            ()
+        ))
+    ) >>
     tag!(".\r\n") >>
     (DataCommand {
         data: data,
@@ -178,10 +181,17 @@ mod tests {
 
     #[test]
     fn valid_command_data_args() {
-        assert_eq!(command_data_args(b"  \r\nhello\r\nworld\r\n..\r\n.\r\n"),
-                   IResult::Done(&b""[..], DataCommand {
-                       data: &b"hello\r\nworld\r\n..\r\n"[..]
-                   }));
+        let tests = vec![
+            (&b"  \r\nhello\r\nworld\r\n..\r\n.\r\n"[..], DataCommand {
+                data: &b"hello\r\nworld\r\n..\r\n"[..],
+            }),
+            (&b" \t \r\n.\r\n"[..], DataCommand {
+                data: &b""[..],
+            }),
+        ];
+        for (s, r) in tests.into_iter() {
+            assert_eq!(command_data_args(s), IResult::Done(&b""[..], r));
+        }
     }
 
     #[test]
