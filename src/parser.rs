@@ -1,7 +1,8 @@
-use ::{Command, DataCommand, EhloCommand, HeloCommand, MailCommand, RcptCommand};
-use parse_helpers::*;
-
 use nom::crlf;
+
+use ::{Command, DataCommand, EhloCommand, HeloCommand, RcptCommand};
+use mail::*;
+use parse_helpers::*;
 
 named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
     eat_spaces >> crlf >>
@@ -35,21 +36,6 @@ named!(command_helo_args(&[u8]) -> HeloCommand,
         tag!("\r\n") >>
         (HeloCommand {
             domain: domain
-        })
-    ))
-);
-
-named!(command_mail_args(&[u8]) -> MailCommand,
-    sep!(eat_spaces, do_parse!(
-        tag_no_case!("FROM:") >>
-        from: alt!(
-            tag!("<>") |
-            full_maybe_bracketed_path
-        ) >>
-        // TODO: support the SP arguments
-        crlf >>
-        (MailCommand {
-            from: from,
         })
     ))
 );
@@ -128,24 +114,6 @@ mod tests {
     }
 
     #[test]
-    fn valid_command_mail_args() {
-        let tests = vec![
-            (&b" FROM:<@one,@two:foo@bar.baz>\r\n"[..], MailCommand {
-                from: &b"<@one,@two:foo@bar.baz>"[..],
-            }),
-            (&b"FrOm: quux@example.net  \t \r\n"[..], MailCommand {
-                from: &b"quux@example.net"[..],
-            }),
-            (&b"FROM:<>\r\n"[..], MailCommand {
-                from: &b"<>"[..],
-            }),
-        ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(command_mail_args(s), IResult::Done(&b""[..], r));
-        }
-    }
-
-    #[test]
     fn valid_command_rcpt_args() {
         let tests = vec![
             (&b" TO:<@one,@two:foo@bar.baz>\r\n"[..], RcptCommand {
@@ -168,28 +136,39 @@ mod tests {
 
     #[test]
     fn valid_command() {
-        let tests = vec![
-            (&b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..], Command::Data(DataCommand {
-                data: &b"hello world\r\n.. me\r\n"[..],
-            })),
-            (&b"EHLO foo.bar.baz\r\n"[..], Command::Ehlo(EhloCommand {
-                domain: &b"foo.bar.baz"[..],
-            })),
-            (&b"HELO foo.bar.baz\r\n"[..], Command::Helo(HeloCommand {
-                domain: &b"foo.bar.baz"[..],
-            })),
-            (&b"MAIL FROM:<hello@world.example>\r\n"[..], Command::Mail(MailCommand {
-                from: &b"<hello@world.example>"[..],
-            })),
-            (&b"rCpT To: foo@bar.baz\r\n"[..], Command::Rcpt(RcptCommand {
-                to: &b"foo@bar.baz"[..],
-            })),
-            (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Command::Rcpt(RcptCommand {
-                to: &b"baz@quux.foo"[..],
-            })),
+        let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> = vec![
+            (&b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..], Box::new(
+                |x| x == Command::Data(DataCommand {
+                    data: &b"hello world\r\n.. me\r\n"[..],
+                }))
+            ),
+            (&b"EHLO foo.bar.baz\r\n"[..], Box::new(
+                |x| x == Command::Ehlo(EhloCommand {
+                    domain: &b"foo.bar.baz"[..],
+                }))
+            ),
+            (&b"HELO foo.bar.baz\r\n"[..], Box::new(
+                |x| x == Command::Helo(HeloCommand {
+                    domain: &b"foo.bar.baz"[..],
+                }))
+            ),
+            (&b"MAIL FROM:<hello@world.example>\r\n"[..], Box::new(
+                |x| if let Command::Mail(r) = x { r.raw_from() == b"<hello@world.example>" }
+                    else { false }
+            )),
+            (&b"rCpT To: foo@bar.baz\r\n"[..], Box::new(
+                |x| x == Command::Rcpt(RcptCommand {
+                    to: &b"foo@bar.baz"[..],
+                }))
+            ),
+            (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Box::new(
+                |x| x == Command::Rcpt(RcptCommand {
+                    to: &b"baz@quux.foo"[..],
+                }))
+            ),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command(s), IResult::Done(&b""[..], r));
+            assert!(r(command(s).unwrap().1));
         }
     }
 }
