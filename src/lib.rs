@@ -3,6 +3,7 @@ extern crate nom;
 
 use std::{fmt, str};
 
+mod parse_helpers;
 mod parser;
 
 pub use parser::command as parse_command; // TODO: give a nicer interface
