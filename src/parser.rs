@@ -1,4 +1,4 @@
-use ::{Command, DataCommand, EhloCommand, MailCommand, RcptCommand};
+use ::{Command, DataCommand, EhloCommand, HeloCommand, MailCommand, RcptCommand};
 
 use nom::crlf;
 
@@ -65,6 +65,16 @@ named!(command_ehlo_args(&[u8]) -> EhloCommand,
     ))
 );
 
+named!(command_helo_args(&[u8]) -> HeloCommand,
+    sep!(eat_spaces, do_parse!(
+        domain: hostname >>
+        tag!("\r\n") >>
+        (HeloCommand {
+            domain: domain
+        })
+    ))
+);
+
 named!(command_mail_args(&[u8]) -> MailCommand,
     sep!(eat_spaces, do_parse!(
         tag_no_case!("FROM:") >> from: full_maybe_bracketed_path >>
@@ -90,6 +100,7 @@ named!(command_rcpt_args(&[u8]) -> RcptCommand,
 named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
+    map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt)
 ));
@@ -181,6 +192,21 @@ mod tests {
     }
 
     #[test]
+    fn valid_command_helo_args() {
+        let tests = vec![
+            (&b" \t hello.world \t \r\n"[..], HeloCommand {
+                domain: &b"hello.world"[..],
+            }),
+            (&b"hello.world\r\n"[..], HeloCommand {
+                domain: &b"hello.world"[..],
+            }),
+        ];
+        for (s, r) in tests.into_iter() {
+            assert_eq!(command_helo_args(s), IResult::Done(&b""[..], r));
+        }
+    }
+
+    #[test]
     fn valid_command_mail_args() {
         let tests = vec![
             (&b" FROM:<@one,@two:foo@bar.baz>\r\n"[..], MailCommand {
@@ -217,6 +243,9 @@ mod tests {
                 data: &b"hello world\r\n.. me\r\n"[..],
             })),
             (&b"EHLO foo.bar.baz\r\n"[..], Command::Ehlo(EhloCommand {
+                domain: &b"foo.bar.baz"[..],
+            })),
+            (&b"HELO foo.bar.baz\r\n"[..], Command::Helo(HeloCommand {
                 domain: &b"foo.bar.baz"[..],
             })),
             (&b"MAIL FROM:<hello@world.example>\r\n"[..], Command::Mail(MailCommand {
