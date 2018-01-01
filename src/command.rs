@@ -1,6 +1,7 @@
 use ::*;
 use data::command_data_args;
 use ehlo::command_ehlo_args;
+use expn::command_expn_args;
 use helo::command_helo_args;
 use mail::command_mail_args;
 use rcpt::command_rcpt_args;
@@ -12,6 +13,7 @@ use vrfy::command_vrfy_args;
 pub enum Command<'a> {
     Data(DataCommand<'a>), // DATA <CRLF>
     Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
+    Expn(ExpnCommand<'a>), // EXPN <name> <CRLF>
     Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
@@ -22,6 +24,7 @@ pub enum Command<'a> {
 named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
+    map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |
     map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
@@ -42,6 +45,10 @@ mod tests {
             )),
             (&b"EHLO foo.bar.baz\r\n"[..], Box::new(
                 |x| if let Command::Ehlo(r) = x { r.domain() == b"foo.bar.baz" }
+                    else { false }
+            )),
+            (&b"EXPN mailing.list \r\n"[..], Box::new(
+                |x| if let Command::Expn(r) = x { r.name() == b"mailing.list " }
                     else { false }
             )),
             (&b"HELO foo.bar.baz\r\n"[..], Box::new(

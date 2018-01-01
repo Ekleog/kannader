@@ -6,6 +6,7 @@ mod parse_helpers;
 
 mod data;
 mod ehlo;
+mod expn;
 mod helo;
 mod mail;
 mod rcpt;
@@ -16,6 +17,7 @@ mod command;
 
 pub use data::DataCommand;
 pub use ehlo::EhloCommand;
+pub use expn::ExpnCommand;
 pub use helo::HeloCommand;
 pub use mail::MailCommand;
 pub use rcpt::RcptCommand;
