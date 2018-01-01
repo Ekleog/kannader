@@ -1,4 +1,4 @@
-use ::{DataCommand, MailCommand, RcptCommand};
+use ::{Command, DataCommand, MailCommand, RcptCommand};
 
 use nom::crlf;
 
@@ -76,6 +76,12 @@ named!(command_rcpt_args(&[u8]) -> RcptCommand,
         })
     ))
 );
+
+named!(command(&[u8]) -> Command, alt!(
+    map!(preceded!(tag_no_case!("DATA "), command_data_args), Command::Data) |
+    map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
+    map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt)
+));
 
 #[cfg(test)]
 mod tests {
@@ -175,6 +181,27 @@ mod tests {
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_rcpt_args(s), IResult::Done(&b""[..], r));
+        }
+    }
+
+    #[test]
+    fn valid_command() {
+        let tests = vec![
+            (&b"MAIL FROM:<hello@world.example>\r\n"[..], Command::Mail(MailCommand {
+                from: &b"<hello@world.example>"[..],
+            })),
+            (&b"rCpT To: foo@bar.baz\r\n"[..], Command::Rcpt(RcptCommand {
+                to: &b"foo@bar.baz"[..],
+            })),
+            (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Command::Rcpt(RcptCommand {
+                to: &b"baz@quux.foo"[..],
+            })),
+            (&b"DATA \t \r\nhello world\r\n.. me\r\n.\r\n"[..], Command::Data(DataCommand {
+                data: &b"hello world\r\n.. me\r\n"[..],
+            })),
+        ];
+        for (s, r) in tests.into_iter() {
+            assert_eq!(command(s), IResult::Done(&b""[..], r));
         }
     }
 }

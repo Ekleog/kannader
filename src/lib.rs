@@ -28,6 +28,8 @@ pub struct RcptCommand<'a> {
     to: &'a [u8],
 }
 
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub enum Command<'a> {
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
