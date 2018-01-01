@@ -92,7 +92,11 @@ named!(command_mail_args(&[u8]) -> MailCommand,
 
 named!(command_rcpt_args(&[u8]) -> RcptCommand,
     sep!(eat_spaces, do_parse!(
-        tag_no_case!("TO:") >> to: address_in_maybe_bracketed_path >>
+        tag_no_case!("TO:") >>
+        to: alt!(
+            tag_no_case!("<postmaster>") | tag_no_case!("postmaster") |
+            address_in_maybe_bracketed_path
+        ) >>
         // TODO: support the SP arguments
         crlf >>
         (RcptCommand {
@@ -236,6 +240,12 @@ mod tests {
             }),
             (&b"tO: quux@example.net  \t \r\n"[..], RcptCommand {
                 to: &b"quux@example.net"[..],
+            }),
+            (&b"TO:<Postmaster>\r\n"[..], RcptCommand {
+                to: &b"<Postmaster>"[..],
+            }),
+            (&b"TO: \t poStmaster\r\n"[..], RcptCommand {
+                to: &b"poStmaster"[..],
             }),
         ];
         for (s, r) in tests.into_iter() {
