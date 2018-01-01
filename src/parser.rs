@@ -1,25 +1,10 @@
 use nom::crlf;
 
 use ::{Command, DataCommand, EhloCommand, HeloCommand};
+use data::*;
 use mail::*;
 use rcpt::*;
 use parse_helpers::*;
-
-named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
-    eat_spaces >> crlf >>
-    data: alt!(
-        map!(peek!(tag!(".\r\n")), |_| &b""[..]) |
-        recognize!(do_parse!(
-            take_until!("\r\n.\r\n") >>
-            tag!("\r\n") >>
-            ()
-        ))
-    ) >>
-    tag!(".\r\n") >>
-    (DataCommand {
-        data: data,
-    })
-));
 
 named!(command_ehlo_args(&[u8]) -> EhloCommand,
     sep!(eat_spaces, do_parse!(
@@ -55,21 +40,6 @@ mod tests {
     use parser::*;
 
     #[test]
-    fn valid_command_data_args() {
-        let tests = vec![
-            (&b"  \r\nhello\r\nworld\r\n..\r\n.\r\n"[..], DataCommand {
-                data: &b"hello\r\nworld\r\n..\r\n"[..],
-            }),
-            (&b" \t \r\n.\r\n"[..], DataCommand {
-                data: &b""[..],
-            }),
-        ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(command_data_args(s), IResult::Done(&b""[..], r));
-        }
-    }
-
-    #[test]
     fn valid_command_ehlo_args() {
         let tests = vec![
             (&b" \t hello.world \t \r\n"[..], EhloCommand {
@@ -103,10 +73,9 @@ mod tests {
     fn valid_command() {
         let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> = vec![
             (&b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..], Box::new(
-                |x| x == Command::Data(DataCommand {
-                    data: &b"hello world\r\n.. me\r\n"[..],
-                }))
-            ),
+                |x| if let Command::Data(r) = x { r.raw_data() == b"hello world\r\n.. me\r\n" }
+                    else { false }
+            )),
             (&b"EHLO foo.bar.baz\r\n"[..], Box::new(
                 |x| x == Command::Ehlo(EhloCommand {
                     domain: &b"foo.bar.baz"[..],
