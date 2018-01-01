@@ -88,12 +88,16 @@ mod tests {
                     else { false }
             )),
             (&b"rCpT To: foo@bar.baz\r\n"[..], Box::new(
-                |x| if let Command::Rcpt(r) = x { r.to() == b"foo@bar.baz" }
-                    else { false }
+                |x| if let Command::Rcpt(r) = x {
+                        r.to().raw_localpart() == b"foo" &&
+                        r.to().raw_hostname() == b"bar.baz"
+                    } else { false }
             )),
             (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Box::new(
-                |x| if let Command::Rcpt(r) = x { r.to() == b"baz@quux.foo" }
-                    else { false }
+                |x| if let Command::Rcpt(r) = x {
+                        r.to().raw_localpart() == b"baz" &&
+                        r.to().raw_hostname() == b"quux.foo"
+                    } else { false }
             )),
             (&b"RSET\r\n"[..], Box::new(
                 |x| if let Command::Rset(_) = x { true }

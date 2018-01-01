@@ -1,3 +1,7 @@
+use std::fmt;
+
+use helpers::*;
+
 macro_rules! alpha_lower { () => ("abcdefghijklmnopqrstuvwxyz") }
 macro_rules! alpha_upper { () => ("ABCDEFGHIJKLMNOPQRSTUVWXYZ") }
 macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
@@ -8,6 +12,30 @@ macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
 // TODO: strip return-path in MAIL FROM, like OpenSMTPD does, in order to not be thrown out by mail
 // systems like orange's, maybe?
 // TODO: RFC5321 §4.1.2 for local-part all quoted forms MUST be treated as equivalent
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Copy, Clone)]
+pub struct Email<'a> {
+    localpart: &'a [u8],
+    hostname: &'a [u8],
+}
+
+impl<'a> Email<'a> {
+    pub fn raw_localpart(&self) -> &[u8] {
+        self.localpart
+    }
+
+    pub fn raw_hostname(&self) -> &[u8] {
+        self.hostname
+    }
+}
+
+impl<'a> fmt::Debug for Email<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Email {{ localpart: {}, hostname: {} }}",
+               bytes_to_dbg(self.localpart), bytes_to_dbg(self.hostname))
+    }
+}
 
 named!(pub hostname(&[u8]) -> &[u8],
     alt!(
@@ -33,11 +61,17 @@ named!(quoted_string(&[u8]) -> &[u8], recognize!(do_parse!(
 
 named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
 
-named!(email(&[u8]) -> &[u8], recognize!(do_parse!(
-    localpart >> tag!("@") >> hostname >> ()
-)));
+named!(email(&[u8]) -> Email, do_parse!(
+    local: localpart >>
+    tag!("@") >>
+    host: hostname >>
+    (Email {
+        localpart: local,
+        hostname: host,
+    })
+));
 
-named!(address_in_path(&[u8]) -> &[u8], do_parse!(
+named!(address_in_path(&[u8]) -> Email, do_parse!(
     opt!(do_parse!(
         separated_list!(tag!(","), do_parse!(tag!("@") >> hostname >> ())) >>
         tag!(":") >>
@@ -47,7 +81,7 @@ named!(address_in_path(&[u8]) -> &[u8], do_parse!(
     (res)
 ));
 
-named!(pub address_in_maybe_bracketed_path(&[u8]) -> &[u8],
+named!(pub address_in_maybe_bracketed_path(&[u8]) -> Email,
     alt!(
         do_parse!(
             tag!("<") >>
@@ -56,6 +90,19 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> &[u8],
             (addr)
         ) |
         address_in_path
+    )
+);
+
+named!(pub postmaster_maybe_bracketed_address(&[u8]) -> Email,
+    alt!(
+        map!(tag_no_case!("<postmaster>"), |x| Email {
+            localpart: &x[1..(x.len() - 1)],
+            hostname: b"",
+        }) |
+        map!(tag_no_case!("postmaster"), |x| Email {
+            localpart: x,
+            hostname: b"",
+        })
     )
 );
 
@@ -108,20 +155,32 @@ mod tests {
 
     #[test]
     fn valid_emails() {
-        let tests: &[&[u8]] = &[
-            b"t+e-s.t_i+n-g@foo.bar.baz",
-            br#""quoted\"example"@example.org"#,
+        let tests: Vec<(&[u8], Email)> = vec![
+            (b"t+e-s.t_i+n-g@foo.bar.baz", Email {
+                localpart: b"t+e-s.t_i+n-g",
+                hostname: b"foo.bar.baz",
+            }),
+            (br#""quoted\"example"@example.org"#, Email {
+                localpart: br#""quoted\"example""#,
+                hostname: b"example.org",
+            }),
         ];
-        for test in tests {
-            assert_eq!(email(test), IResult::Done(&b""[..], *test));
+        for (s, r) in tests.into_iter() {
+            assert_eq!(email(s), IResult::Done(&b""[..], r));
         }
     }
 
     #[test]
     fn valid_addresses_in_paths() {
         let tests = &[
-            (&b"@foo.bar,@baz.quux:test@example.org"[..], &b"test@example.org"[..]),
-            (&b"foo.bar@baz.quux"[..], &b"foo.bar@baz.quux"[..]),
+            (&b"@foo.bar,@baz.quux:test@example.org"[..], Email {
+                localpart: b"test",
+                hostname: b"example.org",
+            }),
+            (&b"foo.bar@baz.quux"[..], Email {
+                localpart: b"foo.bar",
+                hostname: b"baz.quux",
+            }),
         ];
         for test in tests {
             assert_eq!(address_in_path(test.0), IResult::Done(&b""[..], test.1));
@@ -131,10 +190,22 @@ mod tests {
     #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
         let tests = &[
-            (&b"@foo.bar,@baz.quux:test@example.org"[..], &b"test@example.org"[..]),
-            (&b"<@foo.bar,@baz.quux:test@example.org>"[..], &b"test@example.org"[..]),
-            (&b"<foo@bar.baz>"[..], &b"foo@bar.baz"[..]),
-            (&b"foo@bar.baz"[..], &b"foo@bar.baz"[..]),
+            (&b"@foo.bar,@baz.quux:test@example.org"[..], Email {
+                localpart: b"test",
+                hostname: b"example.org",
+            }),
+            (&b"<@foo.bar,@baz.quux:test@example.org>"[..], Email {
+                localpart: b"test",
+                hostname: b"example.org",
+            }),
+            (&b"<foo@bar.baz>"[..], Email {
+                localpart: b"foo",
+                hostname: b"bar.baz",
+            }),
+            (&b"foo@bar.baz"[..], Email {
+                localpart: b"foo",
+                hostname: b"bar.baz",
+            }),
         ];
         for test in tests {
             assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
