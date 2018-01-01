@@ -1,7 +1,8 @@
 use nom::crlf;
 
-use ::{Command, DataCommand, EhloCommand, HeloCommand, RcptCommand};
+use ::{Command, DataCommand, EhloCommand, HeloCommand};
 use mail::*;
+use rcpt::*;
 use parse_helpers::*;
 
 named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
@@ -36,21 +37,6 @@ named!(command_helo_args(&[u8]) -> HeloCommand,
         tag!("\r\n") >>
         (HeloCommand {
             domain: domain
-        })
-    ))
-);
-
-named!(command_rcpt_args(&[u8]) -> RcptCommand,
-    sep!(eat_spaces, do_parse!(
-        tag_no_case!("TO:") >>
-        to: alt!(
-            tag_no_case!("<postmaster>") | tag_no_case!("postmaster") |
-            address_in_maybe_bracketed_path
-        ) >>
-        // TODO: support the SP arguments
-        crlf >>
-        (RcptCommand {
-            to: to,
         })
     ))
 );
@@ -114,27 +100,6 @@ mod tests {
     }
 
     #[test]
-    fn valid_command_rcpt_args() {
-        let tests = vec![
-            (&b" TO:<@one,@two:foo@bar.baz>\r\n"[..], RcptCommand {
-                to: &b"foo@bar.baz"[..],
-            }),
-            (&b"tO: quux@example.net  \t \r\n"[..], RcptCommand {
-                to: &b"quux@example.net"[..],
-            }),
-            (&b"TO:<Postmaster>\r\n"[..], RcptCommand {
-                to: &b"<Postmaster>"[..],
-            }),
-            (&b"TO: \t poStmaster\r\n"[..], RcptCommand {
-                to: &b"poStmaster"[..],
-            }),
-        ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(command_rcpt_args(s), IResult::Done(&b""[..], r));
-        }
-    }
-
-    #[test]
     fn valid_command() {
         let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> = vec![
             (&b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..], Box::new(
@@ -157,15 +122,13 @@ mod tests {
                     else { false }
             )),
             (&b"rCpT To: foo@bar.baz\r\n"[..], Box::new(
-                |x| x == Command::Rcpt(RcptCommand {
-                    to: &b"foo@bar.baz"[..],
-                }))
-            ),
+                |x| if let Command::Rcpt(r) = x { r.to() == b"foo@bar.baz" }
+                    else { false }
+            )),
             (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Box::new(
-                |x| x == Command::Rcpt(RcptCommand {
-                    to: &b"baz@quux.foo"[..],
-                }))
-            ),
+                |x| if let Command::Rcpt(r) = x { r.to() == b"baz@quux.foo" }
+                    else { false }
+            )),
         ];
         for (s, r) in tests.into_iter() {
             assert!(r(command(s).unwrap().1));
