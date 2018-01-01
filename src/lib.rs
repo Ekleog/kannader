@@ -18,6 +18,11 @@ pub struct DataCommand<'a> {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
+pub struct EhloCommand<'a> {
+    domain: &'a [u8],
+}
+
+#[cfg_attr(test, derive(PartialEq))]
 pub struct MailCommand<'a> {
     from: &'a [u8],
 }
@@ -31,9 +36,10 @@ pub struct RcptCommand<'a> {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum Command<'a> {
+    Data(DataCommand<'a>), // DATA <CRLF>
+    Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
-    Data(DataCommand<'a>), // DATA <CRLF>
 }
 
 pub struct Reply<'a> {
@@ -52,6 +58,12 @@ fn bytes_to_dbg(b: &[u8]) -> String {
 impl<'a> fmt::Debug for DataCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "DataCommand {{ data: {} }}", bytes_to_dbg(self.data))
+    }
+}
+
+impl<'a> fmt::Debug for EhloCommand<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "EhloCommand {{ domain: {} }}", bytes_to_dbg(self.domain))
     }
 }
 

@@ -1,4 +1,4 @@
-use ::{Command, DataCommand, MailCommand, RcptCommand};
+use ::{Command, DataCommand, EhloCommand, MailCommand, RcptCommand};
 
 use nom::crlf;
 
@@ -40,10 +40,10 @@ named!(address_in_maybe_bracketed_path(&[u8]) -> &[u8],
 
 named!(full_maybe_bracketed_path(&[u8]) -> &[u8], recognize!(address_in_maybe_bracketed_path));
 
-named!(spaces, eat_separator!(" \t"));
+named!(eat_spaces, eat_separator!(" \t"));
 
 named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
-    eat_separator!(" \t") >> crlf >>
+    eat_spaces >> crlf >>
     data: recognize!(do_parse!(
         take_until!("\r\n.\r\n") >>
         tag!("\r\n") >>
@@ -55,8 +55,18 @@ named!(command_data_args(&[u8]) -> DataCommand, do_parse!(
     })
 ));
 
+named!(command_ehlo_args(&[u8]) -> EhloCommand,
+    sep!(eat_spaces, do_parse!(
+        domain: hostname >>
+        tag!("\r\n") >>
+        (EhloCommand {
+            domain: domain
+        })
+    ))
+);
+
 named!(command_mail_args(&[u8]) -> MailCommand,
-    sep!(spaces, do_parse!(
+    sep!(eat_spaces, do_parse!(
         tag_no_case!("FROM:") >> from: full_maybe_bracketed_path >>
         // TODO: support the SP arguments
         crlf >>
@@ -67,7 +77,7 @@ named!(command_mail_args(&[u8]) -> MailCommand,
 );
 
 named!(command_rcpt_args(&[u8]) -> RcptCommand,
-    sep!(spaces, do_parse!(
+    sep!(eat_spaces, do_parse!(
         tag_no_case!("TO:") >> to: address_in_maybe_bracketed_path >>
         // TODO: support the SP arguments
         crlf >>
@@ -78,7 +88,8 @@ named!(command_rcpt_args(&[u8]) -> RcptCommand,
 );
 
 named!(command(&[u8]) -> Command, alt!(
-    map!(preceded!(tag_no_case!("DATA "), command_data_args), Command::Data) |
+    map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
+    map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt)
 ));
@@ -155,6 +166,21 @@ mod tests {
     }
 
     #[test]
+    fn valid_command_ehlo_args() {
+        let tests = vec![
+            (&b" \t hello.world \t \r\n"[..], EhloCommand {
+                domain: &b"hello.world"[..],
+            }),
+            (&b"hello.world\r\n"[..], EhloCommand {
+                domain: &b"hello.world"[..],
+            }),
+        ];
+        for (s, r) in tests.into_iter() {
+            assert_eq!(command_ehlo_args(s), IResult::Done(&b""[..], r));
+        }
+    }
+
+    #[test]
     fn valid_command_mail_args() {
         let tests = vec![
             (&b" FROM:<@one,@two:foo@bar.baz>\r\n"[..], MailCommand {
@@ -187,6 +213,12 @@ mod tests {
     #[test]
     fn valid_command() {
         let tests = vec![
+            (&b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..], Command::Data(DataCommand {
+                data: &b"hello world\r\n.. me\r\n"[..],
+            })),
+            (&b"EHLO foo.bar.baz\r\n"[..], Command::Ehlo(EhloCommand {
+                domain: &b"foo.bar.baz"[..],
+            })),
             (&b"MAIL FROM:<hello@world.example>\r\n"[..], Command::Mail(MailCommand {
                 from: &b"<hello@world.example>"[..],
             })),
@@ -195,9 +227,6 @@ mod tests {
             })),
             (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Command::Rcpt(RcptCommand {
                 to: &b"baz@quux.foo"[..],
-            })),
-            (&b"DATA \t \r\nhello world\r\n.. me\r\n.\r\n"[..], Command::Data(DataCommand {
-                data: &b"hello world\r\n.. me\r\n"[..],
             })),
         ];
         for (s, r) in tests.into_iter() {
