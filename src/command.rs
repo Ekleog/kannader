@@ -6,6 +6,7 @@ use helo::command_helo_args;
 use help::command_help_args;
 use mail::command_mail_args;
 use noop::command_noop_args;
+use quit::command_quit_args;
 use rcpt::command_rcpt_args;
 use rset::command_rset_args;
 use vrfy::command_vrfy_args;
@@ -20,6 +21,7 @@ pub enum Command<'a> {
     Help(HelpCommand<'a>), // HELP [<subject>] <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Noop(NoopCommand<'a>), // NOOP [<string>] <CRLF>
+    Quit(QuitCommand),     // QUIT <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
     Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
@@ -33,6 +35,7 @@ named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("HELP"), command_help_args), Command::Help) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
     map!(preceded!(tag_no_case!("NOOP"), command_noop_args), Command::Noop) |
+    map!(preceded!(tag_no_case!("QUIT"), command_quit_args), Command::Quit) |
     map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
     map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset) |
     map!(preceded!(tag_no_case!("VRFY "), command_vrfy_args), Command::Vrfy)
@@ -79,6 +82,10 @@ mod tests {
             )),
             (&b"NOOP\r\n"[..], Box::new(
                 |x| if let Command::Noop(_) = x { true }
+                    else { false }
+            )),
+            (&b"QUIT\r\n"[..], Box::new(
+                |x| if let Command::Quit(_) = x { true }
                     else { false }
             )),
             (&b"rCpT To: foo@bar.baz\r\n"[..], Box::new(
