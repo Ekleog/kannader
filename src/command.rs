@@ -4,6 +4,7 @@ use ehlo::command_ehlo_args;
 use helo::command_helo_args;
 use mail::command_mail_args;
 use rcpt::command_rcpt_args;
+use rset::command_rset_args;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -13,6 +14,7 @@ pub enum Command<'a> {
     Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rset(RsetCommand),     // RSET <CRLF>
 }
 
 named!(pub command(&[u8]) -> Command, alt!(
@@ -20,7 +22,8 @@ named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
     map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
-    map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt)
+    map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
+    map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset)
 ));
 
 #[cfg(test)]
@@ -52,6 +55,14 @@ mod tests {
             )),
             (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Box::new(
                 |x| if let Command::Rcpt(r) = x { r.to() == b"baz@quux.foo" }
+                    else { false }
+            )),
+            (&b"RSET\r\n"[..], Box::new(
+                |x| if let Command::Rset(_) = x { true }
+                    else { false }
+            )),
+            (&b"RsEt \t \r\n"[..], Box::new(
+                |x| if let Command::Rset(_) = x { true }
                     else { false }
             )),
         ];
