@@ -4,9 +4,14 @@ macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
 macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
 
-named!(pub hostname(&[u8]) -> &[u8], recognize!(
-    separated_list_complete!(tag!("."), is_a!(concat!(alnum!(), "-")))
-));
+// TODO: RFC5321 §4.1.2 for local-part all quoted forms MUST be treated as equivalent
+
+named!(pub hostname(&[u8]) -> &[u8],
+    alt!(
+        recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
+        recognize!(separated_list_complete!(tag!("."), is_a!(concat!(alnum!(), "-"))))
+    )
+);
 
 named!(email(&[u8]) -> &[u8], recognize!(do_parse!(
     take_until_and_consume!("@") >> hostname >> ()
@@ -48,6 +53,9 @@ mod tests {
         let tests = &[
             &b"foo--bar"[..],
             &b"foo.bar.baz"[..],
+            &b"1.2.3.4"[..],
+            &b"[123.255.37.2]"[..],
+            &b"[IPv6:0::ffff:8.7.6.5]"[..],
         ];
         for test in tests {
             assert_eq!(hostname(test), IResult::Done(&b""[..], *test));
