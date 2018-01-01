@@ -4,6 +4,8 @@ macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
 macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
 
+// TODO: strip return-path in MAIL FROM, like OpenSMTPD does, in order to not be thrown out by mail
+// systems like orange's, maybe?
 // TODO: RFC5321 §4.1.2 for local-part all quoted forms MUST be treated as equivalent
 
 named!(pub hostname(&[u8]) -> &[u8],
