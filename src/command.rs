@@ -76,7 +76,7 @@ mod tests {
                     else { false }
             )),
             (&b"MAIL FROM:<hello@world.example>\r\n"[..], Box::new(
-                |x| if let Command::Mail(r) = x { r.raw_from() == b"<hello@world.example>" }
+                |x| if let Command::Mail(r) = x { r.raw_from() == b"hello@world.example" }
                     else { false }
             )),
             (&b"NOOP\r\n"[..], Box::new(

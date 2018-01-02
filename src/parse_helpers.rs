@@ -9,9 +9,6 @@ macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
 macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
 
-// TODO: strip return-path in MAIL FROM, like OpenSMTPD does, in order to not be thrown out by mail
-// systems like orange's, maybe?
-
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone)]
 pub struct Email<'a> {
@@ -92,17 +89,18 @@ named!(email(&[u8]) -> Email, do_parse!(
     })
 ));
 
-named!(address_in_path(&[u8]) -> Email, do_parse!(
+named!(address_in_path(&[u8]) -> (Email, &[u8]), do_parse!(
     opt!(do_parse!(
         separated_list!(tag!(","), do_parse!(tag!("@") >> hostname >> ())) >>
         tag!(":") >>
         ()
     )) >>
-    res: email >>
-    (res)
+    res: peek!(email) >>
+    s: recognize!(email) >>
+    (res, s)
 ));
 
-named!(pub address_in_maybe_bracketed_path(&[u8]) -> Email,
+named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
     alt!(
         do_parse!(
             tag!("<") >>
@@ -114,20 +112,18 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> Email,
     )
 );
 
-named!(pub postmaster_maybe_bracketed_address(&[u8]) -> Email,
+named!(pub postmaster_maybe_bracketed_address(&[u8]) -> (Email, &[u8]),
     alt!(
-        map!(tag_no_case!("<postmaster>"), |x| Email {
+        map!(tag_no_case!("<postmaster>"), |x| (Email {
             localpart: &x[1..(x.len() - 1)],
             hostname: b"",
-        }) |
-        map!(tag_no_case!("postmaster"), |x| Email {
+        }, &x[1..x.len() - 1])) |
+        map!(tag_no_case!("postmaster"), |x| (Email {
             localpart: x,
             hostname: b"",
-        })
+        }, x))
     )
 );
-
-named!(pub full_maybe_bracketed_path(&[u8]) -> &[u8], recognize!(address_in_maybe_bracketed_path));
 
 named!(pub eat_spaces, eat_separator!(" \t"));
 
@@ -205,15 +201,15 @@ mod tests {
 
     #[test]
     fn valid_addresses_in_paths() {
-        let tests = &[
-            (&b"@foo.bar,@baz.quux:test@example.org"[..], Email {
+        let tests: &[(&[u8], (Email, &[u8]))] = &[
+            (b"@foo.bar,@baz.quux:test@example.org", (Email {
                 localpart: b"test",
                 hostname: b"example.org",
-            }),
-            (&b"foo.bar@baz.quux"[..], Email {
+            }, b"test@example.org")),
+            (b"foo.bar@baz.quux", (Email {
                 localpart: b"foo.bar",
                 hostname: b"baz.quux",
-            }),
+            }, b"foo.bar@baz.quux")),
         ];
         for test in tests {
             assert_eq!(address_in_path(test.0), IResult::Done(&b""[..], test.1));
@@ -222,39 +218,26 @@ mod tests {
 
     #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
-        let tests = &[
-            (&b"@foo.bar,@baz.quux:test@example.org"[..], Email {
+        let tests: &[(&[u8], (Email, &[u8]))] = &[
+            (b"@foo.bar,@baz.quux:test@example.org", (Email {
                 localpart: b"test",
                 hostname: b"example.org",
-            }),
-            (&b"<@foo.bar,@baz.quux:test@example.org>"[..], Email {
+            }, b"test@example.org")),
+            (b"<@foo.bar,@baz.quux:test@example.org>", (Email {
                 localpart: b"test",
                 hostname: b"example.org",
-            }),
-            (&b"<foo@bar.baz>"[..], Email {
+            }, b"test@example.org")),
+            (b"<foo@bar.baz>", (Email {
                 localpart: b"foo",
                 hostname: b"bar.baz",
-            }),
-            (&b"foo@bar.baz"[..], Email {
+            }, b"foo@bar.baz")),
+            (b"foo@bar.baz", (Email {
                 localpart: b"foo",
                 hostname: b"bar.baz",
-            }),
+            }, b"foo@bar.baz")),
         ];
         for test in tests {
             assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
-        }
-    }
-
-    #[test]
-    fn valid_full_maybe_bracketed_paths() {
-        let tests = &[
-            &b"@foo.bar,@baz.quux:test@example.org"[..],
-            &b"<@foo.bar,@baz.quux:test@example.org>"[..],
-            &b"foo@bar.baz"[..],
-            &b"<foo@bar.baz>"[..],
-        ];
-        for test in tests {
-            assert_eq!(full_maybe_bracketed_path(test), IResult::Done(&b""[..], *test));
         }
     }
 }

@@ -25,7 +25,7 @@ named!(pub command_rcpt_args(&[u8]) -> RcptCommand,
         // TODO: support the SP arguments
         crlf >>
         (RcptCommand {
-            to: to,
+            to: to.0,
         })
     ))
 );
