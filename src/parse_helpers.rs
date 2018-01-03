@@ -81,11 +81,10 @@ named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
 
 named!(email(&[u8]) -> Email, do_parse!(
     local: localpart >>
-    tag!("@") >>
-    host: hostname >>
+    host: opt!(preceded!(tag!("@"), hostname)) >>
     (Email {
         localpart: local,
-        hostname: host,
+        hostname: host.unwrap_or(b""),
     })
 ));
 
@@ -109,19 +108,6 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
             (addr)
         ) |
         address_in_path
-    )
-);
-
-named!(pub postmaster_maybe_bracketed_address(&[u8]) -> (Email, &[u8]),
-    alt!(
-        map!(tag_no_case!("<postmaster>"), |x| (Email {
-            localpart: &x[1..(x.len() - 1)],
-            hostname: b"",
-        }, &x[1..x.len() - 1])) |
-        map!(tag_no_case!("postmaster"), |x| (Email {
-            localpart: x,
-            hostname: b"",
-        }, x))
     )
 );
 
@@ -173,17 +159,25 @@ mod tests {
     #[test]
     fn valid_emails() {
         let tests: Vec<(&[u8], Email)> = vec![
-            (b"t+e-s.t_i+n-g@foo.bar.baz", Email {
+            (b"t+e-s.t_i+n-g@foo.bar.baz ", Email {
                 localpart: b"t+e-s.t_i+n-g",
                 hostname: b"foo.bar.baz",
             }),
-            (br#""quoted\"example"@example.org"#, Email {
+            (br#""quoted\"example"@example.org "#, Email {
                 localpart: br#""quoted\"example""#,
                 hostname: b"example.org",
             }),
+            (b"postmaster ", Email {
+                localpart: b"postmaster",
+                hostname: b"",
+            }),
+            (b"test ", Email {
+                localpart: b"test",
+                hostname: b"",
+            }),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(email(s), IResult::Done(&b""[..], r));
+            assert_eq!(email(s), IResult::Done(&b" "[..], r));
         }
     }
 
@@ -219,25 +213,29 @@ mod tests {
     #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
-            (b"@foo.bar,@baz.quux:test@example.org", (Email {
+            (b"@foo.bar,@baz.quux:test@example.org ", (Email {
                 localpart: b"test",
                 hostname: b"example.org",
             }, b"test@example.org")),
-            (b"<@foo.bar,@baz.quux:test@example.org>", (Email {
+            (b"<@foo.bar,@baz.quux:test@example.org> ", (Email {
                 localpart: b"test",
                 hostname: b"example.org",
             }, b"test@example.org")),
-            (b"<foo@bar.baz>", (Email {
+            (b"<foo@bar.baz> ", (Email {
                 localpart: b"foo",
                 hostname: b"bar.baz",
             }, b"foo@bar.baz")),
-            (b"foo@bar.baz", (Email {
+            (b"foo@bar.baz ", (Email {
                 localpart: b"foo",
                 hostname: b"bar.baz",
             }, b"foo@bar.baz")),
+            (b"foobar ", (Email {
+                localpart: b"foobar",
+                hostname: b"",
+            }, b"foobar")),
         ];
         for test in tests {
-            assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
+            assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b" "[..], test.1));
         }
     }
 }

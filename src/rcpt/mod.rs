@@ -18,10 +18,7 @@ impl<'a> RcptCommand<'a> {
 named!(pub command_rcpt_args(&[u8]) -> RcptCommand,
     sep!(eat_spaces, do_parse!(
         tag_no_case!("TO:") >>
-        to: alt!(
-            postmaster_maybe_bracketed_address |
-            address_in_maybe_bracketed_path
-        ) >>
+        to: address_in_maybe_bracketed_path >>
         // TODO: support the SP arguments
         crlf >>
         (RcptCommand {
