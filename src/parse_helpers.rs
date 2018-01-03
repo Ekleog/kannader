@@ -13,7 +13,7 @@ macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
 #[derive(Copy, Clone)]
 pub struct Email<'a> {
     localpart: &'a [u8],
-    hostname: &'a [u8],
+    hostname: Option<&'a [u8]>,
 }
 
 impl<'a> Email<'a> {
@@ -43,7 +43,7 @@ impl<'a> Email<'a> {
         }
     }
 
-    pub fn raw_hostname(&self) -> &[u8] {
+    pub fn hostname(&self) -> Option<&[u8]> {
         self.hostname
     }
 }
@@ -51,7 +51,8 @@ impl<'a> Email<'a> {
 impl<'a> fmt::Debug for Email<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "Email {{ localpart: {}, hostname: {} }}",
-               bytes_to_dbg(self.localpart), bytes_to_dbg(self.hostname))
+               bytes_to_dbg(self.localpart),
+               self.hostname.map_or("None".to_owned(), |x| format!("Some({})", bytes_to_dbg(x))))
     }
 }
 
@@ -84,7 +85,7 @@ named!(email(&[u8]) -> Email, do_parse!(
     host: opt!(preceded!(tag!("@"), hostname)) >>
     (Email {
         localpart: local,
-        hostname: host.unwrap_or(b""),
+        hostname: host,
     })
 ));
 
@@ -161,19 +162,19 @@ mod tests {
         let tests: Vec<(&[u8], Email)> = vec![
             (b"t+e-s.t_i+n-g@foo.bar.baz ", Email {
                 localpart: b"t+e-s.t_i+n-g",
-                hostname: b"foo.bar.baz",
+                hostname: Some(b"foo.bar.baz"),
             }),
             (br#""quoted\"example"@example.org "#, Email {
                 localpart: br#""quoted\"example""#,
-                hostname: b"example.org",
+                hostname: Some(b"example.org"),
             }),
             (b"postmaster ", Email {
                 localpart: b"postmaster",
-                hostname: b"",
+                hostname: None,
             }),
             (b"test ", Email {
                 localpart: b"test",
-                hostname: b"",
+                hostname: None,
             }),
         ];
         for (s, r) in tests.into_iter() {
@@ -198,11 +199,11 @@ mod tests {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
             (b"@foo.bar,@baz.quux:test@example.org", (Email {
                 localpart: b"test",
-                hostname: b"example.org",
+                hostname: Some(b"example.org"),
             }, b"test@example.org")),
             (b"foo.bar@baz.quux", (Email {
                 localpart: b"foo.bar",
-                hostname: b"baz.quux",
+                hostname: Some(b"baz.quux"),
             }, b"foo.bar@baz.quux")),
         ];
         for test in tests {
@@ -215,23 +216,23 @@ mod tests {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
             (b"@foo.bar,@baz.quux:test@example.org ", (Email {
                 localpart: b"test",
-                hostname: b"example.org",
+                hostname: Some(b"example.org"),
             }, b"test@example.org")),
             (b"<@foo.bar,@baz.quux:test@example.org> ", (Email {
                 localpart: b"test",
-                hostname: b"example.org",
+                hostname: Some(b"example.org"),
             }, b"test@example.org")),
             (b"<foo@bar.baz> ", (Email {
                 localpart: b"foo",
-                hostname: b"bar.baz",
+                hostname: Some(b"bar.baz"),
             }, b"foo@bar.baz")),
             (b"foo@bar.baz ", (Email {
                 localpart: b"foo",
-                hostname: b"bar.baz",
+                hostname: Some(b"bar.baz"),
             }, b"foo@bar.baz")),
             (b"foobar ", (Email {
                 localpart: b"foobar",
-                hostname: b"",
+                hostname: None,
             }, b"foobar")),
         ];
         for test in tests {

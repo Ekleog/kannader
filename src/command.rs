@@ -90,13 +90,13 @@ mod tests {
             (&b"rCpT To: foo@bar.baz\r\n"[..], Box::new(
                 |x| if let Command::Rcpt(r) = x {
                         r.to().raw_localpart() == b"foo" &&
-                        r.to().raw_hostname() == b"bar.baz"
+                        r.to().hostname() == Some(b"bar.baz")
                     } else { false }
             )),
             (&b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..], Box::new(
                 |x| if let Command::Rcpt(r) = x {
                         r.to().raw_localpart() == b"baz" &&
-                        r.to().raw_hostname() == b"quux.foo"
+                        r.to().hostname() == Some(b"quux.foo")
                     } else { false }
             )),
             (&b"RSET\r\n"[..], Box::new(
