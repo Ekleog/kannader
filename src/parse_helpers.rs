@@ -59,7 +59,9 @@ impl<'a> fmt::Debug for Email<'a> {
 named!(pub hostname(&[u8]) -> &[u8],
     alt!(
         recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
-        recognize!(separated_list_complete!(tag!("."), is_a!(concat!(alnum!(), "-"))))
+        recognize!(separated_list_complete!(tag!("."),
+                                            preceded!(one_of!(alnum!()),
+                                                      opt!(is_a!(concat!(alnum!(), "-"))))))
     )
 );
 
@@ -130,6 +132,17 @@ mod tests {
         ];
         for test in tests {
             assert_eq!(hostname(test), IResult::Done(&b""[..], *test));
+        }
+    }
+
+    #[test]
+    fn partial_hostnames() {
+        let tests: &[(&[u8], &[u8])] = &[
+            (b"foo.-bar.baz", b"foo"),
+            (b"foo.bar.-baz", b"foo.bar"),
+        ];
+        for test in tests {
+            assert_eq!(hostname(test.0).unwrap().1, test.1);
         }
     }
 
