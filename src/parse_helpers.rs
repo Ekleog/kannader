@@ -59,9 +59,10 @@ impl<'a> fmt::Debug for Email<'a> {
 named!(pub hostname(&[u8]) -> &[u8],
     alt!(
         recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
-        recognize!(separated_list_complete!(tag!("."),
-                                            preceded!(one_of!(alnum!()),
-                                                      opt!(is_a!(concat!(alnum!(), "-"))))))
+        recognize!(separated_nonempty_list_complete!(
+                        tag!("."),
+                        preceded!(one_of!(alnum!()),
+                                  opt!(is_a!(concat!(alnum!(), "-"))))))
     )
 );
 
@@ -143,6 +144,17 @@ mod tests {
         ];
         for test in tests {
             assert_eq!(hostname(test.0).unwrap().1, test.1);
+        }
+    }
+
+    #[test]
+    fn invalid_hostnames() {
+        let tests: &[&[u8]] = &[
+            b"-foo.bar",
+        ];
+        for test in tests {
+            println!("{:?}", hostname(test));
+            assert!(hostname(test).is_err());
         }
     }
 
