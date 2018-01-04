@@ -59,10 +59,9 @@ impl<'a> fmt::Debug for Email<'a> {
 named!(pub hostname(&[u8]) -> &[u8],
     alt!(
         recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
-        recognize!(separated_nonempty_list_complete!(
-                        tag!("."),
-                        preceded!(one_of!(alnum!()),
-                                  opt!(is_a!(concat!(alnum!(), "-"))))))
+        recognize!(separated_nonempty_list!(tag!("."),
+                                            preceded!(one_of!(alnum!()),
+                                                      opt!(is_a!(concat!(alnum!(), "-"))))))
     )
 );
 
@@ -125,14 +124,27 @@ mod tests {
     #[test]
     fn valid_hostnames() {
         let tests = &[
-            &b"foo--bar"[..],
-            &b"foo.bar.baz"[..],
-            &b"1.2.3.4"[..],
-            &b"[123.255.37.2]"[..],
-            &b"[IPv6:0::ffff:8.7.6.5]"[..],
+            &b"foo--bar "[..],
+            &b"foo.bar.baz "[..],
+            &b"1.2.3.4 "[..],
+            &b"[123.255.37.2] "[..],
+            &b"[IPv6:0::ffff:8.7.6.5] "[..],
         ];
         for test in tests {
-            assert_eq!(hostname(test), IResult::Done(&b""[..], *test));
+            assert_eq!(hostname(test), IResult::Done(&b" "[..], &test[..test.len()-1]));
+        }
+    }
+
+    #[test]
+    fn do_not_break_incomplete_hostnames() {
+        let tests: &[&[u8]] = &[
+            b"foo", // “.com” not yet received
+            b"foo.", // “com” not yet received
+            b"foo.example", // “.org” not yet received
+            b"foo.example.", // “org” not yet received
+        ];
+        for test in tests {
+            assert!(hostname(test).is_incomplete());
         }
     }
 
@@ -210,9 +222,9 @@ mod tests {
     #[test]
     fn nice_localpart() {
         let tests: Vec<(&[u8], &[u8])> = vec![
-            (b"t+e-s.t_i+n-g@foo.bar.baz", b"t+e-s.t_i+n-g"),
-            (br#""quoted\"example"@example.org"#, br#"quoted"example"#),
-            (br#""escaped\\exa\mple"@example.org"#, br#"escaped\example"#),
+            (b"t+e-s.t_i+n-g@foo.bar.baz ", b"t+e-s.t_i+n-g"),
+            (br#""quoted\"example"@example.org "#, br#"quoted"example"#),
+            (br#""escaped\\exa\mple"@example.org "#, br#"escaped\example"#),
         ];
         for (s, r) in tests {
             assert_eq!(email(s).unwrap().1.localpart(), r);
@@ -222,17 +234,17 @@ mod tests {
     #[test]
     fn valid_addresses_in_paths() {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
-            (b"@foo.bar,@baz.quux:test@example.org", (Email {
+            (b"@foo.bar,@baz.quux:test@example.org ", (Email {
                 localpart: b"test",
                 hostname: Some(b"example.org"),
             }, b"test@example.org")),
-            (b"foo.bar@baz.quux", (Email {
+            (b"foo.bar@baz.quux ", (Email {
                 localpart: b"foo.bar",
                 hostname: Some(b"baz.quux"),
             }, b"foo.bar@baz.quux")),
         ];
         for test in tests {
-            assert_eq!(address_in_path(test.0), IResult::Done(&b""[..], test.1));
+            assert_eq!(address_in_path(test.0), IResult::Done(&b" "[..], test.1));
         }
     }
 
