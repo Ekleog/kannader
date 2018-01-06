@@ -82,34 +82,24 @@ pub fn build(r: &Reply) -> Vec<u8> {
 }
 
 named!(pub reply(&[u8]) -> Reply, do_parse!(
-    num: verify!(
+    num: peek!(verify!(
              map_res!(
                  map_res!(take!(3),
                           |bytes| str::from_utf8(bytes).map(|utf8| (bytes, utf8))),
                  |(bytes, utf8)| u16::from_str(utf8).map(|num| (bytes, num))),
-             |(bytes, num)| num < 1000) >>
-    lines: alt!(
-        do_parse!(
-            tag!(" ") >> line: take_until_and_consume!("\r\n") >>
-            (vec![line])
-        ) |
-        do_parse!(
-            tag!("-") >> first_line: take_until_and_consume!("\r\n") >>
-            lines: many0!(do_parse!(
-                tag!(num.0) >> tag!("-") >>
-                line: take_until_and_consume!("\r\n") >>
-                (line)
-            )) >>
-            tag!(num.0) >> tag!(" ") >> last_line: take_until_and_consume!("\r\n") >>
-            ({
-                let mut res = Vec::with_capacity(1 + lines.len() + 1);
-                let mut mut_lines = lines;
-                res.push(first_line);
-                res.append(&mut mut_lines);
-                res.push(last_line);
-                res
-            })
-        )
+             |(bytes, num)| num < 1000)) >>
+    lines:  do_parse!(
+        lines: many0!(do_parse!(
+            tag!(num.0) >> tag!("-") >>
+            line: take_until_and_consume!("\r\n") >>
+            (line)
+        )) >>
+        tag!(num.0) >> tag!(" ") >> last_line: take_until_and_consume!("\r\n") >>
+        ({
+            let mut res = lines;
+            res.push(last_line);
+            res
+        })
     ) >>
     (Reply {
         num: num.1,
