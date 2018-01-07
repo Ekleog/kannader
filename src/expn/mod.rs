@@ -8,8 +8,19 @@ pub struct ExpnCommand<'a> {
 }
 
 impl<'a> ExpnCommand<'a> {
+    pub fn new(name: &[u8]) -> ExpnCommand {
+        ExpnCommand { name }
+    }
+
     pub fn name(&self) -> &'a [u8] {
         self.name
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.name.len() + 2);
+        res.extend_from_slice(self.name);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 
@@ -42,5 +53,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_expn_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(ExpnCommand::new(b"foobar").build(), b"foobar\r\n");
     }
 }

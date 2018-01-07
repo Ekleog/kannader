@@ -8,6 +8,16 @@ pub struct RsetCommand {
     _useless: (),
 }
 
+impl RsetCommand {
+    pub fn new() -> RsetCommand {
+        RsetCommand { _useless: () }
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        vec![b'\r', b'\n']
+    }
+}
+
 named!(pub command_rset_args(&[u8]) -> RsetCommand,
     do_parse!(
         eat_spaces >> crlf >>
@@ -33,5 +43,10 @@ mod tests {
                 _useless: ()
             }));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(RsetCommand::new().build(), b"\r\n");
     }
 }

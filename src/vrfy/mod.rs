@@ -8,8 +8,19 @@ pub struct VrfyCommand<'a> {
 }
 
 impl<'a> VrfyCommand<'a> {
+    pub fn new(name: &[u8]) -> VrfyCommand {
+        VrfyCommand { name }
+    }
+
     pub fn name(&self) -> &'a [u8] {
         self.name
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.name.len() + 2);
+        res.extend_from_slice(self.name);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 

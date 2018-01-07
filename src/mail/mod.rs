@@ -11,8 +11,20 @@ pub struct MailCommand<'a> {
 }
 
 impl<'a> MailCommand<'a> {
+    pub fn new(from: &[u8]) -> MailCommand {
+        MailCommand { from }
+    }
+
     pub fn raw_from(&self) -> &'a [u8] {
         self.from
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(6 + self.from.len() + 3);
+        res.extend_from_slice(b"FROM:<");
+        res.extend_from_slice(self.from);
+        res.extend_from_slice(b">\r\n");
+        res
     }
 }
 
@@ -65,5 +77,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_mail_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(MailCommand::new(b"foo@bar.baz").build(), b"FROM:<foo@bar.baz>\r\n");
     }
 }

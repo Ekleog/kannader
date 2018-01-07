@@ -9,8 +9,19 @@ pub struct NoopCommand<'a> {
 }
 
 impl<'a> NoopCommand<'a> {
+    pub fn new(string: &[u8]) -> NoopCommand {
+        NoopCommand { string }
+    }
+
     pub fn string(&self) -> &'a [u8] {
         self.string
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.string.len() + 2);
+        res.extend_from_slice(self.string);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 
@@ -50,5 +61,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_noop_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(NoopCommand::new(b"useless string").build(), b"useless string\r\n");
     }
 }

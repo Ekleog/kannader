@@ -9,8 +9,19 @@ pub struct EhloCommand<'a> {
 }
 
 impl<'a> EhloCommand<'a> {
+    pub fn new<'b>(domain: &'b [u8]) -> EhloCommand<'b> {
+        EhloCommand { domain }
+    }
+
     pub fn domain(&self) -> &'a [u8] {
         self.domain
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.domain.len() + 2);
+        res.extend_from_slice(self.domain);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 
@@ -48,5 +59,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_ehlo_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(EhloCommand::new(b"test.foo.bar").build(), b"test.foo.bar\r\n");
     }
 }

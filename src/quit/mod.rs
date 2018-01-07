@@ -8,6 +8,16 @@ pub struct QuitCommand {
     _useless: (),
 }
 
+impl QuitCommand {
+    pub fn new() -> QuitCommand {
+        QuitCommand { _useless: () }
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        vec![b'\r', b'\n']
+    }
+}
+
 named!(pub command_quit_args(&[u8]) -> QuitCommand,
     do_parse!(
         eat_spaces >> crlf >>
@@ -33,5 +43,10 @@ mod tests {
                 _useless: ()
             }));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(QuitCommand::new().build(), b"\r\n");
     }
 }

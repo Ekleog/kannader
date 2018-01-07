@@ -17,6 +17,10 @@ pub struct Email<'a> {
 }
 
 impl<'a> Email<'a> {
+    pub fn new<'b>(localpart: &'b [u8], hostname: Option<&'b [u8]>) -> Email<'b> {
+        Email { localpart, hostname }
+    }
+
     pub fn raw_localpart(&self) -> &[u8] {
         self.localpart
     }

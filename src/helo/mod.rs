@@ -9,8 +9,19 @@ pub struct HeloCommand<'a> {
 }
 
 impl<'a> HeloCommand<'a> {
+    pub fn new<'b>(domain: &'b [u8]) -> HeloCommand<'b> {
+        HeloCommand { domain }
+    }
+
     pub fn domain(&self) -> &'a [u8] {
         self.domain
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.domain.len() + 2);
+        res.extend_from_slice(self.domain);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 
@@ -48,5 +59,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_helo_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(HeloCommand::new(b"test.example.org").build(), b"test.example.org\r\n");
     }
 }

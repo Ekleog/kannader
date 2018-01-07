@@ -9,8 +9,19 @@ pub struct HelpCommand<'a> {
 }
 
 impl<'a> HelpCommand<'a> {
+    pub fn new(subject: &[u8]) -> HelpCommand {
+        HelpCommand { subject }
+    }
+
     pub fn subject(&self) -> &'a [u8] {
         self.subject
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.subject.len() + 2);
+        res.extend_from_slice(self.subject);
+        res.extend_from_slice(b"\r\n");
+        res
     }
 }
 
@@ -50,5 +61,10 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_help_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(HelpCommand::new(b"topic").build(), b"topic\r\n");
     }
 }

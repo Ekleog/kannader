@@ -10,8 +10,27 @@ pub struct RcptCommand<'a> {
 }
 
 impl<'a> RcptCommand<'a> {
+    pub fn new(to: Email) -> RcptCommand {
+        RcptCommand { to }
+    }
+
     pub fn to(&self) -> Email<'a> {
         self.to
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(
+                          4 + self.to.raw_localpart().len() +
+                          self.to.hostname().map(|x| 1 + x.len()).unwrap_or(0)
+                          + 3);
+        res.extend_from_slice(b"TO:<");
+        res.extend_from_slice(self.to.raw_localpart());
+        if let Some(x) = self.to.hostname() {
+            res.push(b'@');
+            res.extend_from_slice(x);
+        }
+        res.extend_from_slice(b">\r\n");
+        res
     }
 }
 
@@ -44,5 +63,13 @@ mod tests {
             assert_eq!(res.to().raw_localpart(), l);
             assert_eq!(res.to().hostname(), h);
         }
+    }
+
+    #[test]
+    fn valid_build() {
+        assert_eq!(RcptCommand::new(Email::new(b"foo", Some(b"bar.com"))).build(),
+                   b"TO:<foo@bar.com>\r\n");
+        assert_eq!(RcptCommand::new(Email::new(b"Postmaster", None)).build(),
+                   b"TO:<Postmaster>\r\n");
     }
 }
