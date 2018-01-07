@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use nom::crlf;
 
@@ -8,10 +8,15 @@ use parse_helpers::*;
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DataCommand<'a> {
     // Still SMTP-escaped (ie. leading ‘.’ doubled) message
+    // Must end with `\r\n`
     data: &'a [u8],
 }
 
 impl<'a> DataCommand<'a> {
+    pub unsafe fn new_raw(data: &[u8]) -> DataCommand {
+        DataCommand { data }
+    }
+
     pub fn raw_data(&self) -> &'a [u8] {
         self.data
     }
@@ -28,6 +33,12 @@ impl<'a> DataCommand<'a> {
                 _                         => { *state = State::Start;      Some(Some(x)) },
             }
         }).filter_map(|x| x).collect()
+    }
+
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"DATA\r\n")?;
+        w.write_all(self.data)?;
+        w.write_all(b".\r\n")
     }
 }
 
@@ -85,5 +96,12 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_data_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_sending() {
+        let mut v = Vec::new();
+        unsafe { DataCommand::new_raw(b"hello\r\nworld\r\n") }.send_to(&mut v).unwrap();
+        assert_eq!(v, b"DATA\r\nhello\r\nworld\r\n.\r\n");
     }
 }
