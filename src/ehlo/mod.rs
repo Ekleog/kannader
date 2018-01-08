@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 use parse_helpers::*;
@@ -17,11 +17,10 @@ impl<'a> EhloCommand<'a> {
         self.domain
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.domain.len() + 2);
-        res.extend_from_slice(self.domain);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"EHLO ")?;
+        w.write_all(self.domain)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -63,6 +62,8 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(EhloCommand::new(b"test.foo.bar").build(), b"test.foo.bar\r\n");
+        let mut v = Vec::new();
+        EhloCommand::new(b"test.foo.bar").send_to(&mut v).unwrap();
+        assert_eq!(v, b"EHLO test.foo.bar\r\n");
     }
 }

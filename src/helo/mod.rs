@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 use parse_helpers::*;
@@ -17,11 +17,10 @@ impl<'a> HeloCommand<'a> {
         self.domain
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.domain.len() + 2);
-        res.extend_from_slice(self.domain);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"HELO ")?;
+        w.write_all(self.domain)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -63,6 +62,8 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(HeloCommand::new(b"test.example.org").build(), b"test.example.org\r\n");
+        let mut v = Vec::new();
+        HeloCommand::new(b"test.example.org").send_to(&mut v).unwrap();
+        assert_eq!(v, b"HELO test.example.org\r\n");
     }
 }

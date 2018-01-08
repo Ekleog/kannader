@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 use parse_helpers::*;
@@ -17,11 +17,10 @@ impl<'a> HelpCommand<'a> {
         self.subject
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.subject.len() + 2);
-        res.extend_from_slice(self.subject);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"HELP ")?;
+        w.write_all(self.subject)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -65,6 +64,8 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(HelpCommand::new(b"topic").build(), b"topic\r\n");
+        let mut v = Vec::new();
+        HelpCommand::new(b"topic").send_to(&mut v).unwrap();
+        assert_eq!(v, b"HELP topic\r\n");
     }
 }

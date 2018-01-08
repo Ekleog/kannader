@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 
@@ -16,11 +16,10 @@ impl<'a> ExpnCommand<'a> {
         self.name
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.name.len() + 2);
-        res.extend_from_slice(self.name);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"EXPN ")?;
+        w.write_all(self.name)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -57,6 +56,8 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(ExpnCommand::new(b"foobar").build(), b"foobar\r\n");
+        let mut v = Vec::new();
+        ExpnCommand::new(b"foobar").send_to(&mut v).unwrap();
+        assert_eq!(v, b"EXPN foobar\r\n");
     }
 }
