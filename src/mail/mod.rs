@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use nom::crlf;
 
@@ -19,12 +19,10 @@ impl<'a> MailCommand<'a> {
         self.from
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(6 + self.from.len() + 3);
-        res.extend_from_slice(b"FROM:<");
-        res.extend_from_slice(self.from);
-        res.extend_from_slice(b">\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"MAIL FROM:<")?;
+        w.write_all(self.from)?;
+        w.write_all(b">\r\n")
     }
 }
 
@@ -80,7 +78,9 @@ mod tests {
     }
 
     #[test]
-    fn valid_build() {
-        assert_eq!(MailCommand::new(b"foo@bar.baz").build(), b"FROM:<foo@bar.baz>\r\n");
+    fn valid_send_to() {
+        let mut v = Vec::new();
+        MailCommand::new(b"foo@bar.baz").send_to(&mut v).unwrap();
+        assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
     }
 }

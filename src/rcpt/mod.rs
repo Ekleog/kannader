@@ -1,3 +1,5 @@
+use std::io;
+
 use nom::crlf;
 
 use parse_helpers::*;
@@ -18,19 +20,14 @@ impl<'a> RcptCommand<'a> {
         self.to
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(
-                          4 + self.to.raw_localpart().len() +
-                          self.to.hostname().map(|x| 1 + x.len()).unwrap_or(0)
-                          + 3);
-        res.extend_from_slice(b"TO:<");
-        res.extend_from_slice(self.to.raw_localpart());
-        if let Some(x) = self.to.hostname() {
-            res.push(b'@');
-            res.extend_from_slice(x);
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"RCPT TO:<")?;
+        w.write_all(self.to.raw_localpart())?;
+        if let Some(host) = self.to.hostname() {
+            w.write_all(b"@")?;
+            w.write_all(host)?;
         }
-        res.extend_from_slice(b">\r\n");
-        res
+        w.write_all(b">\r\n")
     }
 }
 
@@ -67,9 +64,12 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(RcptCommand::new(Email::new(b"foo", Some(b"bar.com"))).build(),
-                   b"TO:<foo@bar.com>\r\n");
-        assert_eq!(RcptCommand::new(Email::new(b"Postmaster", None)).build(),
-                   b"TO:<Postmaster>\r\n");
+        let mut v = Vec::new();
+        RcptCommand::new(Email::new(b"foo", Some(b"bar.com"))).send_to(&mut v).unwrap();
+        assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");
+
+        v = Vec::new();
+        RcptCommand::new(Email::new(b"Postmaster", None)).send_to(&mut v).unwrap();
+        assert_eq!(v, b"RCPT TO:<Postmaster>\r\n");
     }
 }

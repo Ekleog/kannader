@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 use parse_helpers::*;
@@ -17,11 +17,10 @@ impl<'a> NoopCommand<'a> {
         self.string
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.string.len() + 2);
-        res.extend_from_slice(self.string);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"NOOP ")?;
+        w.write_all(self.string)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -64,7 +63,9 @@ mod tests {
     }
 
     #[test]
-    fn valid_build() {
-        assert_eq!(NoopCommand::new(b"useless string").build(), b"useless string\r\n");
+    fn valid_send_to() {
+        let mut v = Vec::new();
+        NoopCommand::new(b"useless string").send_to(&mut v).unwrap();
+        assert_eq!(v, b"NOOP useless string\r\n");
     }
 }

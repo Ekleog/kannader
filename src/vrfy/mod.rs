@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 use helpers::*;
 
@@ -16,11 +16,10 @@ impl<'a> VrfyCommand<'a> {
         self.name
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(self.name.len() + 2);
-        res.extend_from_slice(self.name);
-        res.extend_from_slice(b"\r\n");
-        res
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"VRFY ")?;
+        w.write_all(self.name)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -53,5 +52,12 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert_eq!(command_vrfy_args(s), IResult::Done(&b""[..], r));
         }
+    }
+
+    #[test]
+    fn valid_send_to() {
+        let mut v = Vec::new();
+        VrfyCommand::new(b"postmaster").send_to(&mut v).unwrap();
+        assert_eq!(v, b"VRFY postmaster\r\n");
     }
 }

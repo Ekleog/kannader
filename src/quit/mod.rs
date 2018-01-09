@@ -1,3 +1,5 @@
+use std::io;
+
 use nom::crlf;
 
 use parse_helpers::*;
@@ -13,8 +15,8 @@ impl QuitCommand {
         QuitCommand { _useless: () }
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        vec![b'\r', b'\n']
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"QUIT\r\n")
     }
 }
 
@@ -47,6 +49,8 @@ mod tests {
 
     #[test]
     fn valid_build() {
-        assert_eq!(QuitCommand::new().build(), b"\r\n");
+        let mut v = Vec::new();
+        QuitCommand::new().send_to(&mut v).unwrap();
+        assert_eq!(v, b"QUIT\r\n");
     }
 }

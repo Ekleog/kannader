@@ -1,3 +1,5 @@
+use std::io;
+
 use nom::crlf;
 
 use parse_helpers::*;
@@ -13,8 +15,8 @@ impl RsetCommand {
         RsetCommand { _useless: () }
     }
 
-    pub fn build(&self) -> Vec<u8> {
-        vec![b'\r', b'\n']
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(b"RSET\r\n")
     }
 }
 
@@ -46,7 +48,9 @@ mod tests {
     }
 
     #[test]
-    fn valid_build() {
-        assert_eq!(RsetCommand::new().build(), b"\r\n");
+    fn valid_send_to() {
+        let mut v = Vec::new();
+        RsetCommand::new().send_to(&mut v).unwrap();
+        assert_eq!(v, b"RSET\r\n");
     }
 }
