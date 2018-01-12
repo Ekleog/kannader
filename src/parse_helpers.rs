@@ -1,4 +1,5 @@
 use std::fmt;
+use nom;
 
 use helpers::*;
 
@@ -8,6 +9,14 @@ macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
 macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
 macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
+
+// TODO: modernize error management (error_chain? something else?)
+#[derive(Debug)]
+pub enum Error<'a> {
+    DidNotConsumeEverything(&'a [u8]),
+    ParseError(nom::Err),
+    IncompleteString(nom::Needed),
+}
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone)]

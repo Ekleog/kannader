@@ -1,4 +1,5 @@
 use std::{fmt, io};
+use nom::IResult;
 
 use helpers::*;
 use parse_helpers::*;
@@ -9,7 +10,16 @@ pub struct EhloCommand<'a> {
 }
 
 impl<'a> EhloCommand<'a> {
-    pub fn new<'b>(domain: &'b [u8]) -> EhloCommand<'b> {
+    pub fn new<'b>(domain: &'b [u8]) -> Result<EhloCommand<'b>, Error> {
+        match hostname(domain) {
+            IResult::Done(b"", domain) => Ok(EhloCommand { domain }),
+            IResult::Done(rem, _)      => Err(Error::DidNotConsumeEverything(rem)),
+            IResult::Error(e)          => Err(Error::ParseError(e)),
+            IResult::Incomplete(n)     => Err(Error::IncompleteString(n)),
+        }
+    }
+
+    pub unsafe fn with_raw_domain<'b>(domain: &'b [u8]) -> EhloCommand<'b> {
         EhloCommand { domain }
     }
 
@@ -43,7 +53,6 @@ named!(pub command_ehlo_args(&[u8]) -> EhloCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::*;
 
     #[test]
     fn valid_command_ehlo_args() {
@@ -61,9 +70,17 @@ mod tests {
     }
 
     #[test]
-    fn valid_build() {
+    fn valid_builds() {
         let mut v = Vec::new();
-        EhloCommand::new(b"test.foo.bar").send_to(&mut v).unwrap();
+        EhloCommand::new(b"test.foo.bar").unwrap().send_to(&mut v).unwrap();
         assert_eq!(v, b"EHLO test.foo.bar\r\n");
+
+        assert!(EhloCommand::new(b"test.").is_err());
+        assert!(EhloCommand::new(b"test.foo.bar ").is_err());
+        assert!(EhloCommand::new(b"-test.foo.bar").is_err());
+
+        v = Vec::new();
+        unsafe { EhloCommand::with_raw_domain(b"test.") }.send_to(&mut v).unwrap();
+        assert_eq!(v, b"EHLO test.\r\n");
     }
 }
