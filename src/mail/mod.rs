@@ -78,6 +78,12 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_args() {
+        assert!(command_mail_args(b" FROM:<foo@bar.com").is_incomplete());
+        assert!(command_mail_args(b" FROM:foo@bar.com").is_incomplete());
+    }
+
+    #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
         MailCommand::new(b"foo@bar.baz").send_to(&mut v).unwrap();
