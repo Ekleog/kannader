@@ -99,6 +99,7 @@ mod tests {
         assert!(MailCommand::new(b"foo@").is_err());
         assert!(MailCommand::new(b"foo@bar.").is_err());
         assert!(MailCommand::new(b"foo@.baz").is_err());
+        assert!(MailCommand::new(b"@bar.baz").is_err());
         assert!(MailCommand::new(b"\"foo@bar.baz").is_err());
 
         v = Vec::new();

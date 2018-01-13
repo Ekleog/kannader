@@ -79,7 +79,7 @@ named!(pub hostname(&[u8]) -> &[u8],
 );
 
 named!(dot_string(&[u8]) -> &[u8], recognize!(
-    separated_list_complete!(tag!("."), is_a!(atext!()))
+    separated_nonempty_list_complete!(tag!("."), is_a!(atext!()))
 ));
 
 // See RFC 5321 § 4.1.2
@@ -229,6 +229,11 @@ mod tests {
         for (s, r) in tests {
             assert_eq!(email(s).unwrap().1.localpart(), r);
         }
+    }
+
+    #[test]
+    fn invalid_localpart() {
+        assert!(email(b"@foo.bar").is_err());
     }
 
     #[test]
