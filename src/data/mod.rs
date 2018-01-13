@@ -22,12 +22,46 @@ impl<'a> ActualData<'a> {
     }
 }
 
+impl<'a> fmt::Debug for ActualData<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &ActualData::Owned(ref v) => write!(f, "ActualData::Owned({})", bytes_to_dbg(v)),
+            &ActualData::Borrowing(v) => write!(f, "ActualData::Borrowing({})", bytes_to_dbg(v)),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum EscapeState { Start, CrPassed, CrlfPassed }
+
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub struct DataCommand<'a> {
     data: ActualData<'a>,
 }
 
 impl<'a> DataCommand<'a> {
+    // SMTP-escapes (ie. doubles leading ‘.’) messages first
+    pub fn new(data: &[u8], likely_starting_dots: usize) -> DataCommand {
+        let mut res = Vec::with_capacity(data.len() + likely_starting_dots);
+        let mut state = EscapeState::Start;
+        for &x in data {
+            match (state, x) {
+                (_, b'\r')                      => { state = EscapeState::CrPassed; },
+                (EscapeState::CrPassed, b'\n')  => { state = EscapeState::CrlfPassed; },
+                (EscapeState::CrlfPassed, b'.') => { state = EscapeState::Start; res.push(b'.'); },
+                _                               => { state = EscapeState::Start; }
+            }
+            res.push(x);
+        }
+        match state {
+            EscapeState::Start      => { res.extend_from_slice(b"\r\n"); },
+            EscapeState::CrPassed   => { res.push(b'\n'); },
+            EscapeState::CrlfPassed => { },
+        }
+        DataCommand { data: ActualData::Owned(res) }
+    }
+
     pub unsafe fn new_raw(data: &[u8]) -> DataCommand {
         DataCommand { data: ActualData::Borrowing(data) }
     }
@@ -37,15 +71,12 @@ impl<'a> DataCommand<'a> {
     }
 
     pub fn data(&self) -> Vec<u8> {
-        #[derive(Copy, Clone)]
-        enum State { Start, CrPassed, CrlfPassed };
-
-        self.data.get().iter().scan(State::Start, |state, &x| {
+        self.data.get().iter().scan(EscapeState::Start, |state, &x| {
             match (*state, x) {
-                (_, b'\r')                => { *state = State::CrPassed;   Some(Some(x)) },
-                (State::CrPassed, b'\n')  => { *state = State::CrlfPassed; Some(Some(x)) },
-                (State::CrlfPassed, b'.') => { *state = State::Start;      Some(None   ) },
-                _                         => { *state = State::Start;      Some(Some(x)) },
+                (_, b'\r')                      => { *state = EscapeState::CrPassed;   Some(Some(x)) },
+                (EscapeState::CrPassed, b'\n')  => { *state = EscapeState::CrlfPassed; Some(Some(x)) },
+                (EscapeState::CrlfPassed, b'.') => { *state = EscapeState::Start;      Some(None   ) },
+                _                               => { *state = EscapeState::Start;      Some(Some(x)) },
             }
         }).filter_map(|x| x).collect()
     }
@@ -54,12 +85,6 @@ impl<'a> DataCommand<'a> {
         w.write_all(b"DATA\r\n")?;
         w.write_all(self.data.get())?;
         w.write_all(b".\r\n")
-    }
-}
-
-impl<'a> fmt::Debug for DataCommand<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "DataCommand {{ data: {} }}", bytes_to_dbg(self.data.get()))
     }
 }
 
@@ -118,5 +143,18 @@ mod tests {
         let mut v = Vec::new();
         unsafe { DataCommand::new_raw(b"hello\r\nworld\r\n") }.send_to(&mut v).unwrap();
         assert_eq!(v, b"DATA\r\nhello\r\nworld\r\n.\r\n");
+    }
+
+    #[test]
+    fn valid_escaping() {
+        let tests: &[(&[u8], &[u8])] = &[
+            (b"foo\r\n.\r\nbar\r\n", b"foo\r\n..\r\nbar\r\n"),
+            (b"foo\r\nbar\r\n", b"foo\r\nbar\r\n"),
+            (b"foo\r\nbar\r", b"foo\r\nbar\r\n"),
+            (b"foo\r\nbar", b"foo\r\nbar\r\n"),
+        ];
+        for &(a, b) in tests {
+            assert_eq!(DataCommand::new(a, 16).data, ActualData::Owned(b.to_owned()));
+        }
     }
 }
