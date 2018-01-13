@@ -5,27 +5,42 @@ use nom::crlf;
 use helpers::*;
 use parse_helpers::*;
 
+// Still SMTP-escaped (ie. leading ‘.’ doubled) message
+// Must end with `\r\n`
+#[cfg_attr(test, derive(PartialEq))]
+enum ActualData<'a> {
+    Owned(Vec<u8>),
+    Borrowing(&'a [u8]),
+}
+
+impl<'a> ActualData<'a> {
+    pub fn get(&self) -> &[u8] {
+        match self {
+            &ActualData::Owned(ref v) => &v,
+            &ActualData::Borrowing(v) => v,
+        }
+    }
+}
+
 #[cfg_attr(test, derive(PartialEq))]
 pub struct DataCommand<'a> {
-    // Still SMTP-escaped (ie. leading ‘.’ doubled) message
-    // Must end with `\r\n`
-    data: &'a [u8],
+    data: ActualData<'a>,
 }
 
 impl<'a> DataCommand<'a> {
     pub unsafe fn new_raw(data: &[u8]) -> DataCommand {
-        DataCommand { data }
+        DataCommand { data: ActualData::Borrowing(data) }
     }
 
-    pub fn raw_data(&self) -> &'a [u8] {
-        self.data
+    pub fn raw_data(&self) -> &[u8] {
+        self.data.get()
     }
 
     pub fn data(&self) -> Vec<u8> {
         #[derive(Copy, Clone)]
         enum State { Start, CrPassed, CrlfPassed };
 
-        self.data.iter().scan(State::Start, |state, &x| {
+        self.data.get().iter().scan(State::Start, |state, &x| {
             match (*state, x) {
                 (_, b'\r')                => { *state = State::CrPassed;   Some(Some(x)) },
                 (State::CrPassed, b'\n')  => { *state = State::CrlfPassed; Some(Some(x)) },
@@ -37,14 +52,14 @@ impl<'a> DataCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"DATA\r\n")?;
-        w.write_all(self.data)?;
+        w.write_all(self.data.get())?;
         w.write_all(b".\r\n")
     }
 }
 
 impl<'a> fmt::Debug for DataCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "DataCommand {{ data: {} }}", bytes_to_dbg(self.data))
+        write!(f, "DataCommand {{ data: {} }}", bytes_to_dbg(self.data.get()))
     }
 }
 
@@ -60,7 +75,7 @@ named!(pub command_data_args(&[u8]) -> DataCommand, do_parse!(
     ) >>
     tag!(".\r\n") >>
     (DataCommand {
-        data: data,
+        data: ActualData::Borrowing(data),
     })
 ));
 
@@ -78,7 +93,7 @@ mod tests {
             (b"hello\r\nworld\r\n ..\r\n", b"hello\r\nworld\r\n ..\r\n"),
         ];
         for &(s, r) in tests.into_iter() {
-            let d = DataCommand { data: s };
+            let d = DataCommand { data: ActualData::Borrowing(s) };
             assert_eq!(d.data(), r);
         }
     }
@@ -87,10 +102,10 @@ mod tests {
     fn valid_command_data_args() {
         let tests = vec![
             (&b"  \r\nhello\r\nworld\r\n..\r\n.\r\n"[..], DataCommand {
-                data: &b"hello\r\nworld\r\n..\r\n"[..],
+                data: ActualData::Borrowing(b"hello\r\nworld\r\n..\r\n"),
             }),
             (&b" \t \r\n.\r\n"[..], DataCommand {
-                data: &b""[..],
+                data: ActualData::Borrowing(b""),
             }),
         ];
         for (s, r) in tests.into_iter() {
