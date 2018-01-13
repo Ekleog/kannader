@@ -1,6 +1,5 @@
 use std::{fmt, io};
-
-use nom::crlf;
+use nom::{crlf, IResult};
 
 use helpers::*;
 use parse_helpers::*;
@@ -11,7 +10,16 @@ pub struct MailCommand<'a> {
 }
 
 impl<'a> MailCommand<'a> {
-    pub fn new(from: &[u8]) -> MailCommand {
+    pub fn new(from: &[u8]) -> Result<MailCommand, Error> {
+        match email(from) {
+            IResult::Done(b"", _)  => Ok(MailCommand { from }),
+            IResult::Done(rem, _)  => Err(Error::DidNotConsumeEverything(rem)),
+            IResult::Error(e)      => Err(Error::ParseError(e)),
+            IResult::Incomplete(n) => Err(Error::IncompleteString(n)),
+        }
+    }
+
+    pub unsafe fn with_raw_from(from: &[u8]) -> MailCommand {
         MailCommand { from }
     }
 
@@ -57,7 +65,6 @@ named!(pub command_mail_args(&[u8]) -> MailCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::*;
 
     #[test]
     fn valid_command_mail_args() {
@@ -86,7 +93,16 @@ mod tests {
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(b"foo@bar.baz").send_to(&mut v).unwrap();
+        MailCommand::new(b"foo@bar.baz").unwrap().send_to(&mut v).unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
+
+        assert!(MailCommand::new(b"foo@").is_err());
+        assert!(MailCommand::new(b"foo@bar.").is_err());
+        assert!(MailCommand::new(b"foo@.baz").is_err());
+        assert!(MailCommand::new(b"\"foo@bar.baz").is_err());
+
+        v = Vec::new();
+        unsafe { MailCommand::with_raw_from(b"foo@") }.send_to(&mut v).unwrap();
+        assert_eq!(v, b"MAIL FROM:<foo@>\r\n");
     }
 }

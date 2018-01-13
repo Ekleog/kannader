@@ -95,7 +95,7 @@ named!(quoted_string(&[u8]) -> &[u8], recognize!(do_parse!(
 
 named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
 
-named!(email(&[u8]) -> Email, do_parse!(
+named!(pub email(&[u8]) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
     (Email {
