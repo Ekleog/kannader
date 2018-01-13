@@ -1,4 +1,5 @@
 use std::{fmt, io};
+use nom::IResult;
 
 use helpers::*;
 use parse_helpers::*;
@@ -9,7 +10,16 @@ pub struct HeloCommand<'a> {
 }
 
 impl<'a> HeloCommand<'a> {
-    pub fn new<'b>(domain: &'b [u8]) -> HeloCommand<'b> {
+    pub fn new<'b>(domain: &'b [u8]) -> Result<HeloCommand<'b>, Error> {
+        match hostname(domain) {
+            IResult::Done(b"", domain) => Ok(HeloCommand { domain }),
+            IResult::Done(rem, _)      => Err(Error::DidNotConsumeEverything(rem)),
+            IResult::Error(e)          => Err(Error::ParseError(e)),
+            IResult::Incomplete(n)     => Err(Error::IncompleteString(n)),
+        }
+    }
+
+    pub unsafe fn with_raw_domain<'b>(domain: &'b [u8]) -> HeloCommand<'b> {
         HeloCommand { domain }
     }
 
@@ -43,7 +53,6 @@ named!(pub command_helo_args(&[u8]) -> HeloCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::*;
 
     #[test]
     fn valid_command_helo_args() {
@@ -63,7 +72,13 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        HeloCommand::new(b"test.example.org").send_to(&mut v).unwrap();
+        HeloCommand::new(b"test.example.org").unwrap().send_to(&mut v).unwrap();
         assert_eq!(v, b"HELO test.example.org\r\n");
+
+        assert!(HeloCommand::new(b"test.").is_err());
+
+        v = Vec::new();
+        unsafe { HeloCommand::with_raw_domain(b"test.") }.send_to(&mut v).unwrap();
+        assert_eq!(v, b"HELO test.\r\n");
     }
 }
