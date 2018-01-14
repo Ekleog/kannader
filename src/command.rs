@@ -1,3 +1,5 @@
+use std::io;
+
 use data::*;
 use ehlo::*;
 use expn::*;
@@ -24,6 +26,24 @@ pub enum Command<'a> {
     Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
     Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
+}
+
+impl<'a> Command<'a> {
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        match self {
+            &Command::Data(ref c) => c.send_to(w),
+            &Command::Ehlo(ref c) => c.send_to(w),
+            &Command::Expn(ref c) => c.send_to(w),
+            &Command::Helo(ref c) => c.send_to(w),
+            &Command::Help(ref c) => c.send_to(w),
+            &Command::Mail(ref c) => c.send_to(w),
+            &Command::Noop(ref c) => c.send_to(w),
+            &Command::Quit(ref c) => c.send_to(w),
+            &Command::Rcpt(ref c) => c.send_to(w),
+            &Command::Rset(ref c) => c.send_to(w),
+            &Command::Vrfy(ref c) => c.send_to(w),
+        }
+    }
 }
 
 named!(pub command(&[u8]) -> Command, alt!( // TODO: give a nicer interface
@@ -115,5 +135,12 @@ mod tests {
         for (s, r) in tests.into_iter() {
             assert!(r(command(s).unwrap().1));
         }
+    }
+
+    #[test]
+    pub fn do_send_ok() {
+        let mut v = Vec::new();
+        Command::Vrfy(VrfyCommand::new(b"fubar")).send_to(&mut v).unwrap();
+        assert_eq!(v, b"VRFY fubar\r\n");
     }
 }

@@ -47,6 +47,27 @@ impl<'a> Reply<'a> {
     reply_builder_function!(553, r553_mailbox_name_incorrect);
     reply_builder_function!(554, r554_transaction_failed);
     reply_builder_function!(555, r555_mail_or_rcpt_parameter_unimplemented);
+
+    // TODO: switch to the send_to idiom
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        let code = &[((self.num % 1000) / 100) as u8 + b'0',
+                     ((self.num % 100 ) / 10 ) as u8 + b'0',
+                     ((self.num % 10  )      ) as u8 + b'0'];
+        for i in 0..(self.lines.len() - 1) {
+            res.extend_from_slice(code);
+            res.push(b'-');
+            res.extend_from_slice(self.lines[i]);
+            res.extend_from_slice(b"\r\n");
+        }
+        res.extend_from_slice(code);
+        res.push(b' ');
+        if let Some(last) = self.lines.last() {
+            res.extend_from_slice(last);
+        }
+        res.extend_from_slice(b"\r\n");
+        res
+    }
 }
 
 impl<'a> fmt::Debug for Reply<'a> {
@@ -59,26 +80,6 @@ impl<'a> fmt::Debug for Reply<'a> {
         res += "]";
         write!(f, "Reply {{ num: {}, lines: {} }}", self.num, res)
     }
-}
-
-pub fn build(r: &Reply) -> Vec<u8> {
-    let mut res = Vec::new();
-    let code = &[((r.num % 1000) / 100) as u8 + b'0',
-                 ((r.num % 100 ) / 10 ) as u8 + b'0',
-                 ((r.num % 10  )      ) as u8 + b'0'];
-    for i in 0..(r.lines.len() - 1) {
-        res.extend_from_slice(code);
-        res.push(b'-');
-        res.extend_from_slice(r.lines[i]);
-        res.extend_from_slice(b"\r\n");
-    }
-    res.extend_from_slice(code);
-    res.push(b' ');
-    if let Some(last) = r.lines.last() {
-        res.extend_from_slice(last);
-    }
-    res.extend_from_slice(b"\r\n");
-    res
 }
 
 named!(pub reply(&[u8]) -> Reply, do_parse!(
@@ -117,7 +118,7 @@ mod tests {
         let text: Vec<&[u8]> = vec![b"hello", b"world", b"!"];
         let r = Reply::r220_service_ready(text.clone());
         assert_eq!(r, Reply { num: 220, lines: text });
-        assert_eq!(build(&r), b"220-hello\r\n220-world\r\n220 !\r\n");
+        assert_eq!(r.build(), b"220-hello\r\n220-world\r\n220 !\r\n");
     }
 
     #[test]
@@ -125,7 +126,7 @@ mod tests {
         let text: Vec<&[u8]> = vec![b"test"];
         let r = Reply::r502_command_unimplemented(text.clone());
         assert_eq!(r, Reply { num: 502, lines: text });
-        assert_eq!(build(&r), b"502 test\r\n");
+        assert_eq!(r.build(), b"502 test\r\n");
     }
 
     #[test]

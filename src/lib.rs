@@ -16,5 +16,9 @@ mod rcpt;
 mod rset;
 mod vrfy;
 
-pub mod command;
-pub mod reply;
+mod command;
+mod reply;
+
+pub use reply::Reply;
+pub use command::Command;
+// TODO: also make available the parsing functions
