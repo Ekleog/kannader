@@ -1,6 +1,8 @@
 use std::io;
 use nom::IResult;
 
+use helpers::*;
+
 use data::*;
 use ehlo::*;
 use expn::*;
@@ -30,8 +32,14 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub fn parse(arg: &[u8]) -> IResult<&[u8], Command> {
-        command(arg)
+    // TODO: think about actually relinquishing borrow over `arg` instead of just returning the
+    // remaining part
+    pub fn parse(arg: &[u8]) -> Result<(Command, &[u8]), ParseError> {
+        match command(arg) {
+            IResult::Done(rem, res)  => Ok((res, rem)),
+            IResult::Error(e)        => Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n)   => Err(ParseError::IncompleteString(n)),
+        }
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
@@ -51,7 +59,7 @@ impl<'a> Command<'a> {
     }
 }
 
-named!(pub command(&[u8]) -> Command, alt!( // TODO: give a nicer interface
+named!(pub command(&[u8]) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |

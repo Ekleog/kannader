@@ -23,8 +23,12 @@ macro_rules! reply_builder_function {
 }
 
 impl<'a> Reply<'a> {
-    pub fn parse(arg: &[u8]) -> IResult<&[u8], Reply> {
-        reply(arg)
+    pub fn parse(arg: &[u8]) -> Result<(Reply, &[u8]), ParseError> {
+        match reply(arg) {
+            IResult::Done(rem, res)  => Ok((res, rem)),
+            IResult::Error(e)        => Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n)   => Err(ParseError::IncompleteString(n)),
+        }
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {

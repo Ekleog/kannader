@@ -16,7 +16,7 @@ impl fmt::Display for ParseError {
             &DidNotConsumeEverything(rem) =>
                 write!(f, "Input contains {} trailing characters", rem),
             &ParseError(ref err) =>
-                write!(f, "Parse error: {}", err),
+                write!(f, "Parse error: {}", err), // TODO: make error display nicer with nom
             &IncompleteString(Needed::Unknown) =>
                 write!(f, "Input appears to be incomplete"),
             &IncompleteString(Needed::Size(sz)) =>
