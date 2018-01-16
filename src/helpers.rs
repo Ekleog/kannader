@@ -1,16 +1,28 @@
-use std::str;
+use std::{fmt, str};
 use nom;
+use nom::Needed;
 
-#[derive(Fail, Debug)]
+#[derive(Fail, Debug, Clone)]
 pub enum ParseError {
-    #[fail(display = "Input contains {} trailing characters", _0)]
     DidNotConsumeEverything(usize),
-
-    #[fail(display = "Parse error")]
     ParseError(nom::Err),
+    IncompleteString(Needed),
+}
 
-    #[fail(display = "Input appears to be incomplete")]
-    IncompleteString(nom::Needed),
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ParseError::*;
+        match self {
+            &DidNotConsumeEverything(rem) =>
+                write!(f, "Input contains {} trailing characters", rem),
+            &ParseError(ref err) =>
+                write!(f, "Parse error: {}", err),
+            &IncompleteString(Needed::Unknown) =>
+                write!(f, "Input appears to be incomplete"),
+            &IncompleteString(Needed::Size(sz)) =>
+                write!(f, "Input appears to be missing {} characters", sz),
+        }
+    }
 }
 
 pub fn bytes_to_dbg(b: &[u8]) -> String {
