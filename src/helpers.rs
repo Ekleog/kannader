@@ -5,7 +5,7 @@ use nom::Needed;
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
     DidNotConsumeEverything(usize),
-    ParseError(nom::Err),
+    ParseError(#[cause] nom::Err),
     IncompleteString(Needed),
 }
 
