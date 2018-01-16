@@ -1,5 +1,6 @@
 use std::{fmt, str};
 use std::str::FromStr;
+use nom::IResult;
 
 use helpers::*;
 
@@ -22,6 +23,31 @@ macro_rules! reply_builder_function {
 }
 
 impl<'a> Reply<'a> {
+    pub fn parse(arg: &[u8]) -> IResult<&[u8], Reply> {
+        reply(arg)
+    }
+
+    // TODO: switch to the send_to idiom
+    pub fn build(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        let code = &[((self.num % 1000) / 100) as u8 + b'0',
+                     ((self.num % 100 ) / 10 ) as u8 + b'0',
+                     ((self.num % 10  )      ) as u8 + b'0'];
+        for i in 0..(self.lines.len() - 1) {
+            res.extend_from_slice(code);
+            res.push(b'-');
+            res.extend_from_slice(self.lines[i]);
+            res.extend_from_slice(b"\r\n");
+        }
+        res.extend_from_slice(code);
+        res.push(b' ');
+        if let Some(last) = self.lines.last() {
+            res.extend_from_slice(last);
+        }
+        res.extend_from_slice(b"\r\n");
+        res
+    }
+
     reply_builder_function!(211, r211_system_status);
     reply_builder_function!(214, r214_help_message);
     reply_builder_function!(220, r220_service_ready);
@@ -47,27 +73,6 @@ impl<'a> Reply<'a> {
     reply_builder_function!(553, r553_mailbox_name_incorrect);
     reply_builder_function!(554, r554_transaction_failed);
     reply_builder_function!(555, r555_mail_or_rcpt_parameter_unimplemented);
-
-    // TODO: switch to the send_to idiom
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::new();
-        let code = &[((self.num % 1000) / 100) as u8 + b'0',
-                     ((self.num % 100 ) / 10 ) as u8 + b'0',
-                     ((self.num % 10  )      ) as u8 + b'0'];
-        for i in 0..(self.lines.len() - 1) {
-            res.extend_from_slice(code);
-            res.push(b'-');
-            res.extend_from_slice(self.lines[i]);
-            res.extend_from_slice(b"\r\n");
-        }
-        res.extend_from_slice(code);
-        res.push(b' ');
-        if let Some(last) = self.lines.last() {
-            res.extend_from_slice(last);
-        }
-        res.extend_from_slice(b"\r\n");
-        res
-    }
 }
 
 impl<'a> fmt::Debug for Reply<'a> {
@@ -111,7 +116,6 @@ named!(pub reply(&[u8]) -> Reply, do_parse!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::*;
 
     #[test]
     fn reply_multiline() {

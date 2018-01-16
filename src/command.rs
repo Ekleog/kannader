@@ -1,4 +1,5 @@
 use std::io;
+use nom::IResult;
 
 use data::*;
 use ehlo::*;
@@ -29,6 +30,10 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
+    pub fn parse(arg: &[u8]) -> IResult<&[u8], Command> {
+        command(arg)
+    }
+
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         match self {
             &Command::Data(ref c) => c.send_to(w),
