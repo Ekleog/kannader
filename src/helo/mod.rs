@@ -10,12 +10,12 @@ pub struct HeloCommand<'a> {
 }
 
 impl<'a> HeloCommand<'a> {
-    pub fn new<'b>(domain: &'b [u8]) -> Result<HeloCommand<'b>, Error> {
+    pub fn new<'b>(domain: &'b [u8]) -> Result<HeloCommand<'b>, ParseError> {
         match hostname(domain) {
             IResult::Done(b"", domain) => Ok(HeloCommand { domain }),
-            IResult::Done(rem, _)      => Err(Error::DidNotConsumeEverything(rem)),
-            IResult::Error(e)          => Err(Error::ParseError(e)),
-            IResult::Incomplete(n)     => Err(Error::IncompleteString(n)),
+            IResult::Done(rem, _)      => Err(ParseError::DidNotConsumeEverything(rem.len())),
+            IResult::Error(e)          => Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n)     => Err(ParseError::IncompleteString(n)),
         }
     }
 

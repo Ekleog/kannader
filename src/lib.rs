@@ -1,5 +1,8 @@
 #[macro_use]
 extern crate nom;
+extern crate failure;
+#[macro_use]
+extern crate failure_derive;
 
 mod helpers;
 mod parse_helpers;
@@ -19,6 +22,7 @@ mod vrfy;
 mod command;
 mod reply;
 
+pub use helpers::ParseError;
 pub use reply::Reply;
 pub use command::Command;
 pub use data::DataCommand;

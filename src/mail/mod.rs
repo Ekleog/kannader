@@ -10,12 +10,12 @@ pub struct MailCommand<'a> {
 }
 
 impl<'a> MailCommand<'a> {
-    pub fn new(from: &[u8]) -> Result<MailCommand, Error> {
+    pub fn new(from: &[u8]) -> Result<MailCommand, ParseError> {
         match email(from) {
             IResult::Done(b"", _)  => Ok(MailCommand { from }),
-            IResult::Done(rem, _)  => Err(Error::DidNotConsumeEverything(rem)),
-            IResult::Error(e)      => Err(Error::ParseError(e)),
-            IResult::Incomplete(n) => Err(Error::IncompleteString(n)),
+            IResult::Done(rem, _)  => Err(ParseError::DidNotConsumeEverything(rem.len())),
+            IResult::Error(e)      => Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
         }
     }
 
