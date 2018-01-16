@@ -1,4 +1,4 @@
-use std::{fmt, str};
+use std::{fmt, io, str};
 use std::str::FromStr;
 use nom::IResult;
 
@@ -27,25 +27,22 @@ impl<'a> Reply<'a> {
         reply(arg)
     }
 
-    // TODO: switch to the send_to idiom
-    pub fn build(&self) -> Vec<u8> {
-        let mut res = Vec::new();
+    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         let code = &[((self.num % 1000) / 100) as u8 + b'0',
                      ((self.num % 100 ) / 10 ) as u8 + b'0',
                      ((self.num % 10  )      ) as u8 + b'0'];
         for i in 0..(self.lines.len() - 1) {
-            res.extend_from_slice(code);
-            res.push(b'-');
-            res.extend_from_slice(self.lines[i]);
-            res.extend_from_slice(b"\r\n");
+            w.write_all(code)?;
+            w.write_all(b"-")?;
+            w.write_all(self.lines[i])?;
+            w.write_all(b"\r\n")?;
         }
-        res.extend_from_slice(code);
-        res.push(b' ');
+        w.write_all(code)?;
+        w.write_all(b" ")?;
         if let Some(last) = self.lines.last() {
-            res.extend_from_slice(last);
+            w.write_all(last)?;
         }
-        res.extend_from_slice(b"\r\n");
-        res
+        w.write_all(b"\r\n")
     }
 
     reply_builder_function!(211, r211_system_status);
@@ -122,7 +119,10 @@ mod tests {
         let text: Vec<&[u8]> = vec![b"hello", b"world", b"!"];
         let r = Reply::r220_service_ready(text.clone());
         assert_eq!(r, Reply { num: 220, lines: text });
-        assert_eq!(r.build(), b"220-hello\r\n220-world\r\n220 !\r\n");
+
+        let mut res = Vec::new();
+        r.send_to(&mut res).unwrap();
+        assert_eq!(res, b"220-hello\r\n220-world\r\n220 !\r\n");
     }
 
     #[test]
@@ -130,7 +130,10 @@ mod tests {
         let text: Vec<&[u8]> = vec![b"test"];
         let r = Reply::r502_command_unimplemented(text.clone());
         assert_eq!(r, Reply { num: 502, lines: text });
-        assert_eq!(r.build(), b"502 test\r\n");
+
+        let mut res = Vec::new();
+        r.send_to(&mut res).unwrap();
+        assert_eq!(res, b"502 test\r\n");
     }
 
     #[test]
