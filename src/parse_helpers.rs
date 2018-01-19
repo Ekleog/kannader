@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use helpers::*;
@@ -8,6 +9,8 @@ macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
 macro_rules! digit       { () => ("0123456789") }
 macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
 macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
+macro_rules! alnumdash   { () => (concat!(alnum!(), "-")) }
+macro_rules! graph_except_equ { () => (concat!(alnum!(), "!\"#$%&'()*+,-./:;<>?@[\\]^_`{|}~")) }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone)]
@@ -119,6 +122,34 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
 );
 
 named!(pub eat_spaces, eat_separator!(" \t"));
+
+#[derive(Debug)]
+pub struct SpParameters<'a> {
+    params: HashMap<&'a [u8], Option<&'a [u8]>>,
+}
+
+named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
+    params: separated_nonempty_list_complete!(
+        do_parse!(
+            many1!(one_of!(" \t")) >>
+            tag!("SP") >>
+            many1!(one_of!(" \t")) >>
+            ()
+        ),
+        do_parse!(
+            eat_spaces >>
+            key: recognize!(preceded!(one_of!(alnum!()), is_a!(alnumdash!()))) >>
+            value: opt!(preceded!(tag!("="),
+                recognize!(preceded!(one_of!(graph_except_equ!()),
+                                     is_a!(graph_except_equ!())))
+            )) >>
+            (key, value)
+        )
+    ) >>
+    (SpParameters {
+        params: params.into_iter().collect(),
+    })
+));
 
 #[cfg(test)]
 mod tests {
@@ -270,6 +301,25 @@ mod tests {
         ];
         for test in tests {
             assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
+        }
+    }
+
+    #[test]
+    fn valid_sp_parameters() {
+        let tests: &[(&[u8], &[(&[u8], Option<&[u8]>)])] = &[
+            (b"key=value", &[(b"key", Some(b"value"))]),
+            (b"key=value SP key2=value2", &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))]),
+            (b"KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
+                &[(b"KeY2", Some(b"V4\"l\\u@e.z")), (b"0tterkeyz", Some(b"very_muchWh4t3ver"))]),
+        ];
+        for test in tests {
+            println!("test: {}", bytes_to_dbg(test.0));
+            let res = sp_parameters(test.0);
+            println!("res: {:?}", res);
+            let (rem, res) = res.unwrap();
+            assert_eq!(rem, b"");
+            let res_reference = test.1.iter().map(|&x| x).collect::<HashMap<_, _>>();
+            assert_eq!(res.params, res_reference);
         }
     }
 }

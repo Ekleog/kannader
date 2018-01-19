@@ -32,8 +32,6 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    // TODO: think about actually relinquishing borrow over `arg` instead of just returning the
-    // remaining part
     pub fn parse(arg: &[u8]) -> Result<(Command, &[u8]), ParseError> {
         match command(arg) {
             IResult::Done(rem, res)  => Ok((res, rem)),
