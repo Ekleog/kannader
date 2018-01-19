@@ -124,9 +124,8 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
 named!(pub eat_spaces, eat_separator!(" \t"));
 
 #[derive(Debug)]
-pub struct SpParameters<'a> {
-    params: HashMap<&'a [u8], Option<&'a [u8]>>,
-}
+#[cfg_attr(test, derive(PartialEq))]
+pub struct SpParameters<'a>(pub HashMap<&'a [u8], Option<&'a [u8]>>);
 
 named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
     params: separated_nonempty_list_complete!(
@@ -143,9 +142,7 @@ named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
             (key, value)
         )
     ) >>
-    (SpParameters {
-        params: params.into_iter().collect(),
-    })
+    (SpParameters(params.into_iter().collect()))
 ));
 
 #[cfg(test)]
@@ -317,7 +314,7 @@ mod tests {
             let (rem, res) = res.unwrap();
             assert_eq!(rem, b"");
             let res_reference = test.1.iter().map(|&x| x).collect::<HashMap<_, _>>();
-            assert_eq!(res.params, res_reference);
+            assert_eq!(res.0, res_reference);
         }
     }
 }
