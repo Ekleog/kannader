@@ -138,11 +138,8 @@ named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
         ),
         do_parse!(
             eat_spaces >>
-            key: recognize!(preceded!(one_of!(alnum!()), is_a!(alnumdash!()))) >>
-            value: opt!(preceded!(tag!("="),
-                recognize!(preceded!(one_of!(graph_except_equ!()),
-                                     is_a!(graph_except_equ!())))
-            )) >>
+            key: recognize!(preceded!(one_of!(alnum!()), opt!(is_a!(alnumdash!())))) >>
+            value: opt!(complete!(preceded!(tag!("="), is_a!(graph_except_equ!())))) >>
             (key, value)
         )
     ) >>
@@ -311,11 +308,12 @@ mod tests {
             (b"key=value SP key2=value2", &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))]),
             (b"KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
                 &[(b"KeY2", Some(b"V4\"l\\u@e.z")), (b"0tterkeyz", Some(b"very_muchWh4t3ver"))]),
+            (b"NoValueKey", &[(b"NoValueKey", None)]),
+            (b"A SP B", &[(b"A", None), (b"B", None)]),
+            (b"A=B SP C SP D=SP", &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))]),
         ];
         for test in tests {
-            println!("test: {}", bytes_to_dbg(test.0));
             let res = sp_parameters(test.0);
-            println!("res: {:?}", res);
             let (rem, res) = res.unwrap();
             assert_eq!(rem, b"");
             let res_reference = test.1.iter().map(|&x| x).collect::<HashMap<_, _>>();
