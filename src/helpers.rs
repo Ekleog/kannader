@@ -30,11 +30,8 @@ pub struct DbgBytes<'a>(&'a [u8]);
 
 impl<'a> fmt::Debug for DbgBytes<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Ok(s) = str::from_utf8(self.0) {
-            write!(f, "b\"{}\"", s.chars().flat_map(|x| x.escape_default()).collect::<String>())
-        } else {
-            write!(f, "{:?}", self.0)
-        }
+        write!(f, "b\"{}\"",
+               self.0.iter().flat_map(|x| char::from(*x).escape_default()).collect::<String>())
     }
 }
 
