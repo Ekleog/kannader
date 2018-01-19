@@ -36,7 +36,7 @@ impl<'a> HeloCommand<'a> {
 
 impl<'a> fmt::Debug for HeloCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "HeloCommand {{ domain: {} }}", bytes_to_dbg(self.domain))
+        write!(f, "HeloCommand {{ domain: {:?} }}", bytes_to_dbg(self.domain))
     }
 }
 

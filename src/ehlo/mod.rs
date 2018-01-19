@@ -36,7 +36,7 @@ impl<'a> EhloCommand<'a> {
 
 impl<'a> fmt::Debug for EhloCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "EhloCommand {{ domain: {} }}", bytes_to_dbg(self.domain))
+        write!(f, "EhloCommand {{ domain: {:?} }}", bytes_to_dbg(self.domain))
     }
 }
 

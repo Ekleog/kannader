@@ -78,13 +78,8 @@ impl<'a> Reply<'a> {
 
 impl<'a> fmt::Debug for Reply<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let mut res = "vec![".to_owned();
-        for i in 0..self.lines.len() {
-            res += &bytes_to_dbg(self.lines[i]);
-            if i != self.lines.len() - 1 { res += ", " }
-        }
-        res += "]";
-        write!(f, "Reply {{ num: {}, lines: {} }}", self.num, res)
+        write!(f, "Reply {{ num: {}, lines: {:?} }}",
+               self.num, self.lines.iter().map(|x| bytes_to_dbg(*x)).collect::<Vec<_>>())
     }
 }
 

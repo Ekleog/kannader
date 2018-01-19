@@ -26,7 +26,7 @@ impl<'a> NoopCommand<'a> {
 
 impl<'a> fmt::Debug for NoopCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "NoopCommand {{ string: {} }}", bytes_to_dbg(self.string))
+        write!(f, "NoopCommand {{ string: {:?} }}", bytes_to_dbg(self.string))
     }
 }
 

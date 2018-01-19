@@ -25,7 +25,7 @@ impl<'a> ExpnCommand<'a> {
 
 impl<'a> fmt::Debug for ExpnCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "ExpnCommand {{ name: {} }}", bytes_to_dbg(self.name))
+        write!(f, "ExpnCommand {{ name: {:?} }}", bytes_to_dbg(self.name))
     }
 }
 

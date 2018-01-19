@@ -45,7 +45,7 @@ impl<'a> MailCommand<'a> {
 
 impl<'a> fmt::Debug for MailCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "MailCommand {{ from: {}, params: {:?} }}",
+        write!(f, "MailCommand {{ from: {:?}, params: {:?} }}",
             bytes_to_dbg(self.from),
             self.params.as_ref().map(|x|
                 x.0.iter().map(|(k, v)|

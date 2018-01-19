@@ -57,9 +57,9 @@ impl<'a> Email<'a> {
 
 impl<'a> fmt::Debug for Email<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Email {{ localpart: {}, hostname: {} }}",
+        write!(f, "Email {{ localpart: {:?}, hostname: {:?} }}",
                bytes_to_dbg(self.localpart),
-               self.hostname.map_or("None".to_owned(), |x| format!("Some({})", bytes_to_dbg(x))))
+               self.hostname.map(bytes_to_dbg))
     }
 }
 

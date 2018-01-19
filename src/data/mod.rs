@@ -25,8 +25,8 @@ impl<'a> ActualData<'a> {
 impl<'a> fmt::Debug for ActualData<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &ActualData::Owned(ref v) => write!(f, "ActualData::Owned({})", bytes_to_dbg(v)),
-            &ActualData::Borrowing(v) => write!(f, "ActualData::Borrowing({})", bytes_to_dbg(v)),
+            &ActualData::Owned(ref v) => write!(f, "ActualData::Owned({:?})", bytes_to_dbg(v)),
+            &ActualData::Borrowing(v) => write!(f, "ActualData::Borrowing({:?})", bytes_to_dbg(v)),
         }
     }
 }

@@ -25,7 +25,7 @@ impl<'a> VrfyCommand<'a> {
 
 impl<'a> fmt::Debug for VrfyCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "VrfyCommand {{ name: {} }}", bytes_to_dbg(self.name))
+        write!(f, "VrfyCommand {{ name: {:?} }}", bytes_to_dbg(self.name))
     }
 }
 
