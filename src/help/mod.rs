@@ -26,7 +26,11 @@ impl<'a> HelpCommand<'a> {
 
 impl<'a> fmt::Debug for HelpCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "HelpCommand {{ subject: {:?} }}", bytes_to_dbg(self.subject))
+        write!(
+            f,
+            "HelpCommand {{ subject: {:?} }}",
+            bytes_to_dbg(self.subject)
+        )
     }
 }
 
@@ -47,15 +51,12 @@ mod tests {
     #[test]
     fn valid_command_help_args() {
         let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], HelpCommand {
-                subject: &b"hello.world \t "[..],
-            }),
-            (&b"\r\n"[..], HelpCommand {
-                subject: &b""[..],
-            }),
-            (&b" \r\n"[..], HelpCommand {
-                subject: &b""[..],
-            }),
+            (
+                &b" \t hello.world \t \r\n"[..],
+                HelpCommand { subject: &b"hello.world \t "[..] }
+            ),
+            (&b"\r\n"[..], HelpCommand { subject: &b""[..] }),
+            (&b" \r\n"[..], HelpCommand { subject: &b""[..] }),
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_help_args(s), IResult::Done(&b""[..], r));

@@ -9,7 +9,7 @@ use helpers::*;
 pub struct Reply<'a> {
     num: u16,
     is_last: bool,
-    line: &'a [u8]
+    line: &'a [u8],
 }
 
 macro_rules! reply_builder_function {
@@ -24,16 +24,18 @@ impl<'a> Reply<'a> {
     // Parse one line of SMTP reply
     pub fn parse(arg: &[u8]) -> Result<(Reply, &[u8]), ParseError> {
         match reply(arg) {
-            IResult::Done(rem, res)  => Ok((res, rem)),
-            IResult::Error(e)        => Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n)   => Err(ParseError::IncompleteString(n)),
+            IResult::Done(rem, res) => Ok((res, rem)),
+            IResult::Error(e) => Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
         }
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
-        let code = &[((self.num % 1000) / 100) as u8 + b'0',
-                     ((self.num % 100 ) / 10 ) as u8 + b'0',
-                     ((self.num % 10  )      ) as u8 + b'0'];
+        let code = &[
+            ((self.num % 1000) / 100) as u8 + b'0',
+            ((self.num % 100) / 10) as u8 + b'0',
+            ((self.num % 10)) as u8 + b'0',
+        ];
         w.write_all(code)?;
         w.write_all(if self.is_last { b" " } else { b"-" })?;
         w.write_all(self.line)?;
@@ -69,8 +71,13 @@ impl<'a> Reply<'a> {
 
 impl<'a> fmt::Debug for Reply<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Reply {{ num: {}, is_last: {}, line: {:?} }}",
-               self.num, self.is_last, bytes_to_dbg(self.line))
+        write!(
+            f,
+            "Reply {{ num: {}, is_last: {}, line: {:?} }}",
+            self.num,
+            self.is_last,
+            bytes_to_dbg(self.line)
+        )
     }
 }
 
@@ -92,7 +99,14 @@ mod tests {
     #[test]
     fn reply_not_last() {
         let r = Reply::r220_service_ready(false, b"hello world!");
-        assert_eq!(r, Reply { num: 220, is_last: false, line: b"hello world!" });
+        assert_eq!(
+            r,
+            Reply {
+                num: 220,
+                is_last: false,
+                line: b"hello world!",
+            }
+        );
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
@@ -102,7 +116,14 @@ mod tests {
     #[test]
     fn reply_last() {
         let r = Reply::r502_command_unimplemented(true, b"test");
-        assert_eq!(r, Reply { num: 502, is_last: true, line: b"test" });
+        assert_eq!(
+            r,
+            Reply {
+                num: 502,
+                is_last: true,
+                line: b"test",
+            }
+        );
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
@@ -120,7 +141,10 @@ mod tests {
         assert_eq!(Reply::r252_cannot_vrfy_but_please_try(true, b"").num, 252);
         assert_eq!(Reply::r354_start_mail_input(true, b"").num, 354);
         assert_eq!(Reply::r421_service_not_available(true, b"").num, 421);
-        assert_eq!(Reply::r450_mailbox_temporarily_unavailable(true, b"").num, 450);
+        assert_eq!(
+            Reply::r450_mailbox_temporarily_unavailable(true, b"").num,
+            450
+        );
         assert_eq!(Reply::r451_local_error(true, b"").num, 451);
         assert_eq!(Reply::r452_insufficient_storage(true, b"").num, 452);
         assert_eq!(Reply::r455_unable_to_accept_parameters(true, b"").num, 455);
@@ -135,32 +159,47 @@ mod tests {
         assert_eq!(Reply::r552_exceeded_storage(true, b"").num, 552);
         assert_eq!(Reply::r553_mailbox_name_incorrect(true, b"").num, 553);
         assert_eq!(Reply::r554_transaction_failed(true, b"").num, 554);
-        assert_eq!(Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").num, 555);
+        assert_eq!(
+            Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").num,
+            555
+        );
     }
 
     #[test]
     fn parse_ok() {
         let tests: &[(&[u8], Reply)] = &[
-            (b"250 All is well\r\n", Reply {
-                num: 250,
-                is_last: true,
-                line: b"All is well",
-            }),
-            (b"450-Temporary\r\n", Reply {
-                num: 450,
-                is_last: false,
-                line: b"Temporary",
-            }),
-            (b"354-Please do start input now\r\n", Reply {
-                num: 354,
-                is_last: false,
-                line: b"Please do start input now",
-            }),
-            (b"550 Something is really very wrong!\r\n", Reply {
-                num: 550,
-                is_last: true,
-                line: b"Something is really very wrong!",
-            }),
+            (
+                b"250 All is well\r\n",
+                Reply {
+                    num: 250,
+                    is_last: true,
+                    line: b"All is well",
+                },
+            ),
+            (
+                b"450-Temporary\r\n",
+                Reply {
+                    num: 450,
+                    is_last: false,
+                    line: b"Temporary",
+                },
+            ),
+            (
+                b"354-Please do start input now\r\n",
+                Reply {
+                    num: 354,
+                    is_last: false,
+                    line: b"Please do start input now",
+                },
+            ),
+            (
+                b"550 Something is really very wrong!\r\n",
+                Reply {
+                    num: 550,
+                    is_last: true,
+                    line: b"Something is really very wrong!",
+                },
+            ),
         ];
         for test in tests {
             assert_eq!(reply(test.0), IResult::Done(&b""[..], test.1.clone()));

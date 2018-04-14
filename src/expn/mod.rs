@@ -45,9 +45,10 @@ mod tests {
     #[test]
     fn valid_command_expn_args() {
         let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], ExpnCommand {
-                name: &b" \t hello.world \t "[..],
-            }),
+            (
+                &b" \t hello.world \t \r\n"[..],
+                ExpnCommand { name: &b" \t hello.world \t "[..] }
+            ),
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_expn_args(s), IResult::Done(&b""[..], r));

@@ -45,9 +45,10 @@ mod tests {
     #[test]
     fn valid_command_vrfy_args() {
         let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], VrfyCommand {
-                name: &b" \t hello.world \t "[..],
-            }),
+            (
+                &b" \t hello.world \t \r\n"[..],
+                VrfyCommand { name: &b" \t hello.world \t "[..] }
+            ),
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_vrfy_args(s), IResult::Done(&b""[..], r));

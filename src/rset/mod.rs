@@ -36,14 +36,12 @@ mod tests {
 
     #[test]
     fn valid_command_rset_args() {
-        let tests = vec![
-            &b" \t  \t \r\n"[..],
-            &b"\r\n"[..],
-        ];
+        let tests = vec![&b" \t  \t \r\n"[..], &b"\r\n"[..]];
         for test in tests.into_iter() {
-            assert_eq!(command_rset_args(test), IResult::Done(&b""[..], RsetCommand {
-                _useless: ()
-            }));
+            assert_eq!(
+                command_rset_args(test),
+                IResult::Done(&b""[..], RsetCommand { _useless: () })
+            );
         }
     }
 

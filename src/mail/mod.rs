@@ -12,18 +12,22 @@ pub struct MailCommand<'a> {
 }
 
 impl<'a> MailCommand<'a> {
-    pub fn new<'b>(from: &'b [u8], params: Option<SpParameters<'b>>)
-            -> Result<MailCommand<'b>, ParseError> {
+    pub fn new<'b>(
+        from: &'b [u8],
+        params: Option<SpParameters<'b>>,
+    ) -> Result<MailCommand<'b>, ParseError> {
         match email(from) {
-            IResult::Done(b"", _)  => Ok(MailCommand { from, params }),
-            IResult::Done(rem, _)  => Err(ParseError::DidNotConsumeEverything(rem.len())),
-            IResult::Error(e)      => Err(ParseError::ParseError(e)),
+            IResult::Done(b"", _) => Ok(MailCommand { from, params }),
+            IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
+            IResult::Error(e) => Err(ParseError::ParseError(e)),
             IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
         }
     }
 
-    pub unsafe fn with_raw_from<'b>(from: &'b [u8], params: Option<SpParameters<'b>>)
-            -> MailCommand<'b> {
+    pub unsafe fn with_raw_from<'b>(
+        from: &'b [u8],
+        params: Option<SpParameters<'b>>,
+    ) -> MailCommand<'b> {
         MailCommand { from, params }
     }
 
@@ -45,13 +49,16 @@ impl<'a> MailCommand<'a> {
 
 impl<'a> fmt::Debug for MailCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "MailCommand {{ from: {:?}, params: {:?} }}",
+        write!(
+            f,
+            "MailCommand {{ from: {:?}, params: {:?} }}",
             bytes_to_dbg(self.from),
-            self.params.as_ref().map(|x|
-                x.0.iter().map(|(k, v)|
-                    (bytes_to_dbg(k), v.map(bytes_to_dbg))
-                ).collect::<HashMap<_, _>>()
-            )
+            self.params.as_ref().map(|x| {
+                x.0
+                    .iter()
+                    .map(|(k, v)| (bytes_to_dbg(k), v.map(bytes_to_dbg)))
+                    .collect::<HashMap<_, _>>()
+            })
         )
     }
 }
@@ -86,24 +93,38 @@ mod tests {
     #[test]
     fn valid_command_mail_args() {
         let tests = vec![
-            (&b" FROM:<@one,@two:foo@bar.baz>\r\n"[..], MailCommand {
-                from: &b"foo@bar.baz"[..],
-                params: None,
-            }),
-            (&b"FrOm: quux@example.net  \t \r\n"[..], MailCommand {
-                from: &b"quux@example.net"[..],
-                params: None,
-            }),
-            (&b"FROM:<>\r\n"[..], MailCommand {
-                from: &b""[..],
-                params: None,
-            }),
-            (&b"FROM:<> SP hello=world SP foo\r\n"[..], MailCommand {
-                from: &b""[..],
-                params: Some(SpParameters(
-                                vec![(&b"hello"[..], Some(&b"world"[..])), (b"foo", None)]
-                                    .into_iter().collect())),
-            }),
+            (
+                &b" FROM:<@one,@two:foo@bar.baz>\r\n"[..],
+                MailCommand {
+                    from: &b"foo@bar.baz"[..],
+                    params: None,
+                }
+            ),
+            (
+                &b"FrOm: quux@example.net  \t \r\n"[..],
+                MailCommand {
+                    from: &b"quux@example.net"[..],
+                    params: None,
+                }
+            ),
+            (
+                &b"FROM:<>\r\n"[..],
+                MailCommand {
+                    from: &b""[..],
+                    params: None,
+                }
+            ),
+            (
+                &b"FROM:<> SP hello=world SP foo\r\n"[..],
+                MailCommand {
+                    from: &b""[..],
+                    params: Some(SpParameters(
+                        vec![(&b"hello"[..], Some(&b"world"[..])), (b"foo", None)]
+                            .into_iter()
+                            .collect(),
+                    )),
+                }
+            ),
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_mail_args(s), IResult::Done(&b""[..], r));
@@ -119,7 +140,10 @@ mod tests {
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(b"foo@bar.baz", None).unwrap().send_to(&mut v).unwrap();
+        MailCommand::new(b"foo@bar.baz", None)
+            .unwrap()
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
         assert!(MailCommand::new(b"foo@", None).is_err());
@@ -129,7 +153,9 @@ mod tests {
         assert!(MailCommand::new(b"\"foo@bar.baz", None).is_err());
 
         v = Vec::new();
-        unsafe { MailCommand::with_raw_from(b"foo@", None) }.send_to(&mut v).unwrap();
+        unsafe { MailCommand::with_raw_from(b"foo@", None) }
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@>\r\n");
     }
 }

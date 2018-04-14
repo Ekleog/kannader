@@ -49,12 +49,17 @@ mod tests {
 
     #[test]
     fn valid_command_rcpt_args() {
-        let tests: Vec<(&[u8], &[u8], Option<&[u8]>)> = vec![
-            (b" TO:<@one,@two:foo@bar.baz>\r\n", b"foo", Some(b"bar.baz")),
-            (b"tO: quux@example.net  \t \r\n", b"quux", Some(b"example.net")),
-            (b"TO:<Postmaster>\r\n", b"Postmaster", None),
-            (b"TO: \t poStmaster\r\n", b"poStmaster", None),
-        ];
+        let tests: Vec<(&[u8], &[u8], Option<&[u8]>)> =
+            vec![
+                (b" TO:<@one,@two:foo@bar.baz>\r\n", b"foo", Some(b"bar.baz")),
+                (
+                    b"tO: quux@example.net  \t \r\n",
+                    b"quux",
+                    Some(b"example.net")
+                ),
+                (b"TO:<Postmaster>\r\n", b"Postmaster", None),
+                (b"TO: \t poStmaster\r\n", b"poStmaster", None),
+            ];
         for (s, l, h) in tests.into_iter() {
             let res = command_rcpt_args(s).unwrap().1;
             assert_eq!(res.to().raw_localpart(), l);
@@ -65,11 +70,15 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        RcptCommand::new(Email::new(b"foo", Some(b"bar.com"))).send_to(&mut v).unwrap();
+        RcptCommand::new(Email::new(b"foo", Some(b"bar.com")))
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");
 
         v = Vec::new();
-        RcptCommand::new(Email::new(b"Postmaster", None)).send_to(&mut v).unwrap();
+        RcptCommand::new(Email::new(b"Postmaster", None))
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"RCPT TO:<Postmaster>\r\n");
     }
 }
