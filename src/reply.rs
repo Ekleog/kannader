@@ -8,21 +8,20 @@ use helpers::*;
 #[derive(Clone)]
 pub struct Reply<'a> {
     num: u16,
-    lines: Vec<&'a [u8]>
+    is_last: bool,
+    line: &'a [u8]
 }
 
 macro_rules! reply_builder_function {
     ($code:tt, $fun:ident) => {
-        pub fn $fun<'b>(lines: Vec<&'b [u8]>) -> Reply<'b> {
-            Reply {
-                num: $code,
-                lines: lines,
-            }
+        pub fn $fun<'b>(is_last: bool, line: &'b [u8]) -> Reply<'b> {
+            Reply { num: $code, is_last, line }
         }
     }
 }
 
 impl<'a> Reply<'a> {
+    // Parse one line of SMTP reply
     pub fn parse(arg: &[u8]) -> Result<(Reply, &[u8]), ParseError> {
         match reply(arg) {
             IResult::Done(rem, res)  => Ok((res, rem)),
@@ -35,17 +34,9 @@ impl<'a> Reply<'a> {
         let code = &[((self.num % 1000) / 100) as u8 + b'0',
                      ((self.num % 100 ) / 10 ) as u8 + b'0',
                      ((self.num % 10  )      ) as u8 + b'0'];
-        for i in 0..(self.lines.len() - 1) {
-            w.write_all(code)?;
-            w.write_all(b"-")?;
-            w.write_all(self.lines[i])?;
-            w.write_all(b"\r\n")?;
-        }
         w.write_all(code)?;
-        w.write_all(b" ")?;
-        if let Some(last) = self.lines.last() {
-            w.write_all(last)?;
-        }
+        w.write_all(if self.is_last { b" " } else { b"-" })?;
+        w.write_all(self.line)?;
         w.write_all(b"\r\n")
     }
 
@@ -78,35 +69,20 @@ impl<'a> Reply<'a> {
 
 impl<'a> fmt::Debug for Reply<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Reply {{ num: {}, lines: {:?} }}",
-               self.num, self.lines.iter().map(|x| bytes_to_dbg(*x)).collect::<Vec<_>>())
+        write!(f, "Reply {{ num: {}, is_last: {}, line: {:?} }}",
+               self.num, self.is_last, bytes_to_dbg(self.line))
     }
 }
 
 named!(pub reply(&[u8]) -> Reply, do_parse!(
-    num: peek!(verify!(
+    num: verify!(
              map_res!(
-                 map_res!(take!(3),
-                          |bytes| str::from_utf8(bytes).map(|utf8| (bytes, utf8))),
-                 |(bytes, utf8)| u16::from_str(utf8).map(|num| (bytes, num))),
-             |(bytes, num)| num < 1000)) >>
-    lines:  do_parse!(
-        lines: many0!(do_parse!(
-            tag!(num.0) >> tag!("-") >>
-            line: take_until_and_consume!("\r\n") >>
-            (line)
-        )) >>
-        tag!(num.0) >> tag!(" ") >> last_line: take_until_and_consume!("\r\n") >>
-        ({
-            let mut res = lines;
-            res.push(last_line);
-            res
-        })
-    ) >>
-    (Reply {
-        num: num.1,
-        lines,
-    })
+                 map_res!(take!(3), |bytes| str::from_utf8(bytes)),
+                 |utf8| u16::from_str(utf8)),
+             |num| num < 1000) >>
+    is_last: map!(alt!(tag!("-") | tag!(" ")), |b| b == b" ") >>
+    line: take_until_and_consume!("\r\n") >>
+    (Reply { num, is_last, line })
 ));
 
 #[cfg(test)]
@@ -114,21 +90,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reply_multiline() {
-        let text: Vec<&[u8]> = vec![b"hello", b"world", b"!"];
-        let r = Reply::r220_service_ready(text.clone());
-        assert_eq!(r, Reply { num: 220, lines: text });
+    fn reply_not_last() {
+        let r = Reply::r220_service_ready(false, b"hello world!");
+        assert_eq!(r, Reply { num: 220, is_last: false, line: b"hello world!" });
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
-        assert_eq!(res, b"220-hello\r\n220-world\r\n220 !\r\n");
+        assert_eq!(res, b"220-hello world!\r\n");
     }
 
     #[test]
-    fn reply_oneline() {
-        let text: Vec<&[u8]> = vec![b"test"];
-        let r = Reply::r502_command_unimplemented(text.clone());
-        assert_eq!(r, Reply { num: 502, lines: text });
+    fn reply_last() {
+        let r = Reply::r502_command_unimplemented(true, b"test");
+        assert_eq!(r, Reply { num: 502, is_last: true, line: b"test" });
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
@@ -137,31 +111,31 @@ mod tests {
 
     #[test]
     fn reply_codes() {
-        assert_eq!(Reply::r211_system_status(Vec::new()).num, 211);
-        assert_eq!(Reply::r214_help_message(Vec::new()).num, 214);
-        assert_eq!(Reply::r220_service_ready(Vec::new()).num, 220);
-        assert_eq!(Reply::r221_closing_channel(Vec::new()).num, 221);
-        assert_eq!(Reply::r250_okay(Vec::new()).num, 250);
-        assert_eq!(Reply::r251_user_not_local_will_forward(Vec::new()).num, 251);
-        assert_eq!(Reply::r252_cannot_vrfy_but_please_try(Vec::new()).num, 252);
-        assert_eq!(Reply::r354_start_mail_input(Vec::new()).num, 354);
-        assert_eq!(Reply::r421_service_not_available(Vec::new()).num, 421);
-        assert_eq!(Reply::r450_mailbox_temporarily_unavailable(Vec::new()).num, 450);
-        assert_eq!(Reply::r451_local_error(Vec::new()).num, 451);
-        assert_eq!(Reply::r452_insufficient_storage(Vec::new()).num, 452);
-        assert_eq!(Reply::r455_unable_to_accept_parameters(Vec::new()).num, 455);
-        assert_eq!(Reply::r500_command_unrecognized(Vec::new()).num, 500);
-        assert_eq!(Reply::r501_syntax_error(Vec::new()).num, 501);
-        assert_eq!(Reply::r502_command_unimplemented(Vec::new()).num, 502);
-        assert_eq!(Reply::r503_bad_sequence(Vec::new()).num, 503);
-        assert_eq!(Reply::r504_parameter_unimplemented(Vec::new()).num, 504);
-        assert_eq!(Reply::r550_mailbox_unavailable(Vec::new()).num, 550);
-        assert_eq!(Reply::r550_policy_reason(Vec::new()).num, 550);
-        assert_eq!(Reply::r551_user_not_local(Vec::new()).num, 551);
-        assert_eq!(Reply::r552_exceeded_storage(Vec::new()).num, 552);
-        assert_eq!(Reply::r553_mailbox_name_incorrect(Vec::new()).num, 553);
-        assert_eq!(Reply::r554_transaction_failed(Vec::new()).num, 554);
-        assert_eq!(Reply::r555_mail_or_rcpt_parameter_unimplemented(Vec::new()).num, 555);
+        assert_eq!(Reply::r211_system_status(true, b"").num, 211);
+        assert_eq!(Reply::r214_help_message(true, b"").num, 214);
+        assert_eq!(Reply::r220_service_ready(true, b"").num, 220);
+        assert_eq!(Reply::r221_closing_channel(true, b"").num, 221);
+        assert_eq!(Reply::r250_okay(true, b"").num, 250);
+        assert_eq!(Reply::r251_user_not_local_will_forward(true, b"").num, 251);
+        assert_eq!(Reply::r252_cannot_vrfy_but_please_try(true, b"").num, 252);
+        assert_eq!(Reply::r354_start_mail_input(true, b"").num, 354);
+        assert_eq!(Reply::r421_service_not_available(true, b"").num, 421);
+        assert_eq!(Reply::r450_mailbox_temporarily_unavailable(true, b"").num, 450);
+        assert_eq!(Reply::r451_local_error(true, b"").num, 451);
+        assert_eq!(Reply::r452_insufficient_storage(true, b"").num, 452);
+        assert_eq!(Reply::r455_unable_to_accept_parameters(true, b"").num, 455);
+        assert_eq!(Reply::r500_command_unrecognized(true, b"").num, 500);
+        assert_eq!(Reply::r501_syntax_error(true, b"").num, 501);
+        assert_eq!(Reply::r502_command_unimplemented(true, b"").num, 502);
+        assert_eq!(Reply::r503_bad_sequence(true, b"").num, 503);
+        assert_eq!(Reply::r504_parameter_unimplemented(true, b"").num, 504);
+        assert_eq!(Reply::r550_mailbox_unavailable(true, b"").num, 550);
+        assert_eq!(Reply::r550_policy_reason(true, b"").num, 550);
+        assert_eq!(Reply::r551_user_not_local(true, b"").num, 551);
+        assert_eq!(Reply::r552_exceeded_storage(true, b"").num, 552);
+        assert_eq!(Reply::r553_mailbox_name_incorrect(true, b"").num, 553);
+        assert_eq!(Reply::r554_transaction_failed(true, b"").num, 554);
+        assert_eq!(Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").num, 555);
     }
 
     #[test]
@@ -169,19 +143,23 @@ mod tests {
         let tests: &[(&[u8], Reply)] = &[
             (b"250 All is well\r\n", Reply {
                 num: 250,
-                lines: vec![b"All is well"],
+                is_last: true,
+                line: b"All is well",
             }),
-            (b"450-Temporary\r\n450 Failure\r\n", Reply {
+            (b"450-Temporary\r\n", Reply {
                 num: 450,
-                lines: vec![b"Temporary", b"Failure"],
+                is_last: false,
+                line: b"Temporary",
             }),
-            (b"354-Please do\r\n354-Start\r\n354 input now\r\n", Reply {
+            (b"354-Please do start input now\r\n", Reply {
                 num: 354,
-                lines: vec![b"Please do", b"Start", b"input now"],
+                is_last: false,
+                line: b"Please do start input now",
             }),
-            (b"550-Something\r\n550-Is\r\n550-Really\r\n550 Very wrong!\r\n", Reply {
+            (b"550 Something is really very wrong!\r\n", Reply {
                 num: 550,
-                lines: vec![b"Something", b"Is", b"Really", b"Very wrong!"],
+                is_last: true,
+                line: b"Something is really very wrong!",
             }),
         ];
         for test in tests {
