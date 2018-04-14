@@ -14,8 +14,14 @@ pub struct Reply<'a> {
 
 macro_rules! reply_builder_function {
     ($code:tt, $fun:ident) => {
-        pub fn $fun<'b>(is_last: bool, line: &'b [u8]) -> Reply<'b> {
-            Reply { num: $code, is_last, line }
+        pub fn $fun<'b>(is_last: bool, line: &'b [u8]) -> Result<Reply<'b>, BuildError> {
+            if line.len() > 506 {
+                Err(BuildError::LineTooLong { length: line.len(), limit: 506 })
+            } else if let Some(p) = line.iter().position(|&x| !(x == 9 || (x >= 32 && x <= 126))) {
+                Err(BuildError::DisallowedByte { b: line[p], pos: p })
+            } else {
+                Ok(Reply { num: $code, is_last, line })
+            }
         }
     }
 }
@@ -98,7 +104,7 @@ mod tests {
 
     #[test]
     fn reply_not_last() {
-        let r = Reply::r220_service_ready(false, b"hello world!");
+        let r = Reply::r220_service_ready(false, b"hello world!").unwrap();
         assert_eq!(
             r,
             Reply {
@@ -115,7 +121,7 @@ mod tests {
 
     #[test]
     fn reply_last() {
-        let r = Reply::r502_command_unimplemented(true, b"test");
+        let r = Reply::r502_command_unimplemented(true, b"test").unwrap();
         assert_eq!(
             r,
             Reply {
@@ -132,37 +138,80 @@ mod tests {
 
     #[test]
     fn reply_codes() {
-        assert_eq!(Reply::r211_system_status(true, b"").num, 211);
-        assert_eq!(Reply::r214_help_message(true, b"").num, 214);
-        assert_eq!(Reply::r220_service_ready(true, b"").num, 220);
-        assert_eq!(Reply::r221_closing_channel(true, b"").num, 221);
-        assert_eq!(Reply::r250_okay(true, b"").num, 250);
-        assert_eq!(Reply::r251_user_not_local_will_forward(true, b"").num, 251);
-        assert_eq!(Reply::r252_cannot_vrfy_but_please_try(true, b"").num, 252);
-        assert_eq!(Reply::r354_start_mail_input(true, b"").num, 354);
-        assert_eq!(Reply::r421_service_not_available(true, b"").num, 421);
+        assert_eq!(Reply::r211_system_status(true, b"").unwrap().num, 211);
+        assert_eq!(Reply::r214_help_message(true, b"").unwrap().num, 214);
+        assert_eq!(Reply::r220_service_ready(true, b"").unwrap().num, 220);
+        assert_eq!(Reply::r221_closing_channel(true, b"").unwrap().num, 221);
+        assert_eq!(Reply::r250_okay(true, b"").unwrap().num, 250);
         assert_eq!(
-            Reply::r450_mailbox_temporarily_unavailable(true, b"").num,
+            Reply::r251_user_not_local_will_forward(true, b"")
+                .unwrap()
+                .num,
+            251
+        );
+        assert_eq!(
+            Reply::r252_cannot_vrfy_but_please_try(true, b"")
+                .unwrap()
+                .num,
+            252
+        );
+        assert_eq!(Reply::r354_start_mail_input(true, b"").unwrap().num, 354);
+        assert_eq!(
+            Reply::r421_service_not_available(true, b"").unwrap().num,
+            421
+        );
+        assert_eq!(
+            Reply::r450_mailbox_temporarily_unavailable(true, b"")
+                .unwrap()
+                .num,
             450
         );
-        assert_eq!(Reply::r451_local_error(true, b"").num, 451);
-        assert_eq!(Reply::r452_insufficient_storage(true, b"").num, 452);
-        assert_eq!(Reply::r455_unable_to_accept_parameters(true, b"").num, 455);
-        assert_eq!(Reply::r500_command_unrecognized(true, b"").num, 500);
-        assert_eq!(Reply::r501_syntax_error(true, b"").num, 501);
-        assert_eq!(Reply::r502_command_unimplemented(true, b"").num, 502);
-        assert_eq!(Reply::r503_bad_sequence(true, b"").num, 503);
-        assert_eq!(Reply::r504_parameter_unimplemented(true, b"").num, 504);
-        assert_eq!(Reply::r550_mailbox_unavailable(true, b"").num, 550);
-        assert_eq!(Reply::r550_policy_reason(true, b"").num, 550);
-        assert_eq!(Reply::r551_user_not_local(true, b"").num, 551);
-        assert_eq!(Reply::r552_exceeded_storage(true, b"").num, 552);
-        assert_eq!(Reply::r553_mailbox_name_incorrect(true, b"").num, 553);
-        assert_eq!(Reply::r554_transaction_failed(true, b"").num, 554);
+        assert_eq!(Reply::r451_local_error(true, b"").unwrap().num, 451);
         assert_eq!(
-            Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").num,
+            Reply::r452_insufficient_storage(true, b"").unwrap().num,
+            452
+        );
+        assert_eq!(
+            Reply::r455_unable_to_accept_parameters(true, b"")
+                .unwrap()
+                .num,
+            455
+        );
+        assert_eq!(
+            Reply::r500_command_unrecognized(true, b"").unwrap().num,
+            500
+        );
+        assert_eq!(Reply::r501_syntax_error(true, b"").unwrap().num, 501);
+        assert_eq!(
+            Reply::r502_command_unimplemented(true, b"").unwrap().num,
+            502
+        );
+        assert_eq!(Reply::r503_bad_sequence(true, b"").unwrap().num, 503);
+        assert_eq!(
+            Reply::r504_parameter_unimplemented(true, b"").unwrap().num,
+            504
+        );
+        assert_eq!(Reply::r550_mailbox_unavailable(true, b"").unwrap().num, 550);
+        assert_eq!(Reply::r550_policy_reason(true, b"").unwrap().num, 550);
+        assert_eq!(Reply::r551_user_not_local(true, b"").unwrap().num, 551);
+        assert_eq!(Reply::r552_exceeded_storage(true, b"").unwrap().num, 552);
+        assert_eq!(
+            Reply::r553_mailbox_name_incorrect(true, b"").unwrap().num,
+            553
+        );
+        assert_eq!(Reply::r554_transaction_failed(true, b"").unwrap().num, 554);
+        assert_eq!(
+            Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"")
+                .unwrap()
+                .num,
             555
         );
+    }
+
+    #[test]
+    fn refuse_build() {
+        assert!(Reply::r552_exceeded_storage(true, &vec![b'a'; 1000]).is_err());
+        assert!(Reply::r552_exceeded_storage(true, b"\r").is_err());
     }
 
     #[test]
