@@ -1,4 +1,4 @@
-use std::{fmt, str};
+use std::fmt;
 use nom;
 use nom::Needed;
 
