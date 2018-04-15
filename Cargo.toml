@@ -2,5 +2,10 @@
 name = "smtp-server"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "SMTP server library using tokio"
 
 [dependencies]
+smtp-message = { version = "0.1.0", path = "../smtp-message" }
