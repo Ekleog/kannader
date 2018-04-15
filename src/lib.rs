@@ -18,8 +18,8 @@ pub struct Refusal {
     msg: String,
 }
 
-pub enum Decision {
-    Accept,
+pub enum Decision<T> {
+    Accept(T),
     Reject(Refusal),
 }
 
@@ -27,9 +27,26 @@ pub fn interact<
     Reader: AsyncRead + BufRead,
     Writer: AsyncWrite,
     State,
-    FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Result<State, Refusal>,
+    FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Decision<State>,
     FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata, &MailMetadata)
-                    -> Result<State, Refusal>,
-    HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision,
->(incoming: Reader, outgoing: Writer, filter_from: FilterFrom, filter_to: FilterTo, handler: HandleMail){
+          -> Decision<State>,
+    HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision<()>,
+>(incoming: Reader, outgoing: Writer, filter_from: FilterFrom, filter_to: FilterTo,
+    handler: HandleMail) {
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io::Cursor;
+
+    #[test]
+    fn it_works() {
+        let mut cursor = Cursor::new(Vec::new());
+        interact(&b"foo bar"[..], cursor,
+                 |_, _| Decision::Accept(()),
+                 |_, _, _, _| Decision::Accept(()),
+                 |_, _, _| Decision::Reject(Refusal { code: 550, msg: "foo".to_owned() }));
+    }
 }
