@@ -9,3 +9,4 @@ description = "SMTP server library using tokio"
 
 [dependencies]
 smtp-message = { version = "0.1.0", path = "../smtp-message" }
+tokio = "0.1.5"
