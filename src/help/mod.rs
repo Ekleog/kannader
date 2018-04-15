@@ -26,11 +26,7 @@ impl<'a> HelpCommand<'a> {
 
 impl<'a> fmt::Debug for HelpCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "HelpCommand {{ subject: {:?} }}",
-            bytes_to_dbg(self.subject)
-        )
+        write!(f, "HelpCommand {{ subject: {:?} }}", bytes_to_dbg(self.subject))
     }
 }
 

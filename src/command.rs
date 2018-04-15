@@ -76,59 +76,39 @@ mod tests {
             vec![
                 (
                     &b"DATA\r\n"[..],
-                    Box::new(|x| if let Command::Data(_) = x {
-                        true
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Data(_) = x { true } else { false })
                 ),
                 (
                     &b"EHLO foo.bar.baz\r\n"[..],
-                    Box::new(|x| if let Command::Ehlo(r) = x {
-                        r.domain() == b"foo.bar.baz"
-                    } else {
-                        false
-                    })
+                    Box::new(
+                        |x| if let Command::Ehlo(r) = x { r.domain() == b"foo.bar.baz" } else { false },
+                    )
                 ),
                 (
                     &b"EXPN mailing.list \r\n"[..],
-                    Box::new(|x| if let Command::Expn(r) = x {
-                        r.name() == b"mailing.list "
-                    } else {
-                        false
-                    })
+                    Box::new(
+                        |x| if let Command::Expn(r) = x { r.name() == b"mailing.list " } else { false },
+                    )
                 ),
                 (
                     &b"HELO foo.bar.baz\r\n"[..],
-                    Box::new(|x| if let Command::Helo(r) = x {
-                        r.domain() == b"foo.bar.baz"
-                    } else {
-                        false
-                    })
+                    Box::new(
+                        |x| if let Command::Helo(r) = x { r.domain() == b"foo.bar.baz" } else { false },
+                    )
                 ),
                 (
                     &b"HELP foo.bar.baz\r\n"[..],
-                    Box::new(|x| if let Command::Help(r) = x {
-                        r.subject() == b"foo.bar.baz"
-                    } else {
-                        false
-                    })
+                    Box::new(
+                        |x| if let Command::Help(r) = x { r.subject() == b"foo.bar.baz" } else { false },
+                    )
                 ),
                 (
                     &b"HELP \r\n"[..],
-                    Box::new(|x| if let Command::Help(r) = x {
-                        r.subject() == b""
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Help(r) = x { r.subject() == b"" } else { false })
                 ),
                 (
                     &b"HELP\r\n"[..],
-                    Box::new(|x| if let Command::Help(r) = x {
-                        r.subject() == b""
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Help(r) = x { r.subject() == b"" } else { false })
                 ),
                 (
                     &b"MAIL FROM:<hello@world.example>\r\n"[..],
@@ -140,19 +120,11 @@ mod tests {
                 ),
                 (
                     &b"NOOP\r\n"[..],
-                    Box::new(|x| if let Command::Noop(_) = x {
-                        true
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Noop(_) = x { true } else { false })
                 ),
                 (
                     &b"QUIT\r\n"[..],
-                    Box::new(|x| if let Command::Quit(_) = x {
-                        true
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Quit(_) = x { true } else { false })
                 ),
                 (
                     &b"rCpT To: foo@bar.baz\r\n"[..],
@@ -172,27 +144,15 @@ mod tests {
                 ),
                 (
                     &b"RSET\r\n"[..],
-                    Box::new(|x| if let Command::Rset(_) = x {
-                        true
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Rset(_) = x { true } else { false })
                 ),
                 (
                     &b"RsEt \t \r\n"[..],
-                    Box::new(|x| if let Command::Rset(_) = x {
-                        true
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Rset(_) = x { true } else { false })
                 ),
                 (
                     &b"VRFY  root\r\n"[..],
-                    Box::new(|x| if let Command::Vrfy(r) = x {
-                        r.name() == b" root"
-                    } else {
-                        false
-                    })
+                    Box::new(|x| if let Command::Vrfy(r) = x { r.name() == b" root" } else { false })
                 ),
             ];
         for (s, r) in tests.into_iter() {
@@ -203,9 +163,7 @@ mod tests {
     #[test]
     pub fn do_send_ok() {
         let mut v = Vec::new();
-        Command::Vrfy(VrfyCommand::new(b"fubar"))
-            .send_to(&mut v)
-            .unwrap();
+        Command::Vrfy(VrfyCommand::new(b"fubar")).send_to(&mut v).unwrap();
         assert_eq!(v, b"VRFY fubar\r\n");
     }
 }

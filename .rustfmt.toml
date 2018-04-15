@@ -1,0 +1,14 @@
+error_on_line_overflow = false
+fn_call_width = 80
+chain_one_line_max = 80
+single_line_if_else_max_width = 80
+struct_lit_width = 30
+fn_args_density = "Compressed"
+fn_args_layout = "Visual"
+reorder_imports = true
+reorder_imports_in_group = true
+reorder_imported_names = true
+format_strings = true
+wrap_comments = true
+normalize_comments = true
+use_try_shorthand = true

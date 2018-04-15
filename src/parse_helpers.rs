@@ -21,19 +21,17 @@ pub struct Email<'a> {
 
 impl<'a> Email<'a> {
     pub fn new<'b>(localpart: &'b [u8], hostname: Option<&'b [u8]>) -> Email<'b> {
-        Email {
-            localpart,
-            hostname,
-        }
+        Email { localpart, hostname }
     }
 
     pub fn raw_localpart(&self) -> &[u8] {
         self.localpart
     }
 
-    // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for details
-    // This is a canonicalized version of the potentially quoted localpart, not designed to be
-    // sent over the wire as it is no longer correctly quoted
+    // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for
+    // details.
+    // This is a canonicalized version of the potentially quoted localpart, not
+    // designed to be sent over the wire as it is no longer correctly quoted
     pub fn localpart(&self) -> Vec<u8> {
         if self.localpart[0] != b'"' {
             self.localpart.to_owned()
@@ -270,10 +268,7 @@ mod tests {
             vec![
                 (b"t+e-s.t_i+n-g@foo.bar.baz ", b"t+e-s.t_i+n-g"),
                 (br#""quoted\"example"@example.org "#, br#"quoted"example"#),
-                (
-                    br#""escaped\\exa\mple"@example.org "#,
-                    br#"escaped\example"#
-                ),
+                (br#""escaped\\exa\mple"@example.org "#, br#"escaped\example"#),
             ];
         for (s, r) in tests {
             assert_eq!(email(s).unwrap().1.localpart(), r);
@@ -348,10 +343,7 @@ mod tests {
             )),
         ];
         for test in tests {
-            assert_eq!(
-                address_in_maybe_bracketed_path(test.0),
-                IResult::Done(&b""[..], test.1)
-            );
+            assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
         }
     }
 
@@ -373,10 +365,7 @@ mod tests {
                 ),
                 (b"NoValueKey", &[(b"NoValueKey", None)]),
                 (b"A SP B", &[(b"A", None), (b"B", None)]),
-                (
-                    b"A=B SP C SP D=SP",
-                    &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))],
-                ),
+                (b"A=B SP C SP D=SP", &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))]),
             ];
         for test in tests {
             let res = sp_parameters(test.0);

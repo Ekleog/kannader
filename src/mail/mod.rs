@@ -1,6 +1,6 @@
+use nom::{IResult, crlf};
 use std::{fmt, io};
 use std::collections::HashMap;
-use nom::{crlf, IResult};
 
 use helpers::*;
 use parse_helpers::*;
@@ -12,10 +12,8 @@ pub struct MailCommand<'a> {
 }
 
 impl<'a> MailCommand<'a> {
-    pub fn new<'b>(
-        from: &'b [u8],
-        params: Option<SpParameters<'b>>,
-    ) -> Result<MailCommand<'b>, ParseError> {
+    pub fn new<'b>(from: &'b [u8], params: Option<SpParameters<'b>>)
+                   -> Result<MailCommand<'b>, ParseError> {
         match email(from) {
             IResult::Done(b"", _) => Ok(MailCommand { from, params }),
             IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
@@ -24,10 +22,8 @@ impl<'a> MailCommand<'a> {
         }
     }
 
-    pub unsafe fn with_raw_from<'b>(
-        from: &'b [u8],
-        params: Option<SpParameters<'b>>,
-    ) -> MailCommand<'b> {
+    pub unsafe fn with_raw_from<'b>(from: &'b [u8], params: Option<SpParameters<'b>>)
+                                    -> MailCommand<'b> {
         MailCommand { from, params }
     }
 
@@ -63,13 +59,15 @@ impl<'a> fmt::Debug for MailCommand<'a> {
     }
 }
 
-// This parser actually drops the return-path portion of the parameter. This has been chosen after
-// considering that 1/ my ISP answers `501 5.1.0 Invalid Sender` when sent a MAIL FROM with a
-// return-path and 2/ anyway, clients SHOULD NOT use a hop-full return-path according to the RFC.
+// This parser actually drops the return-path portion of the parameter. This
+// has been chosen after considering that 1/ my ISP answers
+// `501 5.1.0 Invalid Sender` when sent a MAIL FROM with a return-path and
+// 2/ anyway, clients SHOULD NOT use a hop-full return-path according to the
+// RFC.
 //
-// So this is not in strict compliance with the RFC, but will likely turn out to be better for
-// interoperability. If you have a use case for strict compliance with the RFC, please by all means
-// submit an issue.
+// So this is not in strict compliance with the RFC, but will likely turn out
+// to be better for interoperability. If you have a use case for strict
+// compliance with the RFC, please by all means submit an issue.
 named!(pub command_mail_args(&[u8]) -> MailCommand,
     sep!(eat_spaces, do_parse!(
         tag_no_case!("FROM:") >>
@@ -107,13 +105,7 @@ mod tests {
                     params: None,
                 }
             ),
-            (
-                &b"FROM:<>\r\n"[..],
-                MailCommand {
-                    from: &b""[..],
-                    params: None,
-                }
-            ),
+            (&b"FROM:<>\r\n"[..], MailCommand { from: &b""[..], params: None }),
             (
                 &b"FROM:<> SP hello=world SP foo\r\n"[..],
                 MailCommand {
@@ -140,10 +132,7 @@ mod tests {
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(b"foo@bar.baz", None)
-            .unwrap()
-            .send_to(&mut v)
-            .unwrap();
+        MailCommand::new(b"foo@bar.baz", None).unwrap().send_to(&mut v).unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
         assert!(MailCommand::new(b"foo@", None).is_err());
@@ -153,9 +142,7 @@ mod tests {
         assert!(MailCommand::new(b"\"foo@bar.baz", None).is_err());
 
         v = Vec::new();
-        unsafe { MailCommand::with_raw_from(b"foo@", None) }
-            .send_to(&mut v)
-            .unwrap();
+        unsafe { MailCommand::with_raw_from(b"foo@", None) }.send_to(&mut v).unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@>\r\n");
     }
 }

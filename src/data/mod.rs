@@ -95,29 +95,17 @@ mod tests {
     #[test]
     fn valid_data_line_build() {
         assert_eq!(DataLine::new(b"").unwrap(), DataLine::Line(b""));
-        assert_eq!(
-            DataLine::new(b"foo bar").unwrap(),
-            DataLine::Line(b"foo bar")
-        );
+        assert_eq!(DataLine::new(b"foo bar").unwrap(), DataLine::Line(b"foo bar"));
         assert!(DataLine::new(b"foo\r\nbar").is_err());
     }
 
     #[test]
     fn valid_data_line_parse() {
-        assert_eq!(
-            DataLine::parse(b"foo bar\r\n").unwrap(),
-            DataLine::Line(b"foo bar")
-        );
+        assert_eq!(DataLine::parse(b"foo bar\r\n").unwrap(), DataLine::Line(b"foo bar"));
         assert_eq!(DataLine::parse(b"\r\n").unwrap(), DataLine::Line(b""));
-        assert_eq!(
-            DataLine::parse(b".baz\r\n").unwrap(),
-            DataLine::Line(b"baz")
-        );
+        assert_eq!(DataLine::parse(b".baz\r\n").unwrap(), DataLine::Line(b"baz"));
         assert_eq!(DataLine::parse(b".\r\n").unwrap(), DataLine::Eof);
-        assert_eq!(
-            DataLine::parse(b" .baz\r\n").unwrap(),
-            DataLine::Line(b" .baz")
-        );
+        assert_eq!(DataLine::parse(b" .baz\r\n").unwrap(), DataLine::Line(b" .baz"));
     }
 
     #[test]

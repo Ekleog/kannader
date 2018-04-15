@@ -1,6 +1,6 @@
+use nom::IResult;
 use std::{fmt, io, str};
 use std::str::FromStr;
-use nom::IResult;
 
 use helpers::*;
 
@@ -143,69 +143,26 @@ mod tests {
         assert_eq!(Reply::r220_service_ready(true, b"").unwrap().num, 220);
         assert_eq!(Reply::r221_closing_channel(true, b"").unwrap().num, 221);
         assert_eq!(Reply::r250_okay(true, b"").unwrap().num, 250);
-        assert_eq!(
-            Reply::r251_user_not_local_will_forward(true, b"")
-                .unwrap()
-                .num,
-            251
-        );
-        assert_eq!(
-            Reply::r252_cannot_vrfy_but_please_try(true, b"")
-                .unwrap()
-                .num,
-            252
-        );
+        assert_eq!(Reply::r251_user_not_local_will_forward(true, b"").unwrap().num, 251);
+        assert_eq!(Reply::r252_cannot_vrfy_but_please_try(true, b"").unwrap().num, 252);
         assert_eq!(Reply::r354_start_mail_input(true, b"").unwrap().num, 354);
-        assert_eq!(
-            Reply::r421_service_not_available(true, b"").unwrap().num,
-            421
-        );
-        assert_eq!(
-            Reply::r450_mailbox_temporarily_unavailable(true, b"")
-                .unwrap()
-                .num,
-            450
-        );
+        assert_eq!(Reply::r421_service_not_available(true, b"").unwrap().num, 421);
+        assert_eq!(Reply::r450_mailbox_temporarily_unavailable(true, b"").unwrap().num, 450);
         assert_eq!(Reply::r451_local_error(true, b"").unwrap().num, 451);
-        assert_eq!(
-            Reply::r452_insufficient_storage(true, b"").unwrap().num,
-            452
-        );
-        assert_eq!(
-            Reply::r455_unable_to_accept_parameters(true, b"")
-                .unwrap()
-                .num,
-            455
-        );
-        assert_eq!(
-            Reply::r500_command_unrecognized(true, b"").unwrap().num,
-            500
-        );
+        assert_eq!(Reply::r452_insufficient_storage(true, b"").unwrap().num, 452);
+        assert_eq!(Reply::r455_unable_to_accept_parameters(true, b"").unwrap().num, 455);
+        assert_eq!(Reply::r500_command_unrecognized(true, b"").unwrap().num, 500);
         assert_eq!(Reply::r501_syntax_error(true, b"").unwrap().num, 501);
-        assert_eq!(
-            Reply::r502_command_unimplemented(true, b"").unwrap().num,
-            502
-        );
+        assert_eq!(Reply::r502_command_unimplemented(true, b"").unwrap().num, 502);
         assert_eq!(Reply::r503_bad_sequence(true, b"").unwrap().num, 503);
-        assert_eq!(
-            Reply::r504_parameter_unimplemented(true, b"").unwrap().num,
-            504
-        );
+        assert_eq!(Reply::r504_parameter_unimplemented(true, b"").unwrap().num, 504);
         assert_eq!(Reply::r550_mailbox_unavailable(true, b"").unwrap().num, 550);
         assert_eq!(Reply::r550_policy_reason(true, b"").unwrap().num, 550);
         assert_eq!(Reply::r551_user_not_local(true, b"").unwrap().num, 551);
         assert_eq!(Reply::r552_exceeded_storage(true, b"").unwrap().num, 552);
-        assert_eq!(
-            Reply::r553_mailbox_name_incorrect(true, b"").unwrap().num,
-            553
-        );
+        assert_eq!(Reply::r553_mailbox_name_incorrect(true, b"").unwrap().num, 553);
         assert_eq!(Reply::r554_transaction_failed(true, b"").unwrap().num, 554);
-        assert_eq!(
-            Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"")
-                .unwrap()
-                .num,
-            555
-        );
+        assert_eq!(Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").unwrap().num, 555);
     }
 
     #[test]
