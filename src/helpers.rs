@@ -1,6 +1,6 @@
 use std::fmt;
 use nom;
-use nom::Needed;
+use nom::{Needed, IResult};
 
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
@@ -10,6 +10,17 @@ pub enum ParseError {
         nom::Err
     ),
     IncompleteString(Needed),
+}
+
+pub fn nom_to_result<'a, T>(d: nom::IResult<&'a [u8], T>) -> Result<T, ParseError> {
+    match d {
+        IResult::Done(rem, res) => {
+            assert_eq!(rem, b"");
+            Ok(res)
+        }
+        IResult::Error(e) => Err(ParseError::ParseError(e)),
+        IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
+    }
 }
 
 impl fmt::Display for ParseError {
@@ -33,6 +44,7 @@ impl fmt::Display for ParseError {
 pub enum BuildError {
     LineTooLong { length: usize, limit: usize },
     DisallowedByte { b: u8, pos: usize },
+    ContainsNewLine { pos: usize },
 }
 
 impl fmt::Display for BuildError {
@@ -44,6 +56,7 @@ impl fmt::Display for BuildError {
             &BuildError::DisallowedByte { b, pos } => {
                 write!(f, "Disallowed byte found at position {}: {}", pos, b)
             }
+            &BuildError::ContainsNewLine { pos } => write!(f, "New line found at position {}", pos),
         }
     }
 }

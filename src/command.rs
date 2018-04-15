@@ -1,5 +1,4 @@
 use std::io;
-use nom::IResult;
 
 use helpers::*;
 
@@ -18,7 +17,7 @@ use vrfy::*;
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum Command<'a> {
-    Data(DataCommand<'a>), // DATA <CRLF>
+    Data(DataCommand), // DATA <CRLF>
     Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
     Expn(ExpnCommand<'a>), // EXPN <name> <CRLF>
     Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
@@ -32,12 +31,8 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub fn parse(arg: &[u8]) -> Result<(Command, &[u8]), ParseError> {
-        match command(arg) {
-            IResult::Done(rem, res) => Ok((res, rem)),
-            IResult::Error(e) => Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
-        }
+    pub fn parse(arg: &[u8]) -> Result<Command, ParseError> {
+        nom_to_result(command(arg))
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
@@ -80,9 +75,9 @@ mod tests {
         let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> =
             vec![
                 (
-                    &b"DATA\r\nhello world\r\n.. me\r\n.\r\n"[..],
-                    Box::new(|x| if let Command::Data(r) = x {
-                        r.raw_data() == b"hello world\r\n.. me\r\n"
+                    &b"DATA\r\n"[..],
+                    Box::new(|x| if let Command::Data(_) = x {
+                        true
                     } else {
                         false
                     })
