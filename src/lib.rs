@@ -34,6 +34,6 @@ pub use mail::MailCommand;
 pub use noop::NoopCommand;
 pub use quit::QuitCommand;
 pub use rcpt::RcptCommand;
-pub use reply::Reply;
+pub use reply::{IsLastLine, Reply, ReplyCode};
 pub use rset::RsetCommand;
 pub use vrfy::VrfyCommand;
