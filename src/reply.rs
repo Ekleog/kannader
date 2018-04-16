@@ -5,28 +5,76 @@ use std::str::FromStr;
 use helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone)]
+pub struct ReplyCode {
+    code: u16,
+}
+
+#[cfg_attr(test, allow(dead_code))]
+impl ReplyCode {
+    pub fn custom(code: u16) -> ReplyCode {
+        assert!(code < 1000);
+        ReplyCode { code }
+    }
+
+    pub fn code(&self) -> u16 {
+        self.code
+    }
+
+    pub const SYSTEM_STATUS: ReplyCode = ReplyCode { code: 211 };
+    pub const HELP_MESSAGE: ReplyCode = ReplyCode { code: 214 };
+    pub const SERVICE_READY: ReplyCode = ReplyCode { code: 220 };
+    pub const CLOSING_CHANNEL: ReplyCode = ReplyCode { code: 221 };
+    pub const OKAY: ReplyCode = ReplyCode { code: 250 };
+    pub const USER_NOT_LOCAL_WILL_FORWARD: ReplyCode = ReplyCode { code: 251 };
+    pub const CANNOT_VRFY_BUT_PLEASE_TRY: ReplyCode = ReplyCode { code: 252 };
+    pub const START_MAIL_INPUT: ReplyCode = ReplyCode { code: 354 };
+    pub const SERVICE_NOT_AVAILABLE: ReplyCode = ReplyCode { code: 421 };
+    pub const MAILBOX_TEMPORARILY_UNAVAILABLE: ReplyCode = ReplyCode { code: 450 };
+    pub const LOCAL_ERROR: ReplyCode = ReplyCode { code: 451 };
+    pub const INSUFFICIENT_STORAGE: ReplyCode = ReplyCode { code: 452 };
+    pub const UNABLE_TO_ACCEPT_PARAMETERS: ReplyCode = ReplyCode { code: 455 };
+    pub const COMMAND_UNRECOGNIZED: ReplyCode = ReplyCode { code: 500 };
+    pub const SYNTAX_ERROR: ReplyCode = ReplyCode { code: 501 };
+    pub const COMMAND_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 502 };
+    pub const BAD_SEQUENCE: ReplyCode = ReplyCode { code: 503 };
+    pub const PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 504 };
+    pub const MAILBOX_UNAVAILABLE: ReplyCode = ReplyCode { code: 550 };
+    pub const POLICY_REASON: ReplyCode = ReplyCode { code: 550 };
+    pub const USER_NOT_LOCAL: ReplyCode = ReplyCode { code: 551 };
+    pub const EXCEEDED_STORAGE: ReplyCode = ReplyCode { code: 552 };
+    pub const MAILBOX_NAME_INCORRECT: ReplyCode = ReplyCode { code: 553 };
+    pub const TRANSACTION_FAILED: ReplyCode = ReplyCode { code: 554 };
+    pub const MAIL_OR_RCPT_PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 555 };
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IsLastLine {
+    Yes,
+    No,
+}
+
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone)]
 pub struct Reply<'a> {
-    num: u16,
-    is_last: bool,
+    code: ReplyCode,
+    is_last: IsLastLine,
     line: &'a [u8],
 }
 
-macro_rules! reply_builder_function {
-    ($code:tt, $fun:ident) => {
-        pub fn $fun<'b>(is_last: bool, line: &'b [u8]) -> Result<Reply<'b>, BuildError> {
-            if line.len() > 506 {
-                Err(BuildError::LineTooLong { length: line.len(), limit: 506 })
-            } else if let Some(p) = line.iter().position(|&x| !(x == 9 || (x >= 32 && x <= 126))) {
-                Err(BuildError::DisallowedByte { b: line[p], pos: p })
-            } else {
-                Ok(Reply { num: $code, is_last, line })
-            }
+impl<'a> Reply<'a> {
+    pub fn build<'b>(code: ReplyCode, is_last: IsLastLine, line: &'b [u8])
+                     -> Result<Reply<'b>, BuildError> {
+        if line.len() > 506 {
+            // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
+            Err(BuildError::LineTooLong { length: line.len(), limit: 506 })
+        } else if let Some(p) = line.iter().position(|&x| !(x == 9 || (x >= 32 && x <= 126))) {
+            Err(BuildError::DisallowedByte { b: line[p], pos: p })
+        } else {
+            Ok(Reply { code, is_last, line })
         }
     }
-}
 
-impl<'a> Reply<'a> {
     // Parse one line of SMTP reply
     pub fn parse(arg: &[u8]) -> Result<(Reply, &[u8]), ParseError> {
         match reply(arg) {
@@ -38,49 +86,23 @@ impl<'a> Reply<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         let code = &[
-            ((self.num % 1000) / 100) as u8 + b'0',
-            ((self.num % 100) / 10) as u8 + b'0',
-            ((self.num % 10)) as u8 + b'0',
+            ((self.code.code() % 1000) / 100) as u8 + b'0',
+            ((self.code.code() % 100) / 10) as u8 + b'0',
+            ((self.code.code() % 10)) as u8 + b'0',
         ];
         w.write_all(code)?;
-        w.write_all(if self.is_last { b" " } else { b"-" })?;
+        w.write_all(if self.is_last == IsLastLine::Yes { b" " } else { b"-" })?;
         w.write_all(self.line)?;
         w.write_all(b"\r\n")
     }
-
-    reply_builder_function!(211, r211_system_status);
-    reply_builder_function!(214, r214_help_message);
-    reply_builder_function!(220, r220_service_ready);
-    reply_builder_function!(221, r221_closing_channel);
-    reply_builder_function!(250, r250_okay);
-    reply_builder_function!(251, r251_user_not_local_will_forward);
-    reply_builder_function!(252, r252_cannot_vrfy_but_please_try);
-    reply_builder_function!(354, r354_start_mail_input);
-    reply_builder_function!(421, r421_service_not_available);
-    reply_builder_function!(450, r450_mailbox_temporarily_unavailable);
-    reply_builder_function!(451, r451_local_error);
-    reply_builder_function!(452, r452_insufficient_storage);
-    reply_builder_function!(455, r455_unable_to_accept_parameters);
-    reply_builder_function!(500, r500_command_unrecognized);
-    reply_builder_function!(501, r501_syntax_error);
-    reply_builder_function!(502, r502_command_unimplemented);
-    reply_builder_function!(503, r503_bad_sequence);
-    reply_builder_function!(504, r504_parameter_unimplemented);
-    reply_builder_function!(550, r550_mailbox_unavailable);
-    reply_builder_function!(550, r550_policy_reason);
-    reply_builder_function!(551, r551_user_not_local);
-    reply_builder_function!(552, r552_exceeded_storage);
-    reply_builder_function!(553, r553_mailbox_name_incorrect);
-    reply_builder_function!(554, r554_transaction_failed);
-    reply_builder_function!(555, r555_mail_or_rcpt_parameter_unimplemented);
 }
 
 impl<'a> fmt::Debug for Reply<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
-            "Reply {{ num: {}, is_last: {}, line: {:?} }}",
-            self.num,
+            "Reply {{ code: {:?}, is_last: {:?}, line: {:?} }}",
+            self.code,
             self.is_last,
             bytes_to_dbg(self.line)
         )
@@ -88,14 +110,19 @@ impl<'a> fmt::Debug for Reply<'a> {
 }
 
 named!(pub reply(&[u8]) -> Reply, do_parse!(
-    num: verify!(
-             map_res!(
-                 map_res!(take!(3), |bytes| str::from_utf8(bytes)),
-                 |utf8| u16::from_str(utf8)),
-             |num| num < 1000) >>
-    is_last: map!(alt!(tag!("-") | tag!(" ")), |b| b == b" ") >>
+    code: map!(
+        verify!(
+            map_res!(
+                map_res!(take!(3), |bytes| str::from_utf8(bytes)),
+                |utf8| u16::from_str(utf8)
+            ),
+            |x: u16| x < 1000
+        ),
+        ReplyCode::custom
+    ) >>
+    is_last: map!(alt!(tag!("-") | tag!(" ")), |b| if b == b" " { IsLastLine::Yes } else { IsLastLine::No }) >>
     line: take_until_and_consume!("\r\n") >>
-    (Reply { num, is_last, line })
+    (Reply { code, is_last, line })
 ));
 
 #[cfg(test)]
@@ -104,12 +131,12 @@ mod tests {
 
     #[test]
     fn reply_not_last() {
-        let r = Reply::r220_service_ready(false, b"hello world!").unwrap();
+        let r = Reply::build(ReplyCode::SERVICE_READY, IsLastLine::No, b"hello world!").unwrap();
         assert_eq!(
             r,
             Reply {
-                num: 220,
-                is_last: false,
+                code: ReplyCode { code: 220 },
+                is_last: IsLastLine::No,
                 line: b"hello world!",
             }
         );
@@ -121,12 +148,12 @@ mod tests {
 
     #[test]
     fn reply_last() {
-        let r = Reply::r502_command_unimplemented(true, b"test").unwrap();
+        let r = Reply::build(ReplyCode::COMMAND_UNIMPLEMENTED, IsLastLine::Yes, b"test").unwrap();
         assert_eq!(
             r,
             Reply {
-                num: 502,
-                is_last: true,
+                code: ReplyCode { code: 502 },
+                is_last: IsLastLine::Yes,
                 line: b"test",
             }
         );
@@ -137,38 +164,11 @@ mod tests {
     }
 
     #[test]
-    fn reply_codes() {
-        assert_eq!(Reply::r211_system_status(true, b"").unwrap().num, 211);
-        assert_eq!(Reply::r214_help_message(true, b"").unwrap().num, 214);
-        assert_eq!(Reply::r220_service_ready(true, b"").unwrap().num, 220);
-        assert_eq!(Reply::r221_closing_channel(true, b"").unwrap().num, 221);
-        assert_eq!(Reply::r250_okay(true, b"").unwrap().num, 250);
-        assert_eq!(Reply::r251_user_not_local_will_forward(true, b"").unwrap().num, 251);
-        assert_eq!(Reply::r252_cannot_vrfy_but_please_try(true, b"").unwrap().num, 252);
-        assert_eq!(Reply::r354_start_mail_input(true, b"").unwrap().num, 354);
-        assert_eq!(Reply::r421_service_not_available(true, b"").unwrap().num, 421);
-        assert_eq!(Reply::r450_mailbox_temporarily_unavailable(true, b"").unwrap().num, 450);
-        assert_eq!(Reply::r451_local_error(true, b"").unwrap().num, 451);
-        assert_eq!(Reply::r452_insufficient_storage(true, b"").unwrap().num, 452);
-        assert_eq!(Reply::r455_unable_to_accept_parameters(true, b"").unwrap().num, 455);
-        assert_eq!(Reply::r500_command_unrecognized(true, b"").unwrap().num, 500);
-        assert_eq!(Reply::r501_syntax_error(true, b"").unwrap().num, 501);
-        assert_eq!(Reply::r502_command_unimplemented(true, b"").unwrap().num, 502);
-        assert_eq!(Reply::r503_bad_sequence(true, b"").unwrap().num, 503);
-        assert_eq!(Reply::r504_parameter_unimplemented(true, b"").unwrap().num, 504);
-        assert_eq!(Reply::r550_mailbox_unavailable(true, b"").unwrap().num, 550);
-        assert_eq!(Reply::r550_policy_reason(true, b"").unwrap().num, 550);
-        assert_eq!(Reply::r551_user_not_local(true, b"").unwrap().num, 551);
-        assert_eq!(Reply::r552_exceeded_storage(true, b"").unwrap().num, 552);
-        assert_eq!(Reply::r553_mailbox_name_incorrect(true, b"").unwrap().num, 553);
-        assert_eq!(Reply::r554_transaction_failed(true, b"").unwrap().num, 554);
-        assert_eq!(Reply::r555_mail_or_rcpt_parameter_unimplemented(true, b"").unwrap().num, 555);
-    }
-
-    #[test]
     fn refuse_build() {
-        assert!(Reply::r552_exceeded_storage(true, &vec![b'a'; 1000]).is_err());
-        assert!(Reply::r552_exceeded_storage(true, b"\r").is_err());
+        assert!(
+            Reply::build(ReplyCode::EXCEEDED_STORAGE, IsLastLine::Yes, &vec![b'a'; 1000]).is_err()
+        );
+        assert!(Reply::build(ReplyCode::EXCEEDED_STORAGE, IsLastLine::No, b"\r").is_err());
     }
 
     #[test]
@@ -177,32 +177,32 @@ mod tests {
             (
                 b"250 All is well\r\n",
                 Reply {
-                    num: 250,
-                    is_last: true,
+                    code: ReplyCode { code: 250 },
+                    is_last: IsLastLine::Yes,
                     line: b"All is well",
                 },
             ),
             (
                 b"450-Temporary\r\n",
                 Reply {
-                    num: 450,
-                    is_last: false,
+                    code: ReplyCode { code: 450 },
+                    is_last: IsLastLine::No,
                     line: b"Temporary",
                 },
             ),
             (
                 b"354-Please do start input now\r\n",
                 Reply {
-                    num: 354,
-                    is_last: false,
+                    code: ReplyCode { code: 354 },
+                    is_last: IsLastLine::No,
                     line: b"Please do start input now",
                 },
             ),
             (
                 b"550 Something is really very wrong!\r\n",
                 Reply {
-                    num: 550,
-                    is_last: true,
+                    code: ReplyCode { code: 550 },
+                    is_last: IsLastLine::Yes,
                     line: b"Something is really very wrong!",
                 },
             ),
