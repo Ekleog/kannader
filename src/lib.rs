@@ -1,5 +1,7 @@
+extern crate smtp_message;
 extern crate tokio;
 
+use smtp_message::*;
 use std::io::BufRead;
 use tokio::prelude::*;
 
@@ -14,7 +16,7 @@ pub struct MailMetadata {
 }
 
 pub struct Refusal {
-    code: u16,
+    code: ReplyCode,
     msg: String,
 }
 
@@ -47,6 +49,9 @@ mod tests {
         interact(&b"foo bar"[..], cursor,
                  |_, _| Decision::Accept(()),
                  |_, _, _, _| Decision::Accept(()),
-                 |_, _, _| Decision::Reject(Refusal { code: 550, msg: "foo".to_owned() }));
+                 |_, _, _| Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg: "foo".to_owned()
+                 }));
     }
 }
