@@ -1,0 +1,2 @@
+[workspace]
+members = [ "smtp-message", "smtp-server" ]
