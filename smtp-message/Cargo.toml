@@ -1,0 +1,13 @@
+[package]
+name = "smtp-message"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming", "parser-implementations"]
+keywords = ["parser", "builder", "smtp", "email"]
+description = "Line-oriented parser and builder for SMTP protocol messages"
+
+[dependencies]
+nom = "3.2"
+failure = "0.1.1"
+failure_derive = "0.1.1"
