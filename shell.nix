@@ -1,5 +1,5 @@
 with import <nixpkgs> {};
 stdenv.mkDerivation {
-  name = "smtp-message";
+  name = "yuubind";
   buildInputs = [ cargo rustfmt ];
 }
