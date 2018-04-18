@@ -1,6 +1,9 @@
 language: rust
 cache: cargo
 
+sudo: required
+os: [ linux ]
+
 rust:
   - 1.25.0
   - stable
@@ -8,6 +11,27 @@ rust:
   - nightly
 
 matrix:
-  - allow_failures:
-      - rust: nightly
-  - fast_finish: true
+  include:
+    - rust: stable
+      env: TARPAULIN=1
+
+before_script: |
+  export PATH="$HOME/.cargo/bin:$PATH"
+  if [ -n "$TARPAULIN" ]; then
+    bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
+  fi
+
+# TODO: install rustfmt and test-run it
+# TODO: auto-build doc and push it to github pages (both cargo doc and mdBook?)
+script: |
+  if [ -n "$TARPAULIN" ]; then
+    cargo tarpaulin --out Xml
+  else
+    cargo build --all --all-features
+    cargo test --all --all-features
+  fi
+
+after_success: |
+  if [ -n "$TARPAULIN" ]; then
+    bash <(curl -s https://codecov.io/bash)
+  fi
