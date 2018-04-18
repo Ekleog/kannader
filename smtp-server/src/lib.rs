@@ -34,7 +34,10 @@ pub fn interact<
           -> Decision<State>,
     HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision<()>,
 >(incoming: Reader, outgoing: Writer, filter_from: FilterFrom, filter_to: FilterTo,
-    handler: HandleMail) {
+    handler: HandleMail)
+    -> Box<Future<Item = (), Error = ()>> {
+    // TODO: impl Future
+    Box::new(future::empty())
 }
 
 #[cfg(test)]
