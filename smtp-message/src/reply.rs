@@ -1,6 +1,7 @@
 use nom::IResult;
-use std::{fmt, io, str};
-use std::str::FromStr;
+use std::{fmt,
+          io,
+          str::{self, FromStr}};
 
 use helpers::*;
 
@@ -12,15 +13,6 @@ pub struct ReplyCode {
 
 #[cfg_attr(test, allow(dead_code))]
 impl ReplyCode {
-    pub fn custom(code: u16) -> ReplyCode {
-        assert!(code < 1000);
-        ReplyCode { code }
-    }
-
-    pub fn code(&self) -> u16 {
-        self.code
-    }
-
     pub const SYSTEM_STATUS: ReplyCode = ReplyCode { code: 211 };
     pub const HELP_MESSAGE: ReplyCode = ReplyCode { code: 214 };
     pub const SERVICE_READY: ReplyCode = ReplyCode { code: 220 };
@@ -46,6 +38,15 @@ impl ReplyCode {
     pub const MAILBOX_NAME_INCORRECT: ReplyCode = ReplyCode { code: 553 };
     pub const TRANSACTION_FAILED: ReplyCode = ReplyCode { code: 554 };
     pub const MAIL_OR_RCPT_PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 555 };
+
+    pub fn custom(code: u16) -> ReplyCode {
+        assert!(code < 1000);
+        ReplyCode { code }
+    }
+
+    pub fn code(&self) -> u16 {
+        self.code
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,21 +58,36 @@ pub enum IsLastLine {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone)]
 pub struct Reply<'a> {
-    code: ReplyCode,
+    code:    ReplyCode,
     is_last: IsLastLine,
-    line: &'a [u8],
+    line:    &'a [u8],
 }
 
 impl<'a> Reply<'a> {
-    pub fn build<'b>(code: ReplyCode, is_last: IsLastLine, line: &'b [u8])
-                     -> Result<Reply<'b>, BuildError> {
+    pub fn build<'b>(
+        code: ReplyCode,
+        is_last: IsLastLine,
+        line: &'b [u8],
+    ) -> Result<Reply<'b>, BuildError> {
         if line.len() > 506 {
             // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
-            Err(BuildError::LineTooLong { length: line.len(), limit: 506 })
-        } else if let Some(p) = line.iter().position(|&x| !(x == 9 || (x >= 32 && x <= 126))) {
-            Err(BuildError::DisallowedByte { b: line[p], pos: p })
+            Err(BuildError::LineTooLong {
+                length: line.len(),
+                limit:  506,
+            })
+        } else if let Some(p) = line.iter()
+            .position(|&x| !(x == 9 || (x >= 32 && x <= 126)))
+        {
+            Err(BuildError::DisallowedByte {
+                b:   line[p],
+                pos: p,
+            })
         } else {
-            Ok(Reply { code, is_last, line })
+            Ok(Reply {
+                code,
+                is_last,
+                line,
+            })
         }
     }
 
@@ -88,10 +104,14 @@ impl<'a> Reply<'a> {
         let code = &[
             ((self.code.code() % 1000) / 100) as u8 + b'0',
             ((self.code.code() % 100) / 10) as u8 + b'0',
-            ((self.code.code() % 10)) as u8 + b'0',
+            (self.code.code() % 10) as u8 + b'0',
         ];
         w.write_all(code)?;
-        w.write_all(if self.is_last == IsLastLine::Yes { b" " } else { b"-" })?;
+        w.write_all(if self.is_last == IsLastLine::Yes {
+            b" "
+        } else {
+            b"-"
+        })?;
         w.write_all(self.line)?;
         w.write_all(b"\r\n")
     }
@@ -135,9 +155,9 @@ mod tests {
         assert_eq!(
             r,
             Reply {
-                code: ReplyCode { code: 220 },
+                code:    ReplyCode { code: 220 },
                 is_last: IsLastLine::No,
-                line: b"hello world!",
+                line:    b"hello world!",
             }
         );
 
@@ -152,9 +172,9 @@ mod tests {
         assert_eq!(
             r,
             Reply {
-                code: ReplyCode { code: 502 },
+                code:    ReplyCode { code: 502 },
                 is_last: IsLastLine::Yes,
-                line: b"test",
+                line:    b"test",
             }
         );
 
@@ -166,7 +186,11 @@ mod tests {
     #[test]
     fn refuse_build() {
         assert!(
-            Reply::build(ReplyCode::EXCEEDED_STORAGE, IsLastLine::Yes, &vec![b'a'; 1000]).is_err()
+            Reply::build(
+                ReplyCode::EXCEEDED_STORAGE,
+                IsLastLine::Yes,
+                &vec![b'a'; 1000],
+            ).is_err()
         );
         assert!(Reply::build(ReplyCode::EXCEEDED_STORAGE, IsLastLine::No, b"\r").is_err());
     }
@@ -177,33 +201,33 @@ mod tests {
             (
                 b"250 All is well\r\n",
                 Reply {
-                    code: ReplyCode { code: 250 },
+                    code:    ReplyCode { code: 250 },
                     is_last: IsLastLine::Yes,
-                    line: b"All is well",
+                    line:    b"All is well",
                 },
             ),
             (
                 b"450-Temporary\r\n",
                 Reply {
-                    code: ReplyCode { code: 450 },
+                    code:    ReplyCode { code: 450 },
                     is_last: IsLastLine::No,
-                    line: b"Temporary",
+                    line:    b"Temporary",
                 },
             ),
             (
                 b"354-Please do start input now\r\n",
                 Reply {
-                    code: ReplyCode { code: 354 },
+                    code:    ReplyCode { code: 354 },
                     is_last: IsLastLine::No,
-                    line: b"Please do start input now",
+                    line:    b"Please do start input now",
                 },
             ),
             (
                 b"550 Something is really very wrong!\r\n",
                 Reply {
-                    code: ReplyCode { code: 550 },
+                    code:    ReplyCode { code: 550 },
                     is_last: IsLastLine::Yes,
-                    line: b"Something is really very wrong!",
+                    line:    b"Something is really very wrong!",
                 },
             ),
         ];

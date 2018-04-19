@@ -1,27 +1,61 @@
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use helpers::*;
 
-macro_rules! alpha_lower { () => ("abcdefghijklmnopqrstuvwxyz") }
-macro_rules! alpha_upper { () => ("ABCDEFGHIJKLMNOPQRSTUVWXYZ") }
-macro_rules! alpha       { () => (concat!(alpha_lower!(), alpha_upper!())) }
-macro_rules! digit       { () => ("0123456789") }
-macro_rules! alnum       { () => (concat!(alpha!(), digit!())) }
-macro_rules! atext       { () => (concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")) }
-macro_rules! alnumdash   { () => (concat!(alnum!(), "-")) }
-macro_rules! graph_except_equ { () => (concat!(alnum!(), "!\"#$%&'()*+,-./:;<>?@[\\]^_`{|}~")) }
+macro_rules! alpha_lower {
+    () => {
+        "abcdefghijklmnopqrstuvwxyz"
+    };
+}
+macro_rules! alpha_upper {
+    () => {
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    };
+}
+macro_rules! alpha {
+    () => {
+        concat!(alpha_lower!(), alpha_upper!())
+    };
+}
+macro_rules! digit {
+    () => {
+        "0123456789"
+    };
+}
+macro_rules! alnum {
+    () => {
+        concat!(alpha!(), digit!())
+    };
+}
+macro_rules! atext {
+    () => {
+        concat!(alnum!(), "!#$%&'*+-/=?^_`{|}~")
+    };
+}
+macro_rules! alnumdash {
+    () => {
+        concat!(alnum!(), "-")
+    };
+}
+macro_rules! graph_except_equ {
+    () => {
+        concat!(alnum!(), "!\"#$%&'()*+,-./:;<>?@[\\]^_`{|}~")
+    };
+}
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Copy, Clone)]
 pub struct Email<'a> {
     localpart: &'a [u8],
-    hostname: Option<&'a [u8]>,
+    hostname:  Option<&'a [u8]>,
 }
 
 impl<'a> Email<'a> {
     pub fn new<'b>(localpart: &'b [u8], hostname: Option<&'b [u8]>) -> Email<'b> {
-        Email { localpart, hostname }
+        Email {
+            localpart,
+            hostname,
+        }
     }
 
     pub fn raw_localpart(&self) -> &[u8] {
@@ -214,12 +248,11 @@ mod tests {
 
     #[test]
     fn valid_quoted_strings() {
-        let tests: &[&[u8]] =
-            &[
-                br#""hello""#,
-                br#""hello world. This |$ a g#eat place to experiment !""#,
-                br#""\"escapes\", useless like h\ere, except for quotes and \\backslashes""#,
-            ];
+        let tests: &[&[u8]] = &[
+            br#""hello""#,
+            br#""hello world. This |$ a g#eat place to experiment !""#,
+            br#""\"escapes\", useless like h\ere, except for quotes and \\backslashes""#,
+        ];
         for test in tests {
             assert_eq!(quoted_string(test), IResult::Done(&b""[..], *test));
         }
@@ -232,29 +265,29 @@ mod tests {
                 b"t+e-s.t_i+n-g@foo.bar.baz",
                 Email {
                     localpart: b"t+e-s.t_i+n-g",
-                    hostname: Some(b"foo.bar.baz"),
-                }
+                    hostname:  Some(b"foo.bar.baz"),
+                },
             ),
             (
                 br#""quoted\"example"@example.org"#,
                 Email {
                     localpart: br#""quoted\"example""#,
-                    hostname: Some(b"example.org"),
-                }
+                    hostname:  Some(b"example.org"),
+                },
             ),
             (
                 b"postmaster",
                 Email {
                     localpart: b"postmaster",
-                    hostname: None,
-                }
+                    hostname:  None,
+                },
             ),
             (
                 b"test",
                 Email {
                     localpart: b"test",
-                    hostname: None,
-                }
+                    hostname:  None,
+                },
             ),
         ];
         for (s, r) in tests.into_iter() {
@@ -264,12 +297,14 @@ mod tests {
 
     #[test]
     fn nice_localpart() {
-        let tests: Vec<(&[u8], &[u8])> =
-            vec![
-                (b"t+e-s.t_i+n-g@foo.bar.baz ", b"t+e-s.t_i+n-g"),
-                (br#""quoted\"example"@example.org "#, br#"quoted"example"#),
-                (br#""escaped\\exa\mple"@example.org "#, br#"escaped\example"#),
-            ];
+        let tests: Vec<(&[u8], &[u8])> = vec![
+            (b"t+e-s.t_i+n-g@foo.bar.baz ", b"t+e-s.t_i+n-g"),
+            (br#""quoted\"example"@example.org "#, br#"quoted"example"#),
+            (
+                br#""escaped\\exa\mple"@example.org "#,
+                br#"escaped\example"#,
+            ),
+        ];
         for (s, r) in tests {
             assert_eq!(email(s).unwrap().1.localpart(), r);
         }
@@ -283,20 +318,26 @@ mod tests {
     #[test]
     fn valid_addresses_in_paths() {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
-            (b"@foo.bar,@baz.quux:test@example.org", (
-                Email {
-                    localpart: b"test",
-                    hostname: Some(b"example.org"),
-                },
-                b"test@example.org",
-            )),
-            (b"foo.bar@baz.quux", (
-                Email {
-                    localpart: b"foo.bar",
-                    hostname: Some(b"baz.quux"),
-                },
+            (
+                b"@foo.bar,@baz.quux:test@example.org",
+                (
+                    Email {
+                        localpart: b"test",
+                        hostname:  Some(b"example.org"),
+                    },
+                    b"test@example.org",
+                ),
+            ),
+            (
                 b"foo.bar@baz.quux",
-            )),
+                (
+                    Email {
+                        localpart: b"foo.bar",
+                        hostname:  Some(b"baz.quux"),
+                    },
+                    b"foo.bar@baz.quux",
+                ),
+            ),
         ];
         for test in tests {
             assert_eq!(address_in_path(test.0), IResult::Done(&b""[..], test.1));
@@ -306,67 +347,87 @@ mod tests {
     #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
         let tests: &[(&[u8], (Email, &[u8]))] = &[
-            (b"@foo.bar,@baz.quux:test@example.org", (
-                Email {
-                    localpart: b"test",
-                    hostname: Some(b"example.org"),
-                },
-                b"test@example.org",
-            )),
-            (b"<@foo.bar,@baz.quux:test@example.org>", (
-                Email {
-                    localpart: b"test",
-                    hostname: Some(b"example.org"),
-                },
-                b"test@example.org",
-            )),
-            (b"<foo@bar.baz>", (
-                Email {
-                    localpart: b"foo",
-                    hostname: Some(b"bar.baz"),
-                },
+            (
+                b"@foo.bar,@baz.quux:test@example.org",
+                (
+                    Email {
+                        localpart: b"test",
+                        hostname:  Some(b"example.org"),
+                    },
+                    b"test@example.org",
+                ),
+            ),
+            (
+                b"<@foo.bar,@baz.quux:test@example.org>",
+                (
+                    Email {
+                        localpart: b"test",
+                        hostname:  Some(b"example.org"),
+                    },
+                    b"test@example.org",
+                ),
+            ),
+            (
+                b"<foo@bar.baz>",
+                (
+                    Email {
+                        localpart: b"foo",
+                        hostname:  Some(b"bar.baz"),
+                    },
+                    b"foo@bar.baz",
+                ),
+            ),
+            (
                 b"foo@bar.baz",
-            )),
-            (b"foo@bar.baz", (
-                Email {
-                    localpart: b"foo",
-                    hostname: Some(b"bar.baz"),
-                },
-                b"foo@bar.baz",
-            )),
-            (b"foobar", (
-                Email {
-                    localpart: b"foobar",
-                    hostname: None,
-                },
+                (
+                    Email {
+                        localpart: b"foo",
+                        hostname:  Some(b"bar.baz"),
+                    },
+                    b"foo@bar.baz",
+                ),
+            ),
+            (
                 b"foobar",
-            )),
+                (
+                    Email {
+                        localpart: b"foobar",
+                        hostname:  None,
+                    },
+                    b"foobar",
+                ),
+            ),
         ];
         for test in tests {
-            assert_eq!(address_in_maybe_bracketed_path(test.0), IResult::Done(&b""[..], test.1));
+            assert_eq!(
+                address_in_maybe_bracketed_path(test.0),
+                IResult::Done(&b""[..], test.1)
+            );
         }
     }
 
     #[test]
     fn valid_sp_parameters() {
-        let tests: &[(&[u8], &[(&[u8], Option<&[u8]>)])] =
-            &[
-                (b"key=value", &[(b"key", Some(b"value"))]),
-                (
-                    b"key=value SP key2=value2",
-                    &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))],
-                ),
-                (
-                    b"KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
-                    &[
-                        (b"KeY2", Some(b"V4\"l\\u@e.z")),
-                        (b"0tterkeyz", Some(b"very_muchWh4t3ver")),
-                    ],
-                ),
-                (b"NoValueKey", &[(b"NoValueKey", None)]),
-                (b"A SP B", &[(b"A", None), (b"B", None)]),
-                (b"A=B SP C SP D=SP", &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))]),
-            ];
+        let tests: &[(&[u8], &[(&[u8], Option<&[u8]>)])] = &[
+            (b"key=value", &[(b"key", Some(b"value"))]),
+            (
+                b"key=value SP key2=value2",
+                &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))],
+            ),
+            (
+                b"KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
+                &[
+                    (b"KeY2", Some(b"V4\"l\\u@e.z")),
+                    (b"0tterkeyz", Some(b"very_muchWh4t3ver")),
+                ],
+            ),
+            (b"NoValueKey", &[(b"NoValueKey", None)]),
+            (b"A SP B", &[(b"A", None), (b"B", None)]),
+            (
+                b"A=B SP C SP D=SP",
+                &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))],
+            ),
+        ];
         for test in tests {
             let res = sp_parameters(test.0);
             let (rem, res) = res.unwrap();

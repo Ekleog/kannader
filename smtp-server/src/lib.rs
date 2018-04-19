@@ -12,12 +12,12 @@ pub struct ConnectionMetadata {}
 
 pub struct MailMetadata {
     from: MailAddress,
-    to: Vec<MailAddress>,
+    to:   Vec<MailAddress>,
 }
 
 pub struct Refusal {
     code: ReplyCode,
-    msg: String,
+    msg:  String,
 }
 
 pub enum Decision<T> {
@@ -30,12 +30,15 @@ pub fn interact<
     Writer: AsyncWrite,
     State,
     FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Decision<State>,
-    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata, &MailMetadata)
-          -> Decision<State>,
+    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata, &MailMetadata) -> Decision<State>,
     HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision<()>,
->(incoming: Reader, outgoing: Writer, filter_from: FilterFrom, filter_to: FilterTo,
-    handler: HandleMail)
-    -> Box<Future<Item = (), Error = ()>> {
+>(
+    incoming: Reader,
+    outgoing: Writer,
+    filter_from: FilterFrom,
+    filter_to: FilterTo,
+    handler: HandleMail,
+) -> Box<Future<Item = (), Error = ()>> {
     // TODO: impl Future
     Box::new(future::empty())
 }
@@ -49,12 +52,17 @@ mod tests {
     #[test]
     fn it_works() {
         let mut cursor = Cursor::new(Vec::new());
-        interact(&b"foo bar"[..], cursor,
-                 |_, _| Decision::Accept(()),
-                 |_, _, _, _| Decision::Accept(()),
-                 |_, _, _| Decision::Reject(Refusal {
+        interact(
+            &b"foo bar"[..],
+            cursor,
+            |_, _| Decision::Accept(()),
+            |_, _, _, _| Decision::Accept(()),
+            |_, _, _| {
+                Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
-                    msg: "foo".to_owned()
-                 }));
+                    msg:  "foo".to_owned(),
+                })
+            },
+        );
     }
 }

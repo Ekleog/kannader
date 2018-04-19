@@ -1,12 +1,10 @@
-use nom;
-use nom::{IResult, Needed};
+use nom::{self, IResult, Needed};
 use std::fmt;
 
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
     DidNotConsumeEverything(usize),
-    ParseError(#[cause]
-               nom::Err),
+    ParseError(#[cause] nom::Err),
     IncompleteString(Needed),
 }
 
@@ -40,8 +38,8 @@ impl fmt::Display for ParseError {
 
 #[derive(Fail, Debug, Clone)]
 pub enum BuildError {
-    LineTooLong { length: usize, limit: usize },
-    DisallowedByte { b: u8, pos: usize },
+    LineTooLong { length: usize, limit:  usize },
+    DisallowedByte { b:   u8, pos: usize },
     ContainsNewLine { pos: usize },
 }
 
@@ -67,7 +65,10 @@ impl<'a> fmt::Debug for DbgBytes<'a> {
         write!(
             f,
             "b\"{}\"",
-            self.0.iter().flat_map(|x| char::from(*x).escape_default()).collect::<String>()
+            self.0
+                .iter()
+                .flat_map(|x| char::from(*x).escape_default())
+                .collect::<String>()
         )
     }
 }

@@ -26,7 +26,11 @@ impl<'a> NoopCommand<'a> {
 
 impl<'a> fmt::Debug for NoopCommand<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "NoopCommand {{ string: {:?} }}", bytes_to_dbg(self.string))
+        write!(
+            f,
+            "NoopCommand {{ string: {:?} }}",
+            bytes_to_dbg(self.string)
+        )
     }
 }
 
@@ -46,12 +50,16 @@ mod tests {
 
     #[test]
     fn valid_command_noop_args() {
-        let tests =
-            vec![
-                (&b" \t hello.world \t \r\n"[..], NoopCommand { string: &b"hello.world \t "[..] }),
-                (&b"\r\n"[..], NoopCommand { string: &b""[..] }),
-                (&b" \r\n"[..], NoopCommand { string: &b""[..] }),
-            ];
+        let tests = vec![
+            (
+                &b" \t hello.world \t \r\n"[..],
+                NoopCommand {
+                    string: &b"hello.world \t "[..],
+                },
+            ),
+            (&b"\r\n"[..], NoopCommand { string: &b""[..] }),
+            (&b" \r\n"[..], NoopCommand { string: &b""[..] }),
+        ];
         for (s, r) in tests.into_iter() {
             assert_eq!(command_noop_args(s), IResult::Done(&b""[..], r));
         }

@@ -23,8 +23,7 @@ mod command;
 mod reply;
 
 pub use command::Command;
-pub use data::DataCommand;
-pub use data::DataLine;
+pub use data::{DataCommand, DataLine};
 pub use ehlo::EhloCommand;
 pub use expn::ExpnCommand;
 pub use helo::HeloCommand;
