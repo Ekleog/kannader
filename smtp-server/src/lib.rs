@@ -36,7 +36,7 @@ pub fn interact<
     Writer: Sink<SinkItem = u8, SinkError = WriterError>,
     UserProvidedMetadata: 'a,
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
-    HandleWriterError: FnMut(WriterError) -> (),
+    HandleWriterError: 'a + FnMut(WriterError) -> (),
     State,
     FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
@@ -45,7 +45,7 @@ pub fn interact<
         -> Decision<()>,
 >(
     incoming: Reader,
-    outgoing: &mut Writer,
+    outgoing: &'a mut Writer,
     metadata: UserProvidedMetadata,
     handle_reader_error: HandleReaderError,
     handle_writer_error: HandleWriterError,
@@ -55,21 +55,36 @@ pub fn interact<
 ) -> Box<'a + Future<Item = (), Error = ()>> {
     // TODO: return `impl Future`
     let conn_meta = ConnectionMetadata { user: metadata };
+    let writer = outgoing
+        .sink_map_err(handle_writer_error)
+        .with_flat_map(|c: Reply| {
+            // TODO: actually make smtp-message's send_to work with sinks
+            let mut v = Vec::new();
+            c.send_to(&mut v).unwrap(); // and this is ugly
+            stream::iter_ok(v)
+        });
     Box::new(
         CrlfLines::new(incoming)
             .map_err(handle_reader_error)
-            .fold((conn_meta, None), |(conn_meta, mail_meta), line| {
-                print!("Received line: {}", std::str::from_utf8(&line).unwrap());
-                let cmd = smtp_message::Command::parse(&line);
-                println!("Parsed: {:?}", cmd);
-                future::ok((
-                    conn_meta,
-                    Some(MailMetadata {
-                        from: b"foo@bar.example.org".to_vec(),
-                        to:   Vec::new(),
-                    }),
-                ))
-            })
+            .fold(
+                (writer, conn_meta, None as Option<MailMetadata>),
+                |(writer, conn_meta, mail_meta), line| {
+                    print!("Received line: {}", std::str::from_utf8(&line).unwrap());
+                    let cmd = Command::parse(&line);
+                    println!("Parsed: {:?}", cmd);
+                    match cmd {
+                        _ => writer
+                            .send(
+                                Reply::build(
+                                    ReplyCode::COMMAND_UNRECOGNIZED,
+                                    IsLastLine::Yes,
+                                    b"Command not recognized",
+                                ).unwrap(),
+                            )
+                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                    }
+                },
+            )
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
 }
@@ -168,9 +183,15 @@ mod tests {
                   Hello World\r\n\
                   .\r\n\
                   QUIT\r\n",
-                b"",
+                b"500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n",
             ),
-            (b"HELP hello\r\n", b""),
+            (b"HELP hello\r\n", b"500 Command not recognized\r\n"),
         ];
         for &(inp, out) in tests {
             let mut vec = Vec::new();
