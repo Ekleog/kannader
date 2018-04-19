@@ -26,15 +26,21 @@ pub enum Decision<T> {
 }
 
 pub fn interact<
-    Reader: AsyncRead + BufRead,
-    Writer: AsyncWrite,
+    ReaderError,
+    Reader: Stream<Item = u8, Error = ReaderError>,
+    WriterError,
+    Writer: Sink<SinkItem = u8, SinkError = WriterError>,
+    HandleReaderError: FnMut(ReaderError) -> (),
+    HandleWriterError: FnMut(WriterError) -> (),
     State,
     FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Decision<State>,
     FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata, &MailMetadata) -> Decision<State>,
     HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision<()>,
 >(
     incoming: Reader,
-    outgoing: Writer,
+    outgoing: &mut Writer,
+    handle_reader_error: HandleReaderError,
+    handle_writer_error: HandleWriterError,
     filter_from: FilterFrom,
     filter_to: FilterTo,
     handler: HandleMail,
@@ -51,10 +57,12 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut cursor = Cursor::new(Vec::new());
+        let mut vec = Vec::new();
         interact(
-            &b"foo bar"[..],
-            cursor,
+            stream::iter_ok(b"foo bar".iter().cloned()),
+            &mut vec,
+            |()| (),
+            |()| (),
             |_, _| Decision::Accept(()),
             |_, _, _, _| Decision::Accept(()),
             |_, _, _| {
