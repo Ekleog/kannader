@@ -37,7 +37,7 @@ pub fn interact<
     UserProvidedMetadata: 'a,
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
-    State,
+    State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: 'a
         + FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
@@ -68,10 +68,9 @@ pub fn interact<
     Box::new(
         CrlfLines::new(incoming)
             .map_err(handle_reader_error)
-            .fold(
-                (writer, conn_meta, None as Option<MailMetadata>),
-                move |acc, l| handle_line(acc, l, filter_from, filter_to, handler),
-            )
+            .fold((writer, conn_meta, None, None), move |acc, l| {
+                handle_line(acc, l, filter_from, filter_to, handler)
+            })
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
 }
@@ -81,17 +80,33 @@ fn handle_line<
     U: 'a,
     W: 'a + Sink<SinkItem = Reply>,
     Reader,
-    State,
+    State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<State>,
     HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
 >(
-    (writer, conn_meta, mail_meta): (W, ConnectionMetadata<U>, Option<MailMetadata>),
+    (writer, conn_meta, mail_meta, state): (
+        W,
+        ConnectionMetadata<U>,
+        Option<MailMetadata>,
+        Option<State>,
+    ),
     line: Vec<u8>,
     filter_from: &mut FilterFrom,
     filter_to: &mut FilterTo,
     handler: &mut HandleMail,
-) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<MailMetadata>), Error = W::SinkError>>
+) -> Box<
+    'a
+        + Future<
+            Item = (
+                W,
+                ConnectionMetadata<U>,
+                Option<MailMetadata>,
+                Option<State>,
+            ),
+            Error = W::SinkError,
+        >,
+>
 where
     W::SinkError: 'a,
 {
@@ -105,7 +120,7 @@ where
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
-                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
                 ) as Box<Future<Item = _, Error = W::SinkError>>
             } else {
                 match filter_from(m.raw_from(), &conn_meta) {
@@ -122,13 +137,14 @@ where
                                             from,
                                             to: Vec::new(),
                                         }),
+                                        Some(state),
                                     ))
                                 }),
                         ) as Box<Future<Item = _, Error = W::SinkError>>
                     }
                     Decision::Reject(r) => Box::new(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
                     ),
                 }
             }
@@ -140,7 +156,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
                 SmtpString::copy_bytes(b"Command not implemented"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
         Err(_) => Box::new(
             // TODO: make the message configurable
@@ -148,7 +164,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
                 SmtpString::copy_bytes(b"Command not recognized"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
     }
 }
@@ -210,6 +226,7 @@ impl<S: Stream<Item = u8>> Stream for CrlfLines<S> {
                 Ready(None) if self.cur_line.is_empty() => return Ok(Ready(None)),
                 Ready(None) => return Ok(Ready(Some(self.next_line()))),
                 Ready(Some(c)) => {
+                    // TODO: implement line length limits
                     self.cur_line.push(c);
                     let l = self.cur_line.len();
                     if c == b'\n' && l >= 2 && self.cur_line[l - 2] == b'\r' {
@@ -304,14 +321,16 @@ mod tests {
             ),
             (b"HELP hello\r\n", b"502 Command not implemented\r\n"),
             (
-                b"MAIL FROM:<foo@bar.example.org>\r\n\
+                b"MAIL FROM:<bad@quux.example.org>\r\n\
+                  MAIL FROM:<foo@bar.example.org>\r\n\
                   MAIL FROM:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
                   DATA\r\n\
                   Hello\r\n
                   .\r\n\
                   QUIT\r\n",
-                b"250 Okay\r\n\
+                b"550 User 'bad' banned\r\n\
+                  250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   502 Command not implemented\r\n\
                   502 Command not implemented\r\n\
@@ -323,12 +342,22 @@ mod tests {
         for &(inp, out) in tests {
             let mut vec = Vec::new();
             let stream = stream::iter_ok(inp.iter().cloned());
-            let mut accept1 = |_: MailAddressRef, _: &ConnectionMetadata<()>| Decision::Accept(());
-            let mut accept2 = |_: MailAddressRef,
-                               (),
-                               _: &ConnectionMetadata<()>,
-                               _: &MailMetadata| Decision::Accept(());
-            let mut reject = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: &mut _| {
+            let mut filter_from = |addr: MailAddressRef, _: &ConnectionMetadata<()>| {
+                println!("filtering {}", std::str::from_utf8(addr).unwrap());
+                if addr == b"bad@quux.example.org" {
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::POLICY_REASON,
+                        msg:  "User 'bad' banned".to_owned(),
+                    })
+                } else {
+                    Decision::Accept(())
+                }
+            };
+            let mut filter_to =
+                |_: MailAddressRef, (), _: &ConnectionMetadata<()>, _: &MailMetadata| {
+                    Decision::Accept(())
+                };
+            let mut handler = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: &mut _| {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
                     msg:  "foo".to_owned(),
@@ -340,9 +369,9 @@ mod tests {
                 (),
                 |()| (),
                 |()| (),
-                &mut accept1,
-                &mut accept2,
-                &mut reject,
+                &mut filter_from,
+                &mut filter_to,
+                &mut handler,
             ).wait()
                 .unwrap();
             assert_eq!(vec, out);
