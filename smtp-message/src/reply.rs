@@ -1,6 +1,5 @@
 use nom::IResult;
-use std::{fmt,
-          io,
+use std::{io,
           str::{self, FromStr}};
 
 use helpers::*;
@@ -56,31 +55,31 @@ pub enum IsLastLine {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone)]
-pub struct Reply<'a> {
+#[derive(Clone, Debug)]
+pub struct Reply {
     code:    ReplyCode,
     is_last: IsLastLine,
-    line:    &'a [u8],
+    line:    SmtpString,
 }
 
-impl<'a> Reply<'a> {
+impl Reply {
     pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
 
-    pub fn build<'b>(
+    pub fn build(
         code: ReplyCode,
         is_last: IsLastLine,
-        line: &'b [u8],
-    ) -> Result<Reply<'b>, BuildError> {
-        if line.len() > Self::MAX_LEN {
+        line: SmtpString,
+    ) -> Result<Reply, BuildError> {
+        if line.byte_len() > Self::MAX_LEN {
             Err(BuildError::LineTooLong {
-                length: line.len(),
+                length: line.byte_len(),
                 limit:  Self::MAX_LEN,
             })
-        } else if let Some(p) = line.iter()
+        } else if let Some(p) = line.iter_bytes()
             .position(|&x| !(x == 9 || (x >= 32 && x <= 126)))
         {
             Err(BuildError::DisallowedByte {
-                b:   line[p],
+                b:   line.byte(p),
                 pos: p,
             })
         } else {
@@ -113,20 +112,8 @@ impl<'a> Reply<'a> {
         } else {
             b"-"
         })?;
-        w.write_all(self.line)?;
+        w.write_all(self.line.as_bytes())?;
         w.write_all(b"\r\n")
-    }
-}
-
-impl<'a> fmt::Debug for Reply<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Reply {{ code: {:?}, is_last: {:?}, line: {:?} }}",
-            self.code,
-            self.is_last,
-            bytes_to_dbg(self.line)
-        )
     }
 }
 
@@ -143,7 +130,7 @@ named!(pub reply(&[u8]) -> Reply, do_parse!(
     ) >>
     is_last: map!(alt!(tag!("-") | tag!(" ")), |b| if b == b" " { IsLastLine::Yes } else { IsLastLine::No }) >>
     line: take_until_and_consume!("\r\n") >>
-    (Reply { code, is_last, line })
+    (Reply { code, is_last, line: SmtpString::copy_bytes(line) })
 ));
 
 #[cfg(test)]
@@ -152,13 +139,17 @@ mod tests {
 
     #[test]
     fn reply_not_last() {
-        let r = Reply::build(ReplyCode::SERVICE_READY, IsLastLine::No, b"hello world!").unwrap();
+        let r = Reply::build(
+            ReplyCode::SERVICE_READY,
+            IsLastLine::No,
+            SmtpString::copy_bytes(b"hello world!"),
+        ).unwrap();
         assert_eq!(
             r,
             Reply {
                 code:    ReplyCode { code: 220 },
                 is_last: IsLastLine::No,
-                line:    b"hello world!",
+                line:    SmtpString::copy_bytes(b"hello world!"),
             }
         );
 
@@ -169,13 +160,17 @@ mod tests {
 
     #[test]
     fn reply_last() {
-        let r = Reply::build(ReplyCode::COMMAND_UNIMPLEMENTED, IsLastLine::Yes, b"test").unwrap();
+        let r = Reply::build(
+            ReplyCode::COMMAND_UNIMPLEMENTED,
+            IsLastLine::Yes,
+            SmtpString::copy_bytes(b"test"),
+        ).unwrap();
         assert_eq!(
             r,
             Reply {
                 code:    ReplyCode { code: 502 },
                 is_last: IsLastLine::Yes,
-                line:    b"test",
+                line:    SmtpString::copy_bytes(b"test"),
             }
         );
 
@@ -190,10 +185,16 @@ mod tests {
             Reply::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::Yes,
-                &vec![b'a'; 1000],
+                SmtpString::from_bytes(vec![b'a'; 1000]),
             ).is_err()
         );
-        assert!(Reply::build(ReplyCode::EXCEEDED_STORAGE, IsLastLine::No, b"\r").is_err());
+        assert!(
+            Reply::build(
+                ReplyCode::EXCEEDED_STORAGE,
+                IsLastLine::No,
+                SmtpString::copy_bytes(b"\r")
+            ).is_err()
+        );
     }
 
     #[test]
@@ -204,7 +205,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 250 },
                     is_last: IsLastLine::Yes,
-                    line:    b"All is well",
+                    line:    SmtpString::copy_bytes(b"All is well"),
                 },
             ),
             (
@@ -212,7 +213,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 450 },
                     is_last: IsLastLine::No,
-                    line:    b"Temporary",
+                    line:    SmtpString::copy_bytes(b"Temporary"),
                 },
             ),
             (
@@ -220,7 +221,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 354 },
                     is_last: IsLastLine::No,
-                    line:    b"Please do start input now",
+                    line:    SmtpString::copy_bytes(b"Please do start input now"),
                 },
             ),
             (
@@ -228,7 +229,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 550 },
                     is_last: IsLastLine::Yes,
-                    line:    b"Something is really very wrong!",
+                    line:    SmtpString::copy_bytes(b"Something is really very wrong!"),
                 },
             ),
         ];

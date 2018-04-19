@@ -74,10 +74,14 @@ pub fn interact<
     )
 }
 
-fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
+fn handle_line<'a, U, W>(
     (writer, conn_meta, mail_meta): (W, ConnectionMetadata<U>, Option<MailMetadata>),
     line: Vec<u8>,
 ) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<MailMetadata>), Error = W::SinkError>>
+where
+    U: 'a,
+    W: 'a + Sink<SinkItem = Reply>,
+    W::SinkError: 'a,
 {
     let cmd = Command::parse(&line);
     match cmd {
@@ -86,23 +90,28 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
             if mail_meta.is_some() {
                 // TODO: make the message configurable
                 Box::new(
-                    send_reply(writer, ReplyCode::BAD_SEQUENCE, b"Bad sequence of commands")
-                        .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                    send_reply(
+                        writer,
+                        ReplyCode::BAD_SEQUENCE,
+                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
                 ) as Box<Future<Item = _, Error = W::SinkError>>
             } else {
                 // TODO: actually call filter_from
                 // TODO: make this "Okay" configurable
                 Box::new(
-                    send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
-                        future::ok((
-                            writer,
-                            conn_meta,
-                            Some(MailMetadata {
-                                from,
-                                to: Vec::new(),
-                            }),
-                        ))
-                    }),
+                    send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay")).and_then(
+                        |writer| {
+                            future::ok((
+                                writer,
+                                conn_meta,
+                                Some(MailMetadata {
+                                    from,
+                                    to: Vec::new(),
+                                }),
+                            ))
+                        },
+                    ),
                 ) as Box<Future<Item = _, Error = W::SinkError>>
             }
         }
@@ -112,7 +121,7 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
-                b"Command not implemented",
+                SmtpString::copy_bytes(b"Command not implemented"),
             ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
         Err(_) => Box::new(
@@ -120,7 +129,7 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
-                b"Command not recognized",
+                SmtpString::copy_bytes(b"Command not recognized"),
             ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
     }
@@ -130,13 +139,13 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
 fn send_reply<'a, W>(
     writer: W,
     code: ReplyCode,
-    text: &'a [u8],
+    text: SmtpString,
 ) -> Box<'a + Future<Item = W, Error = W::SinkError>>
 where
-    W: 'a + Sink<SinkItem = Reply<'a>>,
+    W: 'a + Sink<SinkItem = Reply>,
     W::SinkError: 'a,
 {
-    let replies = map_is_last(text.chunks(Reply::MAX_LEN), move |t, l| {
+    let replies = map_is_last(text.copy_chunks(Reply::MAX_LEN).into_iter(), move |t, l| {
         Reply::build(code, if l { IsLastLine::Yes } else { IsLastLine::No }, t).unwrap()
     });
     Box::new(writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w))

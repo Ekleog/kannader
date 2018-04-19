@@ -1,5 +1,5 @@
 use nom::{self, IResult, Needed};
-use std::fmt;
+use std::{fmt, slice};
 
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
@@ -54,6 +54,58 @@ impl fmt::Display for BuildError {
             }
             &BuildError::ContainsNewLine { pos } => write!(f, "New line found at position {}", pos),
         }
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone)]
+pub struct SmtpString(Vec<u8>);
+
+impl SmtpString {
+    pub fn from_bytes(b: Vec<u8>) -> SmtpString {
+        SmtpString(b)
+    }
+
+    pub fn copy_bytes(b: &[u8]) -> SmtpString {
+        SmtpString::from_bytes(b.to_vec())
+    }
+
+    pub fn iter_bytes(&self) -> slice::Iter<u8> {
+        self.0.iter()
+    }
+
+    pub fn byte_len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn byte(&self, pos: usize) -> u8 {
+        self.0[pos]
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn copy_chunks(&self, bytes: usize) -> Vec<SmtpString> {
+        let mut res = Vec::with_capacity((self.byte_len() + bytes - 1) / bytes);
+        let mut it = self.0.iter().cloned();
+        for _ in 0..((self.byte_len() + bytes - 1) / bytes) {
+            res.push(SmtpString::from_bytes(it.by_ref().take(bytes).collect()));
+        }
+        res
+    }
+}
+
+impl fmt::Debug for SmtpString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "b\"{}\"",
+            self.0
+                .iter()
+                .flat_map(|x| char::from(*x).escape_default())
+                .collect::<String>()
+        )
     }
 }
 
