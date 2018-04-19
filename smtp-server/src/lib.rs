@@ -83,23 +83,32 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
     match cmd {
         Ok(Command::Mail(m)) => {
             let from = m.raw_from().to_vec();
-            Box::new(
-                // TODO: reject if a mail from was already given
+            if mail_meta.is_some() {
+                // TODO: make the message configurable
+                Box::new(
+                    send_reply(writer, ReplyCode::BAD_SEQUENCE, b"Bad sequence of commands")
+                        .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                ) as Box<Future<Item = _, Error = W::SinkError>>
+            } else {
                 // TODO: actually call filter_from
-                send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
-                    future::ok((
-                        writer,
-                        conn_meta,
-                        Some(MailMetadata {
-                            from,
-                            to: Vec::new(),
-                        }),
-                    ))
-                }),
-            ) as Box<Future<Item = _, Error = W::SinkError>>
+                // TODO: make this "Okay" configurable
+                Box::new(
+                    send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
+                        future::ok((
+                            writer,
+                            conn_meta,
+                            Some(MailMetadata {
+                                from,
+                                to: Vec::new(),
+                            }),
+                        ))
+                    }),
+                ) as Box<Future<Item = _, Error = W::SinkError>>
+            }
         }
         Ok(_) => Box::new(
             // TODO: look for a way to eliminate this alloc
+            // TODO: make the message configurable
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
@@ -107,6 +116,7 @@ fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
             ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
         Err(_) => Box::new(
+            // TODO: make the message configurable
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
@@ -265,6 +275,22 @@ mod tests {
                   502 Command not implemented\r\n",
             ),
             (b"HELP hello\r\n", b"502 Command not implemented\r\n"),
+            (
+                b"MAIL FROM:<foo@bar.example.org>\r\n\
+                  MAIL FROM:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello\r\n
+                  .\r\n\
+                  QUIT\r\n",
+                b"250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  502 Command not implemented\r\n\
+                  502 Command not implemented\r\n\
+                  500 Command not recognized\r\n\
+                  500 Command not recognized\r\n\
+                  502 Command not implemented\r\n",
+            ),
         ];
         for &(inp, out) in tests {
             let mut vec = Vec::new();
