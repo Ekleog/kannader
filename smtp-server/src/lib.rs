@@ -69,9 +69,7 @@ pub fn interact<
             .fold(
                 (writer, conn_meta, None as Option<MailMetadata>),
                 |(writer, conn_meta, mail_meta), line| {
-                    print!("Received line: {}", std::str::from_utf8(&line).unwrap());
                     let cmd = Command::parse(&line);
-                    println!("Parsed: {:?}", cmd);
                     match cmd {
                         Ok(Command::Mail(m)) => {
                             let from = m.raw_from().to_vec();
