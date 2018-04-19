@@ -38,20 +38,22 @@ pub fn interact<
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
     State,
-    FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
-    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
-        -> Decision<State>,
-    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
-        -> Decision<()>,
+    FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
+    FilterTo: 'a
+        + FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
+            -> Decision<State>,
+    HandleMail: 'a
+        + FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
+            -> Decision<()>,
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
     metadata: UserProvidedMetadata,
     handle_reader_error: HandleReaderError,
     handle_writer_error: HandleWriterError,
-    filter_from: FilterFrom,
-    filter_to: FilterTo,
-    handler: HandleMail,
+    filter_from: &'a mut FilterFrom,
+    filter_to: &'a mut FilterTo,
+    handler: &'a mut HandleMail,
 ) -> Box<'a + Future<Item = (), Error = ()>> {
     // TODO: return `impl Future`
     let conn_meta = ConnectionMetadata { user: metadata };
@@ -68,25 +70,34 @@ pub fn interact<
             .map_err(handle_reader_error)
             .fold(
                 (writer, conn_meta, None as Option<MailMetadata>),
-                handle_line,
+                move |acc, l| handle_line(acc, l, filter_from, filter_to, handler),
             )
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
 }
 
-fn handle_line<'a, U, W>(
-    (writer, conn_meta, mail_meta): (W, ConnectionMetadata<U>, Option<MailMetadata>),
-    line: Vec<u8>,
-) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<MailMetadata>), Error = W::SinkError>>
-where
+fn handle_line<
+    'a,
     U: 'a,
     W: 'a + Sink<SinkItem = Reply>,
+    Reader,
+    State,
+    FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
+    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<State>,
+    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
+>(
+    (writer, conn_meta, mail_meta): (W, ConnectionMetadata<U>, Option<MailMetadata>),
+    line: Vec<u8>,
+    filter_from: &mut FilterFrom,
+    filter_to: &mut FilterTo,
+    handler: &mut HandleMail,
+) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<MailMetadata>), Error = W::SinkError>>
+where
     W::SinkError: 'a,
 {
     let cmd = Command::parse(&line);
     match cmd {
         Ok(Command::Mail(m)) => {
-            let from = m.raw_from().to_vec();
             if mail_meta.is_some() {
                 // TODO: make the message configurable
                 Box::new(
@@ -97,22 +108,29 @@ where
                     ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
                 ) as Box<Future<Item = _, Error = W::SinkError>>
             } else {
-                // TODO: actually call filter_from
-                // TODO: make this "Okay" configurable
-                Box::new(
-                    send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay")).and_then(
-                        |writer| {
-                            future::ok((
-                                writer,
-                                conn_meta,
-                                Some(MailMetadata {
-                                    from,
-                                    to: Vec::new(),
+                match filter_from(m.raw_from(), &conn_meta) {
+                    Decision::Accept(state) => {
+                        let from = m.raw_from().to_vec();
+                        // TODO: make this "Okay" configurable
+                        Box::new(
+                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
+                                .and_then(|writer| {
+                                    future::ok((
+                                        writer,
+                                        conn_meta,
+                                        Some(MailMetadata {
+                                            from,
+                                            to: Vec::new(),
+                                        }),
+                                    ))
                                 }),
-                            ))
-                        },
+                        ) as Box<Future<Item = _, Error = W::SinkError>>
+                    }
+                    Decision::Reject(r) => Box::new(
+                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
+                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
                     ),
-                ) as Box<Future<Item = _, Error = W::SinkError>>
+                }
             }
         }
         Ok(_) => Box::new(
@@ -145,6 +163,7 @@ where
     W: 'a + Sink<SinkItem = Reply>,
     W::SinkError: 'a,
 {
+    // TODO: figure out a way using fewer copies
     let replies = map_is_last(text.copy_chunks(Reply::MAX_LEN).into_iter(), move |t, l| {
         Reply::build(code, if l { IsLastLine::Yes } else { IsLastLine::No }, t).unwrap()
     });
@@ -303,20 +322,27 @@ mod tests {
         ];
         for &(inp, out) in tests {
             let mut vec = Vec::new();
+            let stream = stream::iter_ok(inp.iter().cloned());
+            let mut accept1 = |_: MailAddressRef, _: &ConnectionMetadata<()>| Decision::Accept(());
+            let mut accept2 = |_: MailAddressRef,
+                               (),
+                               _: &ConnectionMetadata<()>,
+                               _: &MailMetadata| Decision::Accept(());
+            let mut reject = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: &mut _| {
+                Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg:  "foo".to_owned(),
+                })
+            };
             interact(
-                stream::iter_ok(inp.iter().cloned()),
+                stream,
                 &mut vec,
-                "no metadata",
+                (),
                 |()| (),
                 |()| (),
-                |_, _| Decision::Accept(()),
-                |_, _, _, _| Decision::Accept(()),
-                |_, _, _, _| {
-                    Decision::Reject(Refusal {
-                        code: ReplyCode::POLICY_REASON,
-                        msg:  "foo".to_owned(),
-                    })
-                },
+                &mut accept1,
+                &mut accept2,
+                &mut reject,
             ).wait()
                 .unwrap();
             assert_eq!(vec, out);
