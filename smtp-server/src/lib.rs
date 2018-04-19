@@ -39,8 +39,10 @@ pub fn interact<
     HandleWriterError: FnMut(WriterError) -> (),
     State,
     FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
-    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata) -> Decision<State>,
-    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader) -> Decision<()>,
+    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
+        -> Decision<State>,
+    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
+        -> Decision<()>,
 >(
     incoming: Reader,
     outgoing: &mut Writer,
@@ -56,7 +58,19 @@ pub fn interact<
     Box::new(
         CrlfLines::new(incoming)
             .map_err(handle_reader_error)
-            .fold((), |_, _| future::ok(())),
+            .fold((conn_meta, None), |(conn_meta, mail_meta), line| {
+                print!("Received line: {}", std::str::from_utf8(&line).unwrap());
+                let cmd = smtp_message::Command::parse(&line);
+                println!("Parsed: {:?}", cmd);
+                future::ok((
+                    conn_meta,
+                    Some(MailMetadata {
+                        from: b"foo@bar.example.org".to_vec(),
+                        to:   Vec::new(),
+                    }),
+                ))
+            })
+            .map(|_| ()), // TODO: warn of unfinished commands?
     )
 }
 
@@ -144,21 +158,39 @@ mod tests {
     }
 
     #[test]
-    fn good_prototype() {
-        let mut vec = Vec::new();
-        interact(
-            stream::iter_ok(b"foo bar".iter().cloned()),
-            &mut vec,
-            |()| (),
-            |()| (),
-            |_, _| Decision::Accept(()),
-            |_, _, _, _| Decision::Accept(()),
-            |_, _, _| {
-                Decision::Reject(Refusal {
-                    code: ReplyCode::POLICY_REASON,
-                    msg:  "foo".to_owned(),
-                })
-            },
-        );
+    fn interacts_ok() {
+        let tests: &[(&[u8], &[u8])] = &[
+            (
+                b"MAIL FROM:<foo@bar.example.org>\r\n\
+                  RCPT TO:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello World\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"",
+            ),
+            (b"HELP hello\r\n", b""),
+        ];
+        for &(inp, out) in tests {
+            let mut vec = Vec::new();
+            interact(
+                stream::iter_ok(inp.iter().cloned()),
+                &mut vec,
+                "no metadata",
+                |()| (),
+                |()| (),
+                |_, _| Decision::Accept(()),
+                |_, _, _, _| Decision::Accept(()),
+                |_, _, _, _| {
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::POLICY_REASON,
+                        msg:  "foo".to_owned(),
+                    })
+                },
+            ).wait()
+                .unwrap();
+            assert_eq!(vec, out);
+        }
     }
 }
