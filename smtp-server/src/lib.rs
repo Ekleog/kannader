@@ -8,7 +8,9 @@ use tokio::prelude::*;
 pub type MailAddress = Vec<u8>;
 pub type MailAddressRef<'a> = &'a [u8];
 
-pub struct ConnectionMetadata {}
+pub struct ConnectionMetadata<U> {
+    user: U,
+}
 
 pub struct MailMetadata {
     from: MailAddress,
@@ -32,15 +34,17 @@ pub fn interact<
     Reader: 'a + Stream<Item = u8, Error = ReaderError>,
     WriterError,
     Writer: Sink<SinkItem = u8, SinkError = WriterError>,
+    UserProvidedMetadata: 'a,
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: FnMut(WriterError) -> (),
     State,
-    FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Decision<State>,
-    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata, &MailMetadata) -> Decision<State>,
-    HandleMail: FnMut(MailMetadata, State, &AsyncRead) -> Decision<()>,
+    FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
+    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata) -> Decision<State>,
+    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader) -> Decision<()>,
 >(
     incoming: Reader,
     outgoing: &mut Writer,
+    metadata: UserProvidedMetadata,
     handle_reader_error: HandleReaderError,
     handle_writer_error: HandleWriterError,
     filter_from: FilterFrom,
@@ -48,6 +52,7 @@ pub fn interact<
     handler: HandleMail,
 ) -> Box<'a + Future<Item = (), Error = ()>> {
     // TODO: return `impl Future`
+    let conn_meta = ConnectionMetadata { user: metadata };
     Box::new(
         CrlfLines::new(incoming)
             .map_err(handle_reader_error)
