@@ -73,15 +73,28 @@ pub fn interact<
                     let cmd = Command::parse(&line);
                     println!("Parsed: {:?}", cmd);
                     match cmd {
-                        _ => writer
-                            .send(
-                                Reply::build(
-                                    ReplyCode::COMMAND_UNRECOGNIZED,
-                                    IsLastLine::Yes,
-                                    b"Command not recognized",
-                                ).unwrap(),
-                            )
-                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                        Ok(_) => Box::new(
+                            writer
+                                .send(
+                                    Reply::build(
+                                        ReplyCode::COMMAND_UNIMPLEMENTED,
+                                        IsLastLine::Yes,
+                                        b"Command not implemented",
+                                    ).unwrap(),
+                                )
+                                .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                        ) as Box<Future<Item = _, Error = ()>>,
+                        Err(_) => Box::new(
+                            writer
+                                .send(
+                                    Reply::build(
+                                        ReplyCode::COMMAND_UNRECOGNIZED,
+                                        IsLastLine::Yes,
+                                        b"Command not recognized",
+                                    ).unwrap(),
+                                )
+                                .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                        ) as Box<Future<Item = _, Error = ()>>,
                     }
                 },
             )
@@ -183,15 +196,15 @@ mod tests {
                   Hello World\r\n\
                   .\r\n\
                   QUIT\r\n",
-                b"500 Command not recognized\r\n\
+                b"502 Command not implemented\r\n\
+                  502 Command not implemented\r\n\
+                  502 Command not implemented\r\n\
+                  502 Command not implemented\r\n\
                   500 Command not recognized\r\n\
                   500 Command not recognized\r\n\
-                  500 Command not recognized\r\n\
-                  500 Command not recognized\r\n\
-                  500 Command not recognized\r\n\
-                  500 Command not recognized\r\n",
+                  502 Command not implemented\r\n",
             ),
-            (b"HELP hello\r\n", b"500 Command not recognized\r\n"),
+            (b"HELP hello\r\n", b"502 Command not implemented\r\n"),
         ];
         for &(inp, out) in tests {
             let mut vec = Vec::new();
