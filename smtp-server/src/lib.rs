@@ -68,14 +68,13 @@ pub fn interact<
     Box::new(
         CrlfLines::new(incoming)
             .map_err(handle_reader_error)
-            .fold((writer, conn_meta, None, None), move |acc, l| {
+            .fold((writer, conn_meta, None), move |acc, l| {
                 handle_line(acc, l, filter_from, filter_to, handler)
             })
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
 }
 
-// TODO: put state and mailmetadata in the same option
 fn handle_line<
     'a,
     U: 'a,
@@ -86,27 +85,14 @@ fn handle_line<
     FilterTo: FnMut(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
 >(
-    (writer, conn_meta, mail_meta, state): (
-        W,
-        ConnectionMetadata<U>,
-        Option<MailMetadata>,
-        Option<State>,
-    ),
+    (writer, conn_meta, mail_data): (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
     line: Vec<u8>,
     filter_from: &mut FilterFrom,
     filter_to: &mut FilterTo,
     handler: &mut HandleMail,
 ) -> Box<
     'a
-        + Future<
-            Item = (
-                W,
-                ConnectionMetadata<U>,
-                Option<MailMetadata>,
-                Option<State>,
-            ),
-            Error = W::SinkError,
-        >,
+        + Future<Item = (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>), Error = W::SinkError>,
 >
 where
     W::SinkError: 'a,
@@ -114,19 +100,20 @@ where
     let cmd = Command::parse(&line);
     match cmd {
         Ok(Command::Mail(m)) => {
-            if mail_meta.is_some() {
+            if mail_data.is_some() {
                 // TODO: make the message configurable
                 Box::new(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
-                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+                    ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
                 ) as Box<Future<Item = _, Error = W::SinkError>>
             } else {
                 match filter_from(m.raw_from(), &conn_meta) {
                     Decision::Accept(state) => {
                         let from = m.raw_from().to_vec();
+                        let to = Vec::new();
                         // TODO: make this "Okay" configurable
                         Box::new(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
@@ -134,25 +121,20 @@ where
                                     future::ok((
                                         writer,
                                         conn_meta,
-                                        Some(MailMetadata {
-                                            from,
-                                            to: Vec::new(),
-                                        }),
-                                        Some(state),
+                                        Some((MailMetadata { from, to }, state)),
                                     ))
                                 }),
                         ) as Box<Future<Item = _, Error = W::SinkError>>
                     }
                     Decision::Reject(r) => Box::new(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+                            .and_then(|writer| future::ok((writer, conn_meta, mail_data))),
                     ),
                 }
             }
         }
         Ok(Command::Rcpt(r)) => {
-            if let Some(mail_meta) = mail_meta {
-                let mut state = state.unwrap();
+            if let Some((mail_meta, mut state)) = mail_data {
                 match filter_to(r.to(), &mut state, &conn_meta, &mail_meta) {
                     Decision::Accept(()) => {
                         let MailMetadata { from, mut to } = mail_meta;
@@ -164,8 +146,7 @@ where
                                     future::ok((
                                         writer,
                                         conn_meta,
-                                        Some(MailMetadata { from, to }),
-                                        Some(state),
+                                        Some((MailMetadata { from, to }, state)),
                                     ))
                                 }),
                         )
@@ -173,7 +154,7 @@ where
                     Decision::Reject(r) => Box::new(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
-                                future::ok((writer, conn_meta, Some(mail_meta), Some(state)))
+                                future::ok((writer, conn_meta, Some((mail_meta, state))))
                             }),
                     ),
                 }
@@ -184,7 +165,7 @@ where
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
-                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+                    ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
                 )
             }
         }
@@ -195,7 +176,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
                 SmtpString::copy_bytes(b"Command not implemented"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
         Err(_) => Box::new(
             // TODO: make the message configurable
@@ -203,7 +184,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
                 SmtpString::copy_bytes(b"Command not recognized"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
         ) as Box<Future<Item = _, Error = W::SinkError>>,
     }
 }
@@ -398,7 +379,7 @@ mod tests {
                     if email.localpart().as_bytes() == b"baz" {
                         Decision::Reject(Refusal {
                             code: ReplyCode::MAILBOX_UNAVAILABLE,
-                            msg: "No user 'baz'".to_owned(),
+                            msg:  "No user 'baz'".to_owned(),
                         })
                     } else {
                         Decision::Accept(())
