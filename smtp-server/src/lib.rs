@@ -78,51 +78,54 @@ pub fn interact<
                             Box::new(
                                 // TODO: reject if a mail from was already given
                                 // TODO: actually call filter_from
-                                writer
-                                    .send(
-                                        Reply::build(ReplyCode::OKAY, IsLastLine::Yes, b"Okay")
-                                            .unwrap(),
-                                    )
-                                    .and_then(|writer| {
-                                        future::ok((
-                                            writer,
-                                            conn_meta,
-                                            Some(MailMetadata {
-                                                from,
-                                                to: Vec::new(),
-                                            }),
-                                        ))
-                                    }),
+                                send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
+                                    future::ok((
+                                        writer,
+                                        conn_meta,
+                                        Some(MailMetadata {
+                                            from,
+                                            to: Vec::new(),
+                                        }),
+                                    ))
+                                }),
                             ) as Box<Future<Item = _, Error = ()>>
                         }
                         Ok(_) => Box::new(
                             // TODO: look for a way to eliminate this alloc
-                            writer
-                                .send(
-                                    Reply::build(
-                                        ReplyCode::COMMAND_UNIMPLEMENTED,
-                                        IsLastLine::Yes,
-                                        b"Command not implemented",
-                                    ).unwrap(),
-                                )
-                                .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                            send_reply(
+                                writer,
+                                ReplyCode::COMMAND_UNIMPLEMENTED,
+                                b"Command not implemented",
+                            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
                         ) as Box<Future<Item = _, Error = ()>>,
                         Err(_) => Box::new(
-                            writer
-                                .send(
-                                    Reply::build(
-                                        ReplyCode::COMMAND_UNRECOGNIZED,
-                                        IsLastLine::Yes,
-                                        b"Command not recognized",
-                                    ).unwrap(),
-                                )
-                                .and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+                            send_reply(
+                                writer,
+                                ReplyCode::COMMAND_UNRECOGNIZED,
+                                b"Command not recognized",
+                            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
                         ) as Box<Future<Item = _, Error = ()>>,
                     }
                 },
             )
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
+}
+
+// Panics if `text` has a byte not in {9} \union [32; 126]
+fn send_reply<'a, W>(
+    writer: W,
+    code: ReplyCode,
+    text: &'a [u8],
+) -> Box<'a + Future<Item = W, Error = W::SinkError>>
+where
+    W: 'a + Sink<SinkItem = Reply<'a>>,
+    W::SinkError: 'a,
+{
+    let replies = map_is_last(text.chunks(Reply::MAX_LEN), move |t, l| {
+        Reply::build(code, if l { IsLastLine::Yes } else { IsLastLine::No }, t).unwrap()
+    });
+    Box::new(writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w))
 }
 
 // TODO: maybe it'd be possible to use upstream buffers instead of re-buffering
@@ -173,6 +176,34 @@ impl<S: Stream<Item = u8>> Stream for CrlfLines<S> {
                 }
             }
         }
+    }
+}
+
+struct MapIsLast<I: Iterator, F> {
+    iter: std::iter::Peekable<I>,
+    f:    F,
+}
+
+impl<R, I: Iterator, F: FnMut(I::Item, bool) -> R> Iterator for MapIsLast<I, F> {
+    type Item = R;
+
+    #[inline]
+    fn next(&mut self) -> Option<R> {
+        let res = self.iter.next();
+        let is_last = self.iter.peek().is_none();
+        res.map(|x| (self.f)(x, is_last))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+fn map_is_last<R, I: Iterator, F: FnMut(I::Item, bool) -> R>(iter: I, f: F) -> MapIsLast<I, F> {
+    MapIsLast {
+        iter: iter.peekable(),
+        f,
     }
 }
 
