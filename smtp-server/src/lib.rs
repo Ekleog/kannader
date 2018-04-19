@@ -32,7 +32,7 @@ pub fn interact<
     Reader: 'a + Stream<Item = u8, Error = ReaderError>,
     WriterError,
     Writer: Sink<SinkItem = u8, SinkError = WriterError>,
-    HandleReaderError: FnMut(ReaderError) -> (),
+    HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: FnMut(WriterError) -> (),
     State,
     FilterFrom: FnMut(MailAddressRef, &ConnectionMetadata) -> Decision<State>,
@@ -50,7 +50,7 @@ pub fn interact<
     // TODO: return `impl Future`
     Box::new(
         CrlfLines::new(incoming)
-            .map_err(|_| ())
+            .map_err(handle_reader_error)
             .fold((), |_, _| future::ok(())),
     )
 }
