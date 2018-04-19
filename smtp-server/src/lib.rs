@@ -68,46 +68,52 @@ pub fn interact<
             .map_err(handle_reader_error)
             .fold(
                 (writer, conn_meta, None as Option<MailMetadata>),
-                |(writer, conn_meta, mail_meta), line| {
-                    let cmd = Command::parse(&line);
-                    match cmd {
-                        Ok(Command::Mail(m)) => {
-                            let from = m.raw_from().to_vec();
-                            Box::new(
-                                // TODO: reject if a mail from was already given
-                                // TODO: actually call filter_from
-                                send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
-                                    future::ok((
-                                        writer,
-                                        conn_meta,
-                                        Some(MailMetadata {
-                                            from,
-                                            to: Vec::new(),
-                                        }),
-                                    ))
-                                }),
-                            ) as Box<Future<Item = _, Error = ()>>
-                        }
-                        Ok(_) => Box::new(
-                            // TODO: look for a way to eliminate this alloc
-                            send_reply(
-                                writer,
-                                ReplyCode::COMMAND_UNIMPLEMENTED,
-                                b"Command not implemented",
-                            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
-                        ) as Box<Future<Item = _, Error = ()>>,
-                        Err(_) => Box::new(
-                            send_reply(
-                                writer,
-                                ReplyCode::COMMAND_UNRECOGNIZED,
-                                b"Command not recognized",
-                            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
-                        ) as Box<Future<Item = _, Error = ()>>,
-                    }
-                },
+                handle_line,
             )
             .map(|_| ()), // TODO: warn of unfinished commands?
     )
+}
+
+fn handle_line<'a, U: 'a, W: 'a + Sink<SinkItem = Reply<'a>>>(
+    (writer, conn_meta, mail_meta): (W, ConnectionMetadata<U>, Option<MailMetadata>),
+    line: Vec<u8>,
+) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<MailMetadata>), Error = W::SinkError>>
+{
+    let cmd = Command::parse(&line);
+    match cmd {
+        Ok(Command::Mail(m)) => {
+            let from = m.raw_from().to_vec();
+            Box::new(
+                // TODO: reject if a mail from was already given
+                // TODO: actually call filter_from
+                send_reply(writer, ReplyCode::OKAY, b"Okay").and_then(|writer| {
+                    future::ok((
+                        writer,
+                        conn_meta,
+                        Some(MailMetadata {
+                            from,
+                            to: Vec::new(),
+                        }),
+                    ))
+                }),
+            ) as Box<Future<Item = _, Error = W::SinkError>>
+        }
+        Ok(_) => Box::new(
+            // TODO: look for a way to eliminate this alloc
+            send_reply(
+                writer,
+                ReplyCode::COMMAND_UNIMPLEMENTED,
+                b"Command not implemented",
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+        ) as Box<Future<Item = _, Error = W::SinkError>>,
+        Err(_) => Box::new(
+            send_reply(
+                writer,
+                ReplyCode::COMMAND_UNRECOGNIZED,
+                b"Command not recognized",
+            ).and_then(|writer| future::ok((writer, conn_meta, mail_meta))),
+        ) as Box<Future<Item = _, Error = W::SinkError>>,
+    }
 }
 
 // Panics if `text` has a byte not in {9} \union [32; 126]
