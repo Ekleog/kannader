@@ -40,8 +40,8 @@ pub fn interact<
     State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: 'a
-        + FnMut(&Email, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
-            -> Decision<State>,
+        + FnMut(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
+            -> Decision<()>,
     HandleMail: 'a
         + FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
             -> Decision<()>,
@@ -83,7 +83,7 @@ fn handle_line<
     Reader,
     State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
-    FilterTo: FnMut(&Email, State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<State>,
+    FilterTo: FnMut(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
 >(
     (writer, conn_meta, mail_meta, state): (
@@ -148,6 +148,44 @@ where
                             .and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
                     ),
                 }
+            }
+        }
+        Ok(Command::Rcpt(r)) => {
+            if let Some(mail_meta) = mail_meta {
+                let mut state = state.unwrap();
+                match filter_to(r.to(), &mut state, &conn_meta, &mail_meta) {
+                    Decision::Accept(()) => {
+                        let MailMetadata { from, mut to } = mail_meta;
+                        to.push(r.to().clone());
+                        // TODO: make this "Okay" configurable
+                        Box::new(
+                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
+                                .and_then(|writer| {
+                                    future::ok((
+                                        writer,
+                                        conn_meta,
+                                        Some(MailMetadata { from, to }),
+                                        Some(state),
+                                    ))
+                                }),
+                        )
+                    }
+                    Decision::Reject(r) => Box::new(
+                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
+                            .and_then(|writer| {
+                                future::ok((writer, conn_meta, Some(mail_meta), Some(state)))
+                            }),
+                    ),
+                }
+            } else {
+                // TODO: make the message configurable
+                Box::new(
+                    send_reply(
+                        writer,
+                        ReplyCode::BAD_SEQUENCE,
+                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                    ).and_then(|writer| future::ok((writer, conn_meta, mail_meta, state))),
+                )
             }
         }
         Ok(_) => Box::new(
@@ -308,13 +346,15 @@ mod tests {
                 b"MAIL FROM:<foo@bar.example.org>\r\n\
                   RCPT TO:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
+                  RCPT TO:<foo3@bar.example.org>\r\n\
                   DATA\r\n\
                   Hello World\r\n\
                   .\r\n\
                   QUIT\r\n",
                 b"250 Okay\r\n\
-                  502 Command not implemented\r\n\
-                  502 Command not implemented\r\n\
+                  550 No user 'baz'\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
                   502 Command not implemented\r\n\
                   500 Command not recognized\r\n\
                   500 Command not recognized\r\n\
@@ -333,7 +373,7 @@ mod tests {
                 b"550 User 'bad' banned\r\n\
                   250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
-                  502 Command not implemented\r\n\
+                  250 Okay\r\n\
                   502 Command not implemented\r\n\
                   500 Command not recognized\r\n\
                   500 Command not recognized\r\n\
@@ -344,7 +384,6 @@ mod tests {
             let mut vec = Vec::new();
             let stream = stream::iter_ok(inp.iter().cloned());
             let mut filter_from = |addr: MailAddressRef, _: &ConnectionMetadata<()>| {
-                println!("filtering {}", std::str::from_utf8(addr).unwrap());
                 if addr == b"bad@quux.example.org" {
                     Decision::Reject(Refusal {
                         code: ReplyCode::POLICY_REASON,
@@ -355,7 +394,16 @@ mod tests {
                 }
             };
             let mut filter_to =
-                |_: &Email, (), _: &ConnectionMetadata<()>, _: &MailMetadata| Decision::Accept(());
+                |email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMetadata| {
+                    if email.localpart().as_bytes() == b"baz" {
+                        Decision::Reject(Refusal {
+                            code: ReplyCode::MAILBOX_UNAVAILABLE,
+                            msg: "No user 'baz'".to_owned(),
+                        })
+                    } else {
+                        Decision::Accept(())
+                    }
+                };
             let mut handler = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: &mut _| {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
