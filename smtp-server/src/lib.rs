@@ -14,7 +14,7 @@ pub struct ConnectionMetadata<U> {
 
 pub struct MailMetadata {
     from: MailAddress,
-    to:   Vec<MailAddress>,
+    to:   Vec<Email>,
 }
 
 pub struct Refusal {
@@ -40,7 +40,7 @@ pub fn interact<
     State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: 'a
-        + FnMut(MailAddressRef, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
+        + FnMut(&Email, State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
             -> Decision<State>,
     HandleMail: 'a
         + FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
@@ -75,6 +75,7 @@ pub fn interact<
     )
 }
 
+// TODO: put state and mailmetadata in the same option
 fn handle_line<
     'a,
     U: 'a,
@@ -82,7 +83,7 @@ fn handle_line<
     Reader,
     State: 'a,
     FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
-    FilterTo: FnMut(MailAddressRef, State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<State>,
+    FilterTo: FnMut(&Email, State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<State>,
     HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
 >(
     (writer, conn_meta, mail_meta, state): (
@@ -354,9 +355,7 @@ mod tests {
                 }
             };
             let mut filter_to =
-                |_: MailAddressRef, (), _: &ConnectionMetadata<()>, _: &MailMetadata| {
-                    Decision::Accept(())
-                };
+                |_: &Email, (), _: &ConnectionMetadata<()>, _: &MailMetadata| Decision::Accept(());
             let mut handler = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: &mut _| {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,

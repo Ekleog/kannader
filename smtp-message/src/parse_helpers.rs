@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
 
 use helpers::*;
 
@@ -43,32 +43,33 @@ macro_rules! graph_except_equ {
     };
 }
 
+// TODO: move to helpers.rs
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Copy, Clone)]
-pub struct Email<'a> {
-    localpart: &'a [u8],
-    hostname:  Option<&'a [u8]>,
+#[derive(Clone, Debug)]
+pub struct Email {
+    localpart: SmtpString,
+    hostname:  Option<SmtpString>,
 }
 
-impl<'a> Email<'a> {
-    pub fn new<'b>(localpart: &'b [u8], hostname: Option<&'b [u8]>) -> Email<'b> {
+impl Email {
+    pub fn new<'b>(localpart: SmtpString, hostname: Option<SmtpString>) -> Email {
         Email {
             localpart,
             hostname,
         }
     }
 
-    pub fn raw_localpart(&self) -> &[u8] {
-        self.localpart
+    pub fn raw_localpart(&self) -> &SmtpString {
+        &self.localpart
     }
 
     // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for
     // details.
     // This is a canonicalized version of the potentially quoted localpart, not
     // designed to be sent over the wire as it is no longer correctly quoted
-    pub fn localpart(&self) -> Vec<u8> {
-        if self.localpart[0] != b'"' {
-            self.localpart.to_owned()
+    pub fn localpart(&self) -> SmtpString {
+        if self.localpart.byte(0) != b'"' {
+            self.localpart.clone()
         } else {
             #[derive(Copy, Clone)]
             enum State {
@@ -77,7 +78,7 @@ impl<'a> Email<'a> {
             }
 
             let mut res = self.localpart
-                .iter()
+                .iter_bytes()
                 .skip(1)
                 .scan(State::Start, |state, &x| match (*state, x) {
                     (State::Backslash, _) => {
@@ -96,23 +97,12 @@ impl<'a> Email<'a> {
                 .filter_map(|x| x)
                 .collect::<Vec<u8>>();
             assert_eq!(res.pop().unwrap(), b'"');
-            res
+            SmtpString::from_bytes(res)
         }
     }
 
-    pub fn hostname(&self) -> Option<&[u8]> {
-        self.hostname
-    }
-}
-
-impl<'a> fmt::Debug for Email<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Email {{ localpart: {:?}, hostname: {:?} }}",
-            bytes_to_dbg(self.localpart),
-            self.hostname.map(bytes_to_dbg)
-        )
+    pub fn hostname(&self) -> &Option<SmtpString> {
+        &self.hostname
     }
 }
 
@@ -146,8 +136,8 @@ named!(pub email(&[u8]) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
     (Email {
-        localpart: local,
-        hostname: host,
+        localpart: SmtpString::copy_bytes(local),
+        hostname: host.map(SmtpString::copy_bytes),
     })
 ));
 
@@ -264,28 +254,28 @@ mod tests {
             (
                 b"t+e-s.t_i+n-g@foo.bar.baz",
                 Email {
-                    localpart: b"t+e-s.t_i+n-g",
-                    hostname:  Some(b"foo.bar.baz"),
+                    localpart: SmtpString::copy_bytes(b"t+e-s.t_i+n-g"),
+                    hostname:  Some(SmtpString::copy_bytes(b"foo.bar.baz")),
                 },
             ),
             (
                 br#""quoted\"example"@example.org"#,
                 Email {
-                    localpart: br#""quoted\"example""#,
-                    hostname:  Some(b"example.org"),
+                    localpart: SmtpString::copy_bytes(br#""quoted\"example""#),
+                    hostname:  Some(SmtpString::copy_bytes(b"example.org")),
                 },
             ),
             (
                 b"postmaster",
                 Email {
-                    localpart: b"postmaster",
+                    localpart: SmtpString::copy_bytes(b"postmaster"),
                     hostname:  None,
                 },
             ),
             (
                 b"test",
                 Email {
-                    localpart: b"test",
+                    localpart: SmtpString::copy_bytes(b"test"),
                     hostname:  None,
                 },
             ),
@@ -306,7 +296,7 @@ mod tests {
             ),
         ];
         for (s, r) in tests {
-            assert_eq!(email(s).unwrap().1.localpart(), r);
+            assert_eq!(email(s).unwrap().1.localpart().as_bytes(), r);
         }
     }
 
@@ -322,8 +312,8 @@ mod tests {
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
                     Email {
-                        localpart: b"test",
-                        hostname:  Some(b"example.org"),
+                        localpart: SmtpString::copy_bytes(b"test"),
+                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
                     },
                     b"test@example.org",
                 ),
@@ -332,15 +322,18 @@ mod tests {
                 b"foo.bar@baz.quux",
                 (
                     Email {
-                        localpart: b"foo.bar",
-                        hostname:  Some(b"baz.quux"),
+                        localpart: SmtpString::copy_bytes(b"foo.bar"),
+                        hostname:  Some(SmtpString::copy_bytes(b"baz.quux")),
                     },
                     b"foo.bar@baz.quux",
                 ),
             ),
         ];
         for test in tests {
-            assert_eq!(address_in_path(test.0), IResult::Done(&b""[..], test.1));
+            assert_eq!(
+                address_in_path(test.0),
+                IResult::Done(&b""[..], test.1.clone())
+            );
         }
     }
 
@@ -351,8 +344,8 @@ mod tests {
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
                     Email {
-                        localpart: b"test",
-                        hostname:  Some(b"example.org"),
+                        localpart: SmtpString::copy_bytes(b"test"),
+                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
                     },
                     b"test@example.org",
                 ),
@@ -361,8 +354,8 @@ mod tests {
                 b"<@foo.bar,@baz.quux:test@example.org>",
                 (
                     Email {
-                        localpart: b"test",
-                        hostname:  Some(b"example.org"),
+                        localpart: SmtpString::copy_bytes(b"test"),
+                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
                     },
                     b"test@example.org",
                 ),
@@ -371,8 +364,8 @@ mod tests {
                 b"<foo@bar.baz>",
                 (
                     Email {
-                        localpart: b"foo",
-                        hostname:  Some(b"bar.baz"),
+                        localpart: SmtpString::copy_bytes(b"foo"),
+                        hostname:  Some(SmtpString::copy_bytes(b"bar.baz")),
                     },
                     b"foo@bar.baz",
                 ),
@@ -381,8 +374,8 @@ mod tests {
                 b"foo@bar.baz",
                 (
                     Email {
-                        localpart: b"foo",
-                        hostname:  Some(b"bar.baz"),
+                        localpart: SmtpString::copy_bytes(b"foo"),
+                        hostname:  Some(SmtpString::copy_bytes(b"bar.baz")),
                     },
                     b"foo@bar.baz",
                 ),
@@ -391,7 +384,7 @@ mod tests {
                 b"foobar",
                 (
                     Email {
-                        localpart: b"foobar",
+                        localpart: SmtpString::copy_bytes(b"foobar"),
                         hostname:  None,
                     },
                     b"foobar",
@@ -401,7 +394,7 @@ mod tests {
         for test in tests {
             assert_eq!(
                 address_in_maybe_bracketed_path(test.0),
-                IResult::Done(&b""[..], test.1)
+                IResult::Done(&b""[..], test.1.clone())
             );
         }
     }

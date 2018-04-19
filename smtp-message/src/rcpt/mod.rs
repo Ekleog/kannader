@@ -6,26 +6,26 @@ use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct RcptCommand<'a> {
+pub struct RcptCommand {
     // TO: parameter with the “@ONE,@TWO:” portion removed, as per RFC5321 Appendix C
-    to: Email<'a>,
+    to: Email,
 }
 
-impl<'a> RcptCommand<'a> {
+impl RcptCommand {
     pub fn new(to: Email) -> RcptCommand {
         RcptCommand { to }
     }
 
-    pub fn to(&self) -> Email<'a> {
-        self.to
+    pub fn to(&self) -> &Email {
+        &self.to
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"RCPT TO:<")?;
-        w.write_all(self.to.raw_localpart())?;
-        if let Some(host) = self.to.hostname() {
+        w.write_all(self.to.raw_localpart().as_bytes())?;
+        if let &Some(ref host) = self.to.hostname() {
             w.write_all(b"@")?;
-            w.write_all(host)?;
+            w.write_all(host.as_bytes())?;
         }
         w.write_all(b">\r\n")
     }
@@ -47,6 +47,8 @@ named!(pub command_rcpt_args(&[u8]) -> RcptCommand,
 mod tests {
     use super::*;
 
+    use helpers::*;
+
     #[test]
     fn valid_command_rcpt_args() {
         let tests: Vec<(&[u8], &[u8], Option<&[u8]>)> = vec![
@@ -61,21 +63,23 @@ mod tests {
         ];
         for (s, l, h) in tests.into_iter() {
             let res = command_rcpt_args(s).unwrap().1;
-            assert_eq!(res.to().raw_localpart(), l);
-            assert_eq!(res.to().hostname(), h);
+            assert_eq!(res.to().raw_localpart().as_bytes(), l);
+            assert_eq!(res.to().hostname(), &h.map(SmtpString::copy_bytes));
         }
     }
 
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        RcptCommand::new(Email::new(b"foo", Some(b"bar.com")))
-            .send_to(&mut v)
+        RcptCommand::new(Email::new(
+            SmtpString::copy_bytes(b"foo"),
+            Some(SmtpString::copy_bytes(b"bar.com")),
+        )).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");
 
         v = Vec::new();
-        RcptCommand::new(Email::new(b"Postmaster", None))
+        RcptCommand::new(Email::new(SmtpString::copy_bytes(b"Postmaster"), None))
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<Postmaster>\r\n");

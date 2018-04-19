@@ -6,7 +6,7 @@ use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 pub struct MailCommand<'a> {
-    from:   &'a [u8],
+    from:   &'a [u8], // TODO: actually store an Email
     params: Option<SpParameters<'a>>,
 }
 

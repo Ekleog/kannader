@@ -25,7 +25,7 @@ pub enum Command<'a> {
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Noop(NoopCommand<'a>), // NOOP [<string>] <CRLF>
     Quit(QuitCommand),     // QUIT <CRLF>
-    Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rcpt(RcptCommand),     // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
     Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
 }
@@ -177,7 +177,8 @@ mod tests {
                 &b"rCpT To: foo@bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
-                        r.to().raw_localpart() == b"foo" && r.to().hostname() == Some(b"bar.baz")
+                        r.to().raw_localpart().as_bytes() == b"foo"
+                            && r.to().hostname() == &Some(SmtpString::copy_bytes(b"bar.baz"))
                     } else {
                         false
                     }
@@ -187,7 +188,8 @@ mod tests {
                 &b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..],
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
-                        r.to().raw_localpart() == b"baz" && r.to().hostname() == Some(b"quux.foo")
+                        r.to().raw_localpart().as_bytes() == b"baz"
+                            && r.to().hostname() == &Some(SmtpString::copy_bytes(b"quux.foo"))
                     } else {
                         false
                     }
