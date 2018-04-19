@@ -2,7 +2,6 @@ extern crate smtp_message;
 extern crate tokio;
 
 use smtp_message::*;
-use std::io::BufRead;
 use tokio::prelude::*;
 
 pub type MailAddress = Vec<u8>;
@@ -26,8 +25,9 @@ pub enum Decision<T> {
 }
 
 pub fn interact<
+    'a,
     ReaderError,
-    Reader: Stream<Item = u8, Error = ReaderError>,
+    Reader: 'a + Stream<Item = u8, Error = ReaderError>,
     WriterError,
     Writer: Sink<SinkItem = u8, SinkError = WriterError>,
     HandleReaderError: FnMut(ReaderError) -> (),
@@ -44,16 +44,41 @@ pub fn interact<
     filter_from: FilterFrom,
     filter_to: FilterTo,
     handler: HandleMail,
-) -> Box<Future<Item = (), Error = ()>> {
-    // TODO: impl Future
-    Box::new(future::empty())
+) -> Box<'a + Future<Item = (), Error = ()>> {
+    // TODO: return `impl Future`
+    Box::new(
+        CrlfLines::new(incoming)
+            .map_err(|_| ())
+            .fold((), |_, _| future::ok(())),
+    )
+}
+
+struct CrlfLines<S> {
+    source: S,
+    buf:    Vec<u8>,
+}
+
+impl<S: Stream<Item = u8>> CrlfLines<S> {
+    fn new(s: S) -> CrlfLines<S> {
+        CrlfLines {
+            source: s,
+            buf:    Vec::with_capacity(1024),
+        }
+    }
+}
+
+impl<S: Stream<Item = u8>> Stream for CrlfLines<S> {
+    type Item = Vec<u8>;
+    type Error = S::Error;
+
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        unimplemented!() // TODO
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use std::io::Cursor;
 
     #[test]
     fn it_works() {
