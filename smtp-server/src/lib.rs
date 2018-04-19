@@ -2,6 +2,7 @@ extern crate smtp_message;
 extern crate tokio;
 
 use smtp_message::*;
+use std::mem;
 use tokio::prelude::*;
 
 pub type MailAddress = Vec<u8>;
@@ -24,6 +25,7 @@ pub enum Decision<T> {
     Reject(Refusal),
 }
 
+// The streams will be read 1-by-1, so make sure they are buffered
 pub fn interact<
     'a,
     ReaderError,
@@ -54,16 +56,28 @@ pub fn interact<
 }
 
 struct CrlfLines<S> {
-    source: S,
-    buf:    Vec<u8>,
+    source:   S,
+    cur_line: Vec<u8>,
 }
 
 impl<S: Stream<Item = u8>> CrlfLines<S> {
-    fn new(s: S) -> CrlfLines<S> {
+    pub fn new(s: S) -> CrlfLines<S> {
         CrlfLines {
-            source: s,
-            buf:    Vec::with_capacity(1024),
+            source:   s,
+            cur_line: Self::initial_cur_line(),
         }
+    }
+
+    pub fn underlying(&mut self) -> &mut S {
+        &mut self.source
+    }
+
+    fn initial_cur_line() -> Vec<u8> {
+        Vec::with_capacity(1024)
+    }
+
+    fn next_line(&mut self) -> Vec<u8> {
+        mem::replace(&mut self.cur_line, Self::initial_cur_line())
     }
 }
 
@@ -72,7 +86,21 @@ impl<S: Stream<Item = u8>> Stream for CrlfLines<S> {
     type Error = S::Error;
 
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        unimplemented!() // TODO
+        use Async::*;
+        loop {
+            match self.source.poll()? {
+                NotReady => return Ok(NotReady),
+                Ready(None) if self.cur_line.is_empty() => return Ok(Ready(None)),
+                Ready(None) => return Ok(Ready(Some(self.next_line()))),
+                Ready(Some(c)) => {
+                    self.cur_line.push(c);
+                    let l = self.cur_line.len();
+                    if c == b'\n' && l >= 2 && self.cur_line[l - 2] == b'\r' {
+                        return Ok(Ready(Some(self.next_line())));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -81,7 +109,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn crlflines_looks_good() {
+        let mut stream = CrlfLines::new(
+            stream::iter_ok(
+                b"MAIL FROM:<foo@bar.example.org>\r\n\
+                  RCPT TO:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello World\r\n\
+                  .\r\n\
+                  QUIT\r\n"
+                    .iter()
+                    .cloned(),
+            ).map_err(|()| ()),
+        );
+
+        assert_eq!(
+            stream.collect().wait().unwrap(),
+            vec![
+                b"MAIL FROM:<foo@bar.example.org>\r\n".to_vec(),
+                b"RCPT TO:<baz@quux.example.org>\r\n".to_vec(),
+                b"RCPT TO:<foo2@bar.example.org>\r\n".to_vec(),
+                b"DATA\r\n".to_vec(),
+                b"Hello World\r\n".to_vec(),
+                b".\r\n".to_vec(),
+                b"QUIT\r\n".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn good_prototype() {
         let mut vec = Vec::new();
         interact(
             stream::iter_ok(b"foo bar".iter().cloned()),
