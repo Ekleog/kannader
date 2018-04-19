@@ -73,7 +73,30 @@ pub fn interact<
                     let cmd = Command::parse(&line);
                     println!("Parsed: {:?}", cmd);
                     match cmd {
+                        Ok(Command::Mail(m)) => {
+                            let from = m.raw_from().to_vec();
+                            Box::new(
+                                // TODO: reject if a mail from was already given
+                                // TODO: actually call filter_from
+                                writer
+                                    .send(
+                                        Reply::build(ReplyCode::OKAY, IsLastLine::Yes, b"Okay")
+                                            .unwrap(),
+                                    )
+                                    .and_then(|writer| {
+                                        future::ok((
+                                            writer,
+                                            conn_meta,
+                                            Some(MailMetadata {
+                                                from,
+                                                to: Vec::new(),
+                                            }),
+                                        ))
+                                    }),
+                            ) as Box<Future<Item = _, Error = ()>>
+                        }
                         Ok(_) => Box::new(
+                            // TODO: look for a way to eliminate this alloc
                             writer
                                 .send(
                                     Reply::build(
@@ -102,6 +125,8 @@ pub fn interact<
     )
 }
 
+// TODO: maybe it'd be possible to use upstream buffers instead of re-buffering
+// here, for fewer copies
 struct CrlfLines<S> {
     source:   S,
     cur_line: Vec<u8>,
@@ -157,7 +182,7 @@ mod tests {
 
     #[test]
     fn crlflines_looks_good() {
-        let mut stream = CrlfLines::new(
+        let stream = CrlfLines::new(
             stream::iter_ok(
                 b"MAIL FROM:<foo@bar.example.org>\r\n\
                   RCPT TO:<baz@quux.example.org>\r\n\
@@ -196,7 +221,7 @@ mod tests {
                   Hello World\r\n\
                   .\r\n\
                   QUIT\r\n",
-                b"502 Command not implemented\r\n\
+                b"250 Okay\r\n\
                   502 Command not implemented\r\n\
                   502 Command not implemented\r\n\
                   502 Command not implemented\r\n\
