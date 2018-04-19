@@ -6,7 +6,7 @@ use std::{fmt,
 use helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ReplyCode {
     code: u16,
 }
@@ -64,16 +64,17 @@ pub struct Reply<'a> {
 }
 
 impl<'a> Reply<'a> {
+    pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
+
     pub fn build<'b>(
         code: ReplyCode,
         is_last: IsLastLine,
         line: &'b [u8],
     ) -> Result<Reply<'b>, BuildError> {
-        if line.len() > 506 {
-            // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
+        if line.len() > Self::MAX_LEN {
             Err(BuildError::LineTooLong {
                 length: line.len(),
-                limit:  506,
+                limit:  Self::MAX_LEN,
             })
         } else if let Some(p) = line.iter()
             .position(|&x| !(x == 9 || (x >= 32 && x <= 126)))
