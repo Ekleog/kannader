@@ -12,8 +12,8 @@ rust:
 
 matrix:
   include:
-    - rust: stable
-      env: TARPAULIN=1
+    #- rust: stable
+    #  env: TARPAULIN=1
     - rust: nightly
       env: CHECK_FORMAT=1
 
