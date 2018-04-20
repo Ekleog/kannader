@@ -1,2 +1,4 @@
 [workspace]
 members = [ "smtp-message", "smtp-server" ]
+
+# TODO: setup cargo-fuzz

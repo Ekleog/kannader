@@ -311,4 +311,36 @@ mod tests {
             assert_eq!(v, out.to_vec());
         }
     }
+
+    quickcheck! {
+        fn data_stream_and_sink_are_compatible(end_with_crlf: bool, v: Vec<u8>) -> bool {
+            let mut input = v;
+            if end_with_crlf && (input.len() < 2 || &input[(input.len() - 2)..] != b"\r\n") {
+                input.extend_from_slice(b"\r\n");
+            }
+            if !end_with_crlf && input.len() >= 2 && &input[(input.len() - 2)..] == b"\r\n" {
+                input.pop();
+            }
+            let mut on_the_wire = Vec::new();
+            {
+                let sink = DataSink::new(&mut on_the_wire);
+                sink.send_all(stream::iter_ok(input.iter().cloned()))
+                    .wait()
+                    .unwrap()
+                    .0
+                    .end()
+                    .wait()
+                    .unwrap();
+            }
+            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter()))
+                .map_err(|()| ())
+                .collect()
+                .wait()
+                .unwrap();
+            if !end_with_crlf && !input.is_empty() {
+                input.extend_from_slice(b"\r\n");
+            }
+            received == input
+        }
+    }
 }

@@ -5,6 +5,10 @@ extern crate failure;
 extern crate failure_derive;
 extern crate tokio;
 
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
 mod helpers;
 mod parse_helpers;
 

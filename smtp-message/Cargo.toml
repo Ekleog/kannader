@@ -12,3 +12,6 @@ nom = "3.2"
 failure = "0.1.1"
 failure_derive = "0.1.1"
 tokio = "0.1.5"
+
+[dev-dependencies]
+quickcheck = "0.6.2"
