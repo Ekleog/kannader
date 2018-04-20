@@ -403,6 +403,8 @@ fn map_is_last<R, I: Iterator, F: FnMut(I::Item, bool) -> R>(iter: I, f: F) -> M
 mod tests {
     use super::*;
 
+    use std::cell::Cell;
+
     #[test]
     fn crlflines_looks_good() {
         let stream = CrlfLines::new(
@@ -461,23 +463,17 @@ mod tests {
     }
 
     fn handler<R: Stream<Item = u8>>(
-        _: MailMetadata,
+        meta: MailMetadata,
         (): (),
         _: &ConnectionMetadata<()>,
         mut reader: DataStream<R>,
+        mails: &Cell<Vec<(Vec<u8>, Vec<Email>, Vec<u8>)>>,
     ) -> (R, Decision<()>) {
         // TODO: this API should be asynchronous!!!!!
-        if reader
-            .by_ref()
-            .collect()
-            .wait()
-            .map_err(|_| ())
-            .unwrap()
-            .windows(5)
-            .position(|x| x == b"World")
-            .is_some()
-        {
+        let mail_text = reader.by_ref().collect().wait().map_err(|_| ()).unwrap();
+        if mail_text.windows(5).position(|x| x == b"World").is_some() {
             (
+                // TODO: rename `continue` and panic instead of auto-consuming the remaining stuff
                 reader.consume_and_continue(),
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
@@ -485,6 +481,9 @@ mod tests {
                 }),
             )
         } else {
+            let mut m = mails.take();
+            m.push((meta.from, meta.to, mail_text));
+            mails.set(m);
             (reader.consume_and_continue(), Decision::Accept(()))
         }
     }
@@ -500,20 +499,33 @@ mod tests {
                   RCPT TO:<foo2@bar.example.org>\r\n\
                   RCPT TO:<foo3@bar.example.org>\r\n\
                   DATA\r\n\
-                  Hello World\r\n\
+                  Hello world\r\n\
                   .\r\n\
                   QUIT\r\n",
                 b"250 Okay\r\n\
                   550 No user 'baz'\r\n\
                   250 Okay\r\n\
                   250 Okay\r\n\
-                  550 Don't you dare say 'World'!\r\n\
+                  250 Okay\r\n\
                   502 Command not implemented\r\n",
                 &[(
                     b"foo@bar.example.org",
                     &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
-                    b"Hello World\r\n",
+                    b"Hello world\r\n",
                 )],
+            ),
+            (
+                b"MAIL FROM:<test@example.org>\r\n\
+                  RCPT TO:<foo@example.org>\r\n\
+                  DATA\r\n\
+                  Hello World\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"250 Okay\r\n\
+                  250 Okay\r\n\
+                  550 Don't you dare say 'World'!\r\n\
+                  502 Command not implemented\r\n",
+                &[],
             ),
             (b"HELP hello\r\n", b"502 Command not implemented\r\n", &[]),
             (
@@ -549,10 +561,10 @@ mod tests {
         ];
         for &(inp, out, mail) in tests {
             println!("\nSending\n---\n{}---", std::str::from_utf8(inp).unwrap());
-            println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             let stream = stream::iter_ok(inp.iter().cloned());
-            // let mut resp_mail = Vec::new();
             let mut resp = Vec::new();
+            let mut resp_mail = Cell::new(Vec::new());
+            let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
             interact(
                 stream,
                 &mut resp,
@@ -561,11 +573,35 @@ mod tests {
                 |()| (),
                 &filter_from,
                 &filter_to,
-                &handler,
+                &handler_closure,
             ).wait()
                 .unwrap();
+            println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
             assert_eq!(resp, out);
+            println!("Checking mails:");
+            let resp_mail = resp_mail.take();
+            assert_eq!(resp_mail.len(), mail.len());
+            for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
+                println!("Mail\n---");
+                println!(
+                    "From: expected {:?}, got {:?}",
+                    SmtpString::copy_bytes(fo),
+                    SmtpString::copy_bytes(&fr)
+                );
+                assert_eq!(fo, &fr[..]);
+                let to_smtp = to.iter()
+                    .map(|x| SmtpString::copy_bytes(x))
+                    .collect::<Vec<_>>();
+                let tr_smtp = tr.into_iter()
+                    .map(|x| x.into_smtp_string())
+                    .collect::<Vec<_>>();
+                println!("To: expected {:?}, got {:?}", to_smtp, tr_smtp);
+                assert_eq!(to_smtp, tr_smtp);
+                println!("Expected text\n--\n{}--", std::str::from_utf8(co).unwrap());
+                println!("Got text\n--\n{}--", std::str::from_utf8(&cr).unwrap());
+                assert_eq!(co, &cr[..]);
+            }
         }
     }
 }
