@@ -38,22 +38,21 @@ pub fn interact<
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
     State: 'a,
-    FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
+    FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: 'a
-        + FnMut(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
+        + Fn(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
             -> Decision<()>,
     HandleMail: 'a
-        + FnMut(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader)
-            -> Decision<()>,
+        + Fn(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, &mut Reader) -> Decision<()>,
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
     metadata: UserProvidedMetadata,
     handle_reader_error: HandleReaderError,
     handle_writer_error: HandleWriterError,
-    filter_from: &'a mut FilterFrom,
-    filter_to: &'a mut FilterTo,
-    handler: &'a mut HandleMail,
+    filter_from: &'a FilterFrom,
+    filter_to: &'a FilterTo,
+    handler: &'a HandleMail,
 ) -> Box<'a + Future<Item = (), Error = ()>> {
     // TODO: return `impl Future`
     let conn_meta = ConnectionMetadata { user: metadata };
@@ -81,15 +80,15 @@ fn handle_line<
     W: 'a + Sink<SinkItem = Reply>,
     Reader,
     State: 'a,
-    FilterFrom: 'a + FnMut(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
-    FilterTo: FnMut(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMail: FnMut(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
+    FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
+    FilterTo: Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
+    HandleMail: Fn(MailMetadata, State, &ConnectionMetadata<U>, &mut Reader) -> Decision<()>,
 >(
     (writer, conn_meta, mail_data): (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
     line: Vec<u8>,
-    filter_from: &mut FilterFrom,
-    filter_to: &mut FilterTo,
-    handler: &mut HandleMail,
+    filter_from: &FilterFrom,
+    filter_to: &FilterTo,
+    handler: &HandleMail,
 ) -> Box<
     'a
         + Future<Item = (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>), Error = W::SinkError>,
