@@ -102,13 +102,22 @@ fn handle_lines<
     if let Some(line) = line {
         // TODO: remove this allocation
         Box::new(
-            reader
-            .into_future()
-            .map_err(|((), _)| ()) // Ignore the stream returned on error
-            .join(handle_line(add_data, line, filter_from, filter_to, handler))
-            .and_then(move |(read, add_data)| {
-                handle_lines(read, add_data, filter_from, filter_to, handler)
-            }),
+            handle_line(
+                reader.into_inner(),
+                add_data,
+                line,
+                filter_from,
+                filter_to,
+                handler,
+            ).and_then(|(reader, add_data)| {
+                CrlfLines::new(reader)
+                    .into_future()
+                    .map_err(|((), _)| ()) // Discard the stream returned with errors
+                    .map(|read| (read, add_data))
+            })
+                .and_then(move |(read, add_data)| {
+                    handle_lines(read, add_data, filter_from, filter_to, handler)
+                }),
         )
     } else {
         // TODO: warn of unfinished commands?
@@ -120,22 +129,28 @@ fn handle_line<
     'a,
     U: 'a,
     Writer: 'a + Sink<SinkItem = Reply, SinkError = ()>,
+    Reader: 'a + Stream<Item = u8, Error = ()>,
     State: 'a,
     FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a + Fn(MailMetadata, State, &ConnectionMetadata<U>, ()) -> Decision<()>,
 >(
+    reader: Reader,
     (writer, conn_meta, mail_data): (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
     line: Vec<u8>,
     filter_from: &FilterFrom,
     filter_to: &FilterTo,
     handler: &HandleMail,
 ) -> Box<
-    'a + Future<Item = (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>), Error = ()>,
->
-where
-    Writer::SinkError: 'a,
-{
+    'a
+        + Future<
+            Item = (
+                Reader,
+                (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+            ),
+            Error = (),
+        >,
+> {
     let cmd = Command::parse(&line);
     let res = match cmd {
         Ok(Command::Mail(m)) => {
@@ -146,7 +161,7 @@ where
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
-                    ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
+                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
                 )
             } else {
                 match filter_from(m.raw_from(), &conn_meta) {
@@ -158,16 +173,21 @@ where
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
-                                        writer,
-                                        conn_meta,
-                                        Some((MailMetadata { from, to }, state)),
+                                        reader,
+                                        (
+                                            writer,
+                                            conn_meta,
+                                            Some((MailMetadata { from, to }, state)),
+                                        ),
                                     ))
                                 }),
                         )
                     }
                     Decision::Reject(r) => FutIn8::Fut3(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| future::ok((writer, conn_meta, mail_data))),
+                            .and_then(|writer| {
+                                future::ok((reader, (writer, conn_meta, mail_data)))
+                            }),
                     ),
                 }
             }
@@ -183,9 +203,12 @@ where
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
-                                        writer,
-                                        conn_meta,
-                                        Some((MailMetadata { from, to }, state)),
+                                        reader,
+                                        (
+                                            writer,
+                                            conn_meta,
+                                            Some((MailMetadata { from, to }, state)),
+                                        ),
                                     ))
                                 }),
                         )
@@ -193,7 +216,7 @@ where
                     Decision::Reject(r) => FutIn8::Fut5(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
-                                future::ok((writer, conn_meta, Some((mail_meta, state))))
+                                future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
                             }),
                     ),
                 }
@@ -204,7 +227,7 @@ where
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
-                    ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
+                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
                 )
             }
         }
@@ -215,7 +238,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
                 SmtpString::copy_bytes(b"Command not implemented"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
+            ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
         Err(_) => FutIn8::Fut8(
             // TODO: make the message configurable
@@ -223,7 +246,7 @@ where
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
                 SmtpString::copy_bytes(b"Command not recognized"),
-            ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
+            ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
     };
     Box::new(res) // TODO: remove this allocation with `impl Trait`
