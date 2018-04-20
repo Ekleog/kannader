@@ -34,6 +34,7 @@ enum DataStreamState {
     WaitingToSendDot,
     WaitingToSendDotCr,
     NeedsToSend(u8),
+    Finished,
 }
 
 pub struct DataStream<S: Stream<Item = u8>> {
@@ -49,7 +50,13 @@ impl<S: Stream<Item = u8>> DataStream<S> {
         }
     }
 
-    pub fn into_inner(self) -> S {
+    pub fn consume_and_continue(mut self) -> S {
+        // TODO: make this wait() async
+        self.by_ref()
+            .fold((), |_, _| future::ok(()))
+            .wait()
+            .map_err(|_| ())
+            .unwrap();
         self.source
     }
 }
@@ -60,11 +67,14 @@ impl<S: Stream<Item = u8>> Stream for DataStream<S> {
 
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         use self::{Async::*, DataStreamState::*};
-        // First, handle when we're behind sending some stuff
+        // First, handle when we're behind sending some stuff (or done)
         match self.state {
             NeedsToSend(c) => {
                 self.state = if c == b'\r' { CrPassed } else { Start };
                 return Ok(Ready(Some(c)));
+            }
+            Finished => {
+                return Ok(Ready(None));
             }
             _ => (),
         }
@@ -80,8 +90,9 @@ impl<S: Stream<Item = u8>> Stream for DataStream<S> {
                         // Do not send the .\r (yet)
                     }
                     (WaitingToSendDotCr, b'\n') => {
-                        return Ok(Ready(None));
                         // Just reached end-of-stream, we were right not to send the .\r
+                        self.state = Finished;
+                        return Ok(Ready(None));
                     }
                     (WaitingToSendDot, c) => {
                         // Found "\r\n." + c, already sent "\r\n", drop the leading transparency .
@@ -276,7 +287,7 @@ mod tests {
             let mut stream = DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()));
             let output = stream.by_ref().collect().wait().unwrap();
             println!("Now computing remaining stuff");
-            let remaining = stream.into_inner().collect().wait().unwrap();
+            let remaining = stream.consume_and_continue().collect().wait().unwrap();
             println!(
                 " -> Got {:?} with {:?} remaining",
                 SmtpString::copy_bytes(&output),
