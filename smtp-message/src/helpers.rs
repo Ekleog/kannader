@@ -57,8 +57,7 @@ impl fmt::Display for BuildError {
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SmtpString(Vec<u8>);
 
 impl SmtpString {
@@ -84,6 +83,10 @@ impl SmtpString {
 
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
     }
 
     pub fn copy_chunks(&self, bytes: usize) -> Vec<SmtpString> {
