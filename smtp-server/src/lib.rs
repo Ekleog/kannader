@@ -254,8 +254,10 @@ impl<S: Stream<Item = u8>> CrlfLines<S> {
         }
     }
 
-    pub fn underlying(&mut self) -> &mut S {
-        &mut self.source
+    // Panics if a line was currently being read
+    pub fn into_inner(self) -> S {
+        assert!(self.cur_line.is_empty());
+        self.source
     }
 
     fn initial_cur_line() -> Vec<u8> {
