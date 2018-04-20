@@ -164,7 +164,7 @@ fn handle_line<
         Ok(Command::Mail(m)) => {
             if mail_data.is_some() {
                 // TODO: make the message configurable
-                FutIn11::Fut1(
+                FutIn12::Fut1(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -177,7 +177,7 @@ fn handle_line<
                         let from = m.raw_from().to_vec();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
-                        FutIn11::Fut2(
+                        FutIn12::Fut2(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -191,7 +191,7 @@ fn handle_line<
                                 }),
                         )
                     }
-                    Decision::Reject(r) => FutIn11::Fut3(
+                    Decision::Reject(r) => FutIn12::Fut3(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 future::ok((reader, (writer, conn_meta, mail_data)))
@@ -207,7 +207,7 @@ fn handle_line<
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(r.to().clone());
                         // TODO: make this "Okay" configurable
-                        FutIn11::Fut4(
+                        FutIn12::Fut4(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -221,7 +221,7 @@ fn handle_line<
                                 }),
                         )
                     }
-                    Decision::Reject(r) => FutIn11::Fut5(
+                    Decision::Reject(r) => FutIn12::Fut5(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
@@ -230,7 +230,7 @@ fn handle_line<
                 }
             } else {
                 // TODO: make the message configurable
-                FutIn11::Fut6(
+                FutIn12::Fut6(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -241,23 +241,36 @@ fn handle_line<
         }
         Ok(Command::Data(_)) => {
             if let Some((mail_meta, state)) = mail_data {
-                match handler(mail_meta, state, &conn_meta, DataStream::new(reader)) {
-                    (reader, Decision::Accept(())) => FutIn11::Fut7(
-                        send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
-                            .and_then(|writer| future::ok((reader, (writer, conn_meta, None)))),
-                    ),
-                    (reader, Decision::Reject(r)) => FutIn11::Fut8(
-                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| {
-                                // Other mail systems (at least postfix, OpenSMTPD and gmail)
-                                // appear to drop the state on an unsuccessful DATA command (eg.
-                                // too long). Couldn't find the RFC reference anywhere, though.
-                                future::ok((reader, (writer, conn_meta, None)))
-                            }),
-                    ),
+                if !mail_meta.to.is_empty() {
+                    match handler(mail_meta, state, &conn_meta, DataStream::new(reader)) {
+                        (reader, Decision::Accept(())) => FutIn12::Fut7(
+                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
+                                .and_then(|writer| future::ok((reader, (writer, conn_meta, None)))),
+                        ),
+                        (reader, Decision::Reject(r)) => FutIn12::Fut8(
+                            send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
+                                .and_then(|writer| {
+                                    // Other mail systems (at least postfix, OpenSMTPD and gmail)
+                                    // appear to drop the state on an unsuccessful DATA command
+                                    // (eg. too long). Couldn't find the RFC reference anywhere,
+                                    // though.
+                                    future::ok((reader, (writer, conn_meta, None)))
+                                }),
+                        ),
+                    }
+                } else {
+                    FutIn12::Fut9(
+                        send_reply(
+                            writer,
+                            ReplyCode::BAD_SEQUENCE,
+                            SmtpString::copy_bytes(b"Bad sequence of commands"),
+                        ).and_then(|writer| {
+                            future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
+                        }),
+                    )
                 }
             } else {
-                FutIn11::Fut9(
+                FutIn12::Fut10(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -267,7 +280,7 @@ fn handle_line<
             }
         }
         // TODO: this case should just no longer be needed
-        Ok(_) => FutIn11::Fut10(
+        Ok(_) => FutIn12::Fut11(
             // TODO: make the message configurable
             send_reply(
                 writer,
@@ -275,7 +288,7 @@ fn handle_line<
                 SmtpString::copy_bytes(b"Command not implemented"),
             ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
-        Err(_) => FutIn11::Fut11(
+        Err(_) => FutIn12::Fut12(
             // TODO: make the message configurable
             send_reply(
                 writer,
@@ -523,6 +536,15 @@ mod tests {
                     &[b"foo2@bar.example.org"],
                     b"Hello\r\n",
                 )],
+            ),
+            (
+                b"MAIL FROM:<foo@test.example.com>\r\n\
+                  DATA\r\n\
+                  QUIT\r\n",
+                b"250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  502 Command not implemented\r\n",
+                &[],
             ),
         ];
         for &(inp, out, mail) in tests {
