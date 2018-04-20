@@ -156,7 +156,7 @@ fn handle_line<
         Ok(Command::Mail(m)) => {
             if mail_data.is_some() {
                 // TODO: make the message configurable
-                FutIn8::Fut1(
+                FutIn11::Fut1(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -169,7 +169,7 @@ fn handle_line<
                         let from = m.raw_from().to_vec();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
-                        FutIn8::Fut2(
+                        FutIn11::Fut2(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -183,7 +183,7 @@ fn handle_line<
                                 }),
                         )
                     }
-                    Decision::Reject(r) => FutIn8::Fut3(
+                    Decision::Reject(r) => FutIn11::Fut3(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 future::ok((reader, (writer, conn_meta, mail_data)))
@@ -199,7 +199,7 @@ fn handle_line<
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(r.to().clone());
                         // TODO: make this "Okay" configurable
-                        FutIn8::Fut4(
+                        FutIn11::Fut4(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -213,7 +213,7 @@ fn handle_line<
                                 }),
                         )
                     }
-                    Decision::Reject(r) => FutIn8::Fut5(
+                    Decision::Reject(r) => FutIn11::Fut5(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
@@ -222,7 +222,7 @@ fn handle_line<
                 }
             } else {
                 // TODO: make the message configurable
-                FutIn8::Fut6(
+                FutIn11::Fut6(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -231,8 +231,34 @@ fn handle_line<
                 )
             }
         }
-        Ok(_) => FutIn8::Fut7(
-            // TODO: look for a way to eliminate this alloc
+        Ok(Command::Data(_)) => {
+            if let Some((mail_meta, state)) = mail_data {
+                match handler(mail_meta, state, &conn_meta, ()) {
+                    Decision::Accept(()) => FutIn11::Fut7(
+                        send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
+                            .and_then(|writer| future::ok((reader, (writer, conn_meta, None)))),
+                    ),
+                    Decision::Reject(r) => FutIn11::Fut8(
+                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
+                            .and_then(|writer| {
+                                // Other mail systems (at least postfix, OpenSMTPD and gmail)
+                                // appear to drop the state on an unsuccessful DATA command (eg.
+                                // too long). Couldn't find the RFC reference anywhere, though.
+                                future::ok((reader, (writer, conn_meta, None)))
+                            }),
+                    ),
+                }
+            } else {
+                FutIn11::Fut9(
+                    send_reply(
+                        writer,
+                        ReplyCode::BAD_SEQUENCE,
+                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+                )
+            }
+        }
+        Ok(_) => FutIn11::Fut10(
             // TODO: make the message configurable
             send_reply(
                 writer,
@@ -240,7 +266,7 @@ fn handle_line<
                 SmtpString::copy_bytes(b"Command not implemented"),
             ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
-        Err(_) => FutIn8::Fut8(
+        Err(_) => FutIn11::Fut11(
             // TODO: make the message configurable
             send_reply(
                 writer,
@@ -401,7 +427,7 @@ mod tests {
                   550 No user 'baz'\r\n\
                   250 Okay\r\n\
                   250 Okay\r\n\
-                  502 Command not implemented\r\n\
+                  550 Don't you dare say 'World'!\r\n\
                   500 Command not recognized\r\n\
                   500 Command not recognized\r\n\
                   502 Command not implemented\r\n",
@@ -420,13 +446,15 @@ mod tests {
                   250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   250 Okay\r\n\
-                  502 Command not implemented\r\n\
+                  550 Don't you dare say 'World'!\r\n\
                   500 Command not recognized\r\n\
                   500 Command not recognized\r\n\
                   502 Command not implemented\r\n",
             ),
         ];
         for &(inp, out) in tests {
+            println!("\nSending\n---\n{}---", std::str::from_utf8(inp).unwrap());
+            println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             let mut vec = Vec::new();
             let stream = stream::iter_ok(inp.iter().cloned());
             let mut filter_from = |addr: MailAddressRef, _: &ConnectionMetadata<()>| {
@@ -453,7 +481,7 @@ mod tests {
             let mut handler = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: ()| {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
-                    msg:  "foo".to_owned(),
+                    msg:  "Don't you dare say 'World'!".to_owned(),
                 })
             };
             interact(
@@ -467,6 +495,7 @@ mod tests {
                 &mut handler,
             ).wait()
                 .unwrap();
+            println!("Got\n---\n{}---", std::str::from_utf8(&vec).unwrap());
             assert_eq!(vec, out);
         }
     }
