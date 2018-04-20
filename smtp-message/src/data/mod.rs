@@ -342,5 +342,14 @@ mod tests {
             }
             received == input
         }
+
+        fn all_leading_dots_are_escaped(v: Vec<u8>) -> bool {
+            let r = DataStream::new(stream::iter_ok(v.into_iter()))
+                .map_err(|()| ())
+                .collect()
+                .wait()
+                .unwrap();
+            r.windows(5).position(|x| x == b"\r\n.\r\n").is_none()
+        }
     }
 }
