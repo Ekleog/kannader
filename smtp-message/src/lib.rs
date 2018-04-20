@@ -3,6 +3,7 @@ extern crate nom;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+extern crate tokio;
 
 mod helpers;
 mod parse_helpers;
@@ -27,7 +28,7 @@ pub use helpers::{ParseError, SmtpString};
 pub use parse_helpers::Email;
 pub use reply::{IsLastLine, Reply, ReplyCode};
 
-pub use data::{DataCommand, DataLine};
+pub use data::{DataCommand, DataStream};
 pub use ehlo::EhloCommand;
 pub use expn::ExpnCommand;
 pub use helo::HeloCommand;
