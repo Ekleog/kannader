@@ -104,6 +104,16 @@ impl Email {
     pub fn hostname(&self) -> &Option<SmtpString> {
         &self.hostname
     }
+
+    pub fn into_smtp_string(self) -> SmtpString {
+        let mut res = self.localpart.into_bytes();
+        if let Some(host) = self.hostname {
+            let mut host = host.into_bytes();
+            res.push(b'@');
+            res.append(&mut host);
+        }
+        SmtpString::from_bytes(res)
+    }
 }
 
 named!(pub hostname(&[u8]) -> &[u8],
