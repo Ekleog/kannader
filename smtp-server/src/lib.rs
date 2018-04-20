@@ -1,9 +1,13 @@
 extern crate smtp_message;
 extern crate tokio;
 
+mod helpers;
+
 use smtp_message::*;
 use std::mem;
 use tokio::prelude::*;
+
+use helpers::*;
 
 pub type MailAddress = Vec<u8>;
 pub type MailAddressRef<'a> = &'a [u8];
@@ -131,24 +135,24 @@ where
     W::SinkError: 'a,
 {
     let cmd = Command::parse(&line);
-    match cmd {
+    let res = match cmd {
         Ok(Command::Mail(m)) => {
             if mail_data.is_some() {
                 // TODO: make the message configurable
-                Box::new(
+                FutIn8::Fut1(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         SmtpString::copy_bytes(b"Bad sequence of commands"),
                     ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
-                ) as Box<Future<Item = _, Error = _>>
+                )
             } else {
                 match filter_from(m.raw_from(), &conn_meta) {
                     Decision::Accept(state) => {
                         let from = m.raw_from().to_vec();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
-                        Box::new(
+                        FutIn8::Fut2(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -157,9 +161,9 @@ where
                                         Some((MailMetadata { from, to }, state)),
                                     ))
                                 }),
-                        ) as Box<Future<Item = _, Error = _>>
+                        )
                     }
-                    Decision::Reject(r) => Box::new(
+                    Decision::Reject(r) => FutIn8::Fut3(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| future::ok((writer, conn_meta, mail_data))),
                     ),
@@ -173,7 +177,7 @@ where
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(r.to().clone());
                         // TODO: make this "Okay" configurable
-                        Box::new(
+                        FutIn8::Fut4(
                             send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                                 .and_then(|writer| {
                                     future::ok((
@@ -184,7 +188,7 @@ where
                                 }),
                         )
                     }
-                    Decision::Reject(r) => Box::new(
+                    Decision::Reject(r) => FutIn8::Fut5(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 future::ok((writer, conn_meta, Some((mail_meta, state))))
@@ -193,7 +197,7 @@ where
                 }
             } else {
                 // TODO: make the message configurable
-                Box::new(
+                FutIn8::Fut6(
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
@@ -202,7 +206,7 @@ where
                 )
             }
         }
-        Ok(_) => Box::new(
+        Ok(_) => FutIn8::Fut7(
             // TODO: look for a way to eliminate this alloc
             // TODO: make the message configurable
             send_reply(
@@ -210,16 +214,17 @@ where
                 ReplyCode::COMMAND_UNIMPLEMENTED,
                 SmtpString::copy_bytes(b"Command not implemented"),
             ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
-        ) as Box<Future<Item = _, Error = _>>,
-        Err(_) => Box::new(
+        ),
+        Err(_) => FutIn8::Fut8(
             // TODO: make the message configurable
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
                 SmtpString::copy_bytes(b"Command not recognized"),
             ).and_then(|writer| future::ok((writer, conn_meta, mail_data))),
-        ) as Box<Future<Item = _, Error = _>>,
-    }
+        ),
+    };
+    Box::new(res) // TODO: remove this allocation with `impl Trait`
 }
 
 // Panics if `text` has a byte not in {9} \union [32; 126]
