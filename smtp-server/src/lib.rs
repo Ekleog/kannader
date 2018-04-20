@@ -119,20 +119,22 @@ fn handle_lines<
 fn handle_line<
     'a,
     U: 'a,
-    W: 'a + Sink<SinkItem = Reply, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = Reply, SinkError = ()>,
     State: 'a,
     FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a + Fn(MailMetadata, State, &ConnectionMetadata<U>, ()) -> Decision<()>,
 >(
-    (writer, conn_meta, mail_data): (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+    (writer, conn_meta, mail_data): (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
     line: Vec<u8>,
     filter_from: &FilterFrom,
     filter_to: &FilterTo,
     handler: &HandleMail,
-) -> Box<'a + Future<Item = (W, ConnectionMetadata<U>, Option<(MailMetadata, State)>), Error = ()>>
+) -> Box<
+    'a + Future<Item = (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>), Error = ()>,
+>
 where
-    W::SinkError: 'a,
+    Writer::SinkError: 'a,
 {
     let cmd = Command::parse(&line);
     let res = match cmd {
