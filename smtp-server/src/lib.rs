@@ -13,7 +13,7 @@ pub type MailAddress = Vec<u8>;
 pub type MailAddressRef<'a> = &'a [u8];
 
 pub struct ConnectionMetadata<U> {
-    user: U,
+    pub user: U,
 }
 
 pub struct MailMetadata {
@@ -46,7 +46,13 @@ pub fn interact<
     FilterTo: 'a
         + Fn(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
             -> Decision<()>,
-    HandleMail: 'a + Fn(MailMetadata, State, &ConnectionMetadata<UserProvidedMetadata>, ()) -> Decision<()>,
+    HandleMail: 'a
+        + Fn(
+            MailMetadata,
+            State,
+            &ConnectionMetadata<UserProvidedMetadata>,
+            DataStream<stream::MapErr<Reader, HandleReaderError>>,
+        ) -> (stream::MapErr<Reader, HandleReaderError>, Decision<()>),
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
@@ -91,7 +97,8 @@ fn handle_lines<
     State: 'a,
     FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMail: 'a + Fn(MailMetadata, State, &ConnectionMetadata<U>, ()) -> Decision<()>,
+    HandleMail: 'a
+        + Fn(MailMetadata, State, &ConnectionMetadata<U>, DataStream<Reader>) -> (Reader, Decision<()>),
 >(
     (line, reader): (Option<Vec<u8>>, CrlfLines<Reader>),
     add_data: (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
@@ -133,7 +140,8 @@ fn handle_line<
     State: 'a,
     FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMail: 'a + Fn(MailMetadata, State, &ConnectionMetadata<U>, ()) -> Decision<()>,
+    HandleMail: 'a
+        + Fn(MailMetadata, State, &ConnectionMetadata<U>, DataStream<Reader>) -> (Reader, Decision<()>),
 >(
     reader: Reader,
     (writer, conn_meta, mail_data): (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
@@ -233,12 +241,12 @@ fn handle_line<
         }
         Ok(Command::Data(_)) => {
             if let Some((mail_meta, state)) = mail_data {
-                match handler(mail_meta, state, &conn_meta, ()) {
-                    Decision::Accept(()) => FutIn11::Fut7(
+                match handler(mail_meta, state, &conn_meta, DataStream::new(reader)) {
+                    (reader, Decision::Accept(())) => FutIn11::Fut7(
                         send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
                             .and_then(|writer| future::ok((reader, (writer, conn_meta, None)))),
                     ),
-                    Decision::Reject(r) => FutIn11::Fut8(
+                    (reader, Decision::Reject(r)) => FutIn11::Fut8(
                         send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
                             .and_then(|writer| {
                                 // Other mail systems (at least postfix, OpenSMTPD and gmail)
@@ -258,6 +266,7 @@ fn handle_line<
                 )
             }
         }
+        // TODO: this case should just no longer be needed
         Ok(_) => FutIn11::Fut10(
             // TODO: make the message configurable
             send_reply(
@@ -411,9 +420,67 @@ mod tests {
         );
     }
 
+    fn filter_from(addr: MailAddressRef, _: &ConnectionMetadata<()>) -> Decision<()> {
+        if addr == b"bad@quux.example.org" {
+            Decision::Reject(Refusal {
+                code: ReplyCode::POLICY_REASON,
+                msg:  "User 'bad' banned".to_owned(),
+            })
+        } else {
+            Decision::Accept(())
+        }
+    }
+
+    fn filter_to(
+        email: &Email,
+        _: &mut (),
+        _: &ConnectionMetadata<()>,
+        _: &MailMetadata,
+    ) -> Decision<()> {
+        if email.localpart().as_bytes() == b"baz" {
+            Decision::Reject(Refusal {
+                code: ReplyCode::MAILBOX_UNAVAILABLE,
+                msg:  "No user 'baz'".to_owned(),
+            })
+        } else {
+            Decision::Accept(())
+        }
+    }
+
+    fn handler<R: Stream<Item = u8>>(
+        _: MailMetadata,
+        (): (),
+        _: &ConnectionMetadata<()>,
+        mut reader: DataStream<R>,
+    ) -> (R, Decision<()>) {
+        // TODO: this API should be asynchronous!!!!!
+        if reader
+            .by_ref()
+            .collect()
+            .wait()
+            .map_err(|_| ())
+            .unwrap()
+            .windows(5)
+            .position(|x| x == b"World")
+            .is_some()
+        {
+            (
+                reader.consume_and_continue(),
+                Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg:  "Don't you dare say 'World'!".to_owned(),
+                }),
+            )
+        } else {
+            (reader.consume_and_continue(), Decision::Accept(()))
+        }
+    }
+
     #[test]
     fn interacts_ok() {
-        let tests: &[(&[u8], &[u8])] = &[
+        let tests: &[(&[u8], &[u8], &[(&[u8], &[&[u8]], &[u8])])] = &[
+            // TODO: send banner before EHLO
+            // TODO: send please go on after DATA
             (
                 b"MAIL FROM:<foo@bar.example.org>\r\n\
                   RCPT TO:<baz@quux.example.org>\r\n\
@@ -428,75 +495,55 @@ mod tests {
                   250 Okay\r\n\
                   250 Okay\r\n\
                   550 Don't you dare say 'World'!\r\n\
-                  500 Command not recognized\r\n\
-                  500 Command not recognized\r\n\
                   502 Command not implemented\r\n",
+                &[(
+                    b"foo@bar.example.org",
+                    &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
+                    b"Hello World\r\n",
+                )],
             ),
-            (b"HELP hello\r\n", b"502 Command not implemented\r\n"),
+            (b"HELP hello\r\n", b"502 Command not implemented\r\n", &[]),
             (
                 b"MAIL FROM:<bad@quux.example.org>\r\n\
                   MAIL FROM:<foo@bar.example.org>\r\n\
                   MAIL FROM:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
                   DATA\r\n\
-                  Hello\r\n
+                  Hello\r\n\
                   .\r\n\
                   QUIT\r\n",
                 b"550 User 'bad' banned\r\n\
                   250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   250 Okay\r\n\
-                  550 Don't you dare say 'World'!\r\n\
-                  500 Command not recognized\r\n\
-                  500 Command not recognized\r\n\
+                  250 Okay\r\n\
                   502 Command not implemented\r\n",
+                &[(
+                    b"foo@bar.example.org",
+                    &[b"foo2@bar.example.org"],
+                    b"Hello\r\n",
+                )],
             ),
         ];
-        for &(inp, out) in tests {
+        for &(inp, out, mail) in tests {
             println!("\nSending\n---\n{}---", std::str::from_utf8(inp).unwrap());
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
-            let mut vec = Vec::new();
             let stream = stream::iter_ok(inp.iter().cloned());
-            let mut filter_from = |addr: MailAddressRef, _: &ConnectionMetadata<()>| {
-                if addr == b"bad@quux.example.org" {
-                    Decision::Reject(Refusal {
-                        code: ReplyCode::POLICY_REASON,
-                        msg:  "User 'bad' banned".to_owned(),
-                    })
-                } else {
-                    Decision::Accept(())
-                }
-            };
-            let mut filter_to =
-                |email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMetadata| {
-                    if email.localpart().as_bytes() == b"baz" {
-                        Decision::Reject(Refusal {
-                            code: ReplyCode::MAILBOX_UNAVAILABLE,
-                            msg:  "No user 'baz'".to_owned(),
-                        })
-                    } else {
-                        Decision::Accept(())
-                    }
-                };
-            let mut handler = |_: MailMetadata, (), _: &ConnectionMetadata<()>, _: ()| {
-                Decision::Reject(Refusal {
-                    code: ReplyCode::POLICY_REASON,
-                    msg:  "Don't you dare say 'World'!".to_owned(),
-                })
-            };
+            // let mut resp_mail = Vec::new();
+            let mut resp = Vec::new();
             interact(
                 stream,
-                &mut vec,
+                &mut resp,
                 (),
                 |()| (),
                 |()| (),
-                &mut filter_from,
-                &mut filter_to,
-                &mut handler,
+                &filter_from,
+                &filter_to,
+                &handler,
             ).wait()
                 .unwrap();
-            println!("Got\n---\n{}---", std::str::from_utf8(&vec).unwrap());
-            assert_eq!(vec, out);
+            println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
+            assert_eq!(resp, out);
         }
     }
 }
