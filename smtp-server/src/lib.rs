@@ -64,8 +64,7 @@ pub fn interact<
     filter_from: &'a FilterFrom,
     filter_to: &'a FilterTo,
     handler: &'a HandleMail,
-) -> Box<'a + Future<Item = (), Error = ()>> {
-    // TODO: return `impl Future`
+) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
     let writer = outgoing
         .sink_map_err(handle_writer_error)
@@ -75,20 +74,18 @@ pub fn interact<
             c.send_to(&mut v).unwrap(); // and this is ugly
             stream::iter_ok(v)
         });
-    Box::new(
-        CrlfLines::new(incoming.map_err(handle_reader_error))
-            .into_future()
-            .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
-            .and_then(move |x| {
-                handle_lines(
-                    x,
-                    (writer, conn_meta, None),
-                    filter_from,
-                    filter_to,
-                    handler,
-                )
-            }),
-    )
+    CrlfLines::new(incoming.map_err(handle_reader_error))
+        .into_future()
+        .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
+        .and_then(move |x| {
+            handle_lines(
+                x,
+                (writer, conn_meta, None),
+                filter_from,
+                filter_to,
+                handler,
+            )
+        })
 }
 
 fn handle_lines<
@@ -107,9 +104,10 @@ fn handle_lines<
     filter_from: &'a FilterFrom,
     filter_to: &'a FilterTo,
     handler: &'a HandleMail,
-) -> Box<'a + Future<Item = (), Error = ()>> {
+) -> impl Future<Item = (), Error = ()> + 'a {
     if let Some(line) = line {
-        // TODO: remove this allocation
+        // Cannot do without this allocation here, as the type of the thing inside the
+        // box depends on the returned type of handle_lines
         Box::new(
             handle_line(
                 reader.into_inner(),
@@ -127,7 +125,7 @@ fn handle_lines<
                 .and_then(move |(read, add_data)| {
                     handle_lines(read, add_data, filter_from, filter_to, handler)
                 }),
-        )
+        ) as Box<Future<Item = (), Error = ()>>
     } else {
         // TODO: warn of unfinished commands?
         Box::new(future::ok(()))
@@ -151,16 +149,14 @@ fn handle_line<
     filter_from: &FilterFrom,
     filter_to: &FilterTo,
     handler: &HandleMail,
-) -> Box<
-    'a
-        + Future<
-            Item = (
-                Reader,
-                (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
-            ),
-            Error = (),
-        >,
-> {
+) -> impl Future<
+    Item = (
+        Reader,
+        (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+    ),
+    Error = (),
+>
+         + 'a {
     let cmd = Command::parse(&line);
     let res = match cmd {
         Ok(Command::Mail(m)) => {
@@ -299,7 +295,7 @@ fn handle_line<
             ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
     };
-    Box::new(res) // TODO: remove this allocation with `impl Trait`
+    res
 }
 
 // Panics if `text` has a byte not in {9} \union [32; 126]
@@ -307,20 +303,23 @@ fn send_reply<'a, W>(
     writer: W,
     code: ReplyCode,
     text: SmtpString,
-) -> Box<'a + Future<Item = W, Error = W::SinkError>>
+) -> impl Future<Item = W, Error = W::SinkError> + 'a
 where
     W: 'a + Sink<SinkItem = Reply>,
     W::SinkError: 'a,
 {
     // TODO: figure out a way using fewer copies
-    let replies = text.copy_chunks(Reply::MAX_LEN).into_iter().with_position().map(move |t| {
-        use itertools::Position::*;
-        match t {
-            First(t) | Middle(t) => Reply::build(code, IsLastLine::No, t).unwrap(),
-            Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
-        }
-    });
-    Box::new(writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w))
+    let replies = text.copy_chunks(Reply::MAX_LEN)
+        .into_iter()
+        .with_position()
+        .map(move |t| {
+            use itertools::Position::*;
+            match t {
+                First(t) | Middle(t) => Reply::build(code, IsLastLine::No, t).unwrap(),
+                Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
+            }
+        });
+    writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
 }
 
 // TODO: maybe it'd be possible to use upstream buffers instead of re-buffering

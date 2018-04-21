@@ -57,6 +57,7 @@ impl fmt::Display for BuildError {
     }
 }
 
+// TODO: actually own a Cow<'a, [u8]>?
 #[derive(Clone, PartialEq, Eq)]
 pub struct SmtpString(Vec<u8>);
 
