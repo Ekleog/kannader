@@ -1,8 +1,10 @@
+extern crate itertools;
 extern crate smtp_message;
 extern crate tokio;
 
 mod helpers;
 
+use itertools::Itertools;
 use smtp_message::*;
 use std::mem;
 use tokio::prelude::*;
@@ -311,8 +313,12 @@ where
     W::SinkError: 'a,
 {
     // TODO: figure out a way using fewer copies
-    let replies = map_is_last(text.copy_chunks(Reply::MAX_LEN).into_iter(), move |t, l| {
-        Reply::build(code, if l { IsLastLine::Yes } else { IsLastLine::No }, t).unwrap()
+    let replies = text.copy_chunks(Reply::MAX_LEN).into_iter().with_position().map(move |t| {
+        use itertools::Position::*;
+        match t {
+            First(t) | Middle(t) => Reply::build(code, IsLastLine::No, t).unwrap(),
+            Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
+        }
     });
     Box::new(writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w))
 }
@@ -368,34 +374,6 @@ impl<S: Stream<Item = u8>> Stream for CrlfLines<S> {
                 }
             }
         }
-    }
-}
-
-struct MapIsLast<I: Iterator, F> {
-    iter: std::iter::Peekable<I>,
-    f:    F,
-}
-
-impl<R, I: Iterator, F: FnMut(I::Item, bool) -> R> Iterator for MapIsLast<I, F> {
-    type Item = R;
-
-    #[inline]
-    fn next(&mut self) -> Option<R> {
-        let res = self.iter.next();
-        let is_last = self.iter.peek().is_none();
-        res.map(|x| (self.f)(x, is_last))
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
-fn map_is_last<R, I: Iterator, F: FnMut(I::Item, bool) -> R>(iter: I, f: F) -> MapIsLast<I, F> {
-    MapIsLast {
-        iter: iter.peekable(),
-        f,
     }
 }
 
