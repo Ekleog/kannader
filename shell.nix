@@ -18,14 +18,18 @@ let
   pkgs = import pkgsSrc {
     overlays = [ rustOverlay ];
   };
-  rustChannel = pkgs.rustChannelOf {
+  rustNightlyChannel = pkgs.rustChannelOf {
     date = "2018-04-19";
     channel = "nightly";
+  };
+  rustBetaChannel = pkgs.rustChannelOf {
+    date = "2018-04-20";
+    channel = "beta";
   };
 in
 
 pkgs.stdenv.mkDerivation {
   name = "yuubind";
-  buildInputs = (with rustChannel; [ rustfmt-preview ]) ++
-                (with pkgs; [ cargo rustc ]);
+  buildInputs = (with rustNightlyChannel; [ rustfmt-preview ]) ++
+                (with rustBetaChannel; [ rust ]);
 }

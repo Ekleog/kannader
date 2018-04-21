@@ -5,13 +5,15 @@ sudo: required
 os: [ linux ]
 
 rust:
-  - 1.25.0
-  - stable
+  # TODO: on 1.26.0 for impl Trait
+  #- 1.25.0
+  #- stable
   - beta
   - nightly
 
 matrix:
   include:
+    # TODO: when https://github.com/xd009642/tarpaulin/issues/101 solved
     #- rust: stable
     #  env: TARPAULIN=1
     - rust: nightly
