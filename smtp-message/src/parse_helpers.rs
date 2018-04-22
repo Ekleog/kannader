@@ -43,116 +43,6 @@ macro_rules! graph_except_equ {
     };
 }
 
-// TODO: move to helpers.rs
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
-pub struct Email<'a> {
-    localpart: SmtpString<'a>,
-    hostname:  Option<SmtpString<'a>>,
-}
-
-impl<'a> Email<'a> {
-    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<SmtpString<'b>>) -> Email<'b> {
-        Email {
-            localpart,
-            hostname,
-        }
-    }
-
-    pub fn parse<'b>(s: &'b SmtpString<'b>) -> Result<Email<'b>, ParseError> {
-        nom_to_result(email(s.as_bytes()))
-    }
-
-    pub fn take_ownership<'b>(self) -> Email<'b> {
-        Email {
-            localpart: self.localpart.take_ownership(),
-            hostname:  self.hostname.map(|x| x.take_ownership()),
-        }
-    }
-
-    pub fn borrow<'b>(&'b self) -> Email<'b>
-    where
-        'a: 'b,
-    {
-        Email {
-            localpart: self.localpart.borrow(),
-            hostname:  self.hostname.as_ref().map(|x| x.borrow()),
-        }
-    }
-
-    pub fn raw_localpart(&self) -> &SmtpString {
-        &self.localpart
-    }
-
-    // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for
-    // details.
-    // This is a canonicalized version of the potentially quoted localpart, not
-    // designed to be sent over the wire as it is no longer correctly quoted
-    pub fn localpart(&self) -> SmtpString {
-        if self.localpart.byte(0) != b'"' {
-            self.localpart.borrow()
-        } else {
-            #[derive(Copy, Clone)]
-            enum State {
-                Start,
-                Backslash,
-            }
-
-            let mut res = self.localpart
-                .iter_bytes()
-                .skip(1)
-                .scan(State::Start, |state, &x| match (*state, x) {
-                    (State::Backslash, _) => {
-                        *state = State::Start;
-                        Some(Some(x))
-                    }
-                    (_, b'\\') => {
-                        *state = State::Backslash;
-                        Some(None)
-                    }
-                    (_, _) => {
-                        *state = State::Start;
-                        Some(Some(x))
-                    }
-                })
-                .filter_map(|x| x)
-                .collect::<Vec<u8>>();
-            assert_eq!(res.pop().unwrap(), b'"');
-            res.into()
-        }
-    }
-
-    pub fn hostname(&self) -> &Option<SmtpString> {
-        &self.hostname
-    }
-
-    pub fn into_smtp_string<'b>(self) -> SmtpString<'b> {
-        let mut res = self.localpart.into_bytes();
-        if let Some(host) = self.hostname {
-            res.push(b'@');
-            res.extend_from_slice(host.as_bytes());
-        }
-        res.into()
-    }
-
-    pub fn as_smtp_string<'b>(&self) -> SmtpString<'b> {
-        let mut res = self.localpart.borrow().into_bytes();
-        if let Some(host) = self.hostname.as_ref().map(|x| x.borrow()) {
-            res.push(b'@');
-            res.extend_from_slice(host.as_bytes());
-        }
-        res.into()
-    }
-}
-
-pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
-    if let &Some(ref e) = e {
-        e.as_smtp_string()
-    } else {
-        (&b""[..]).into()
-    }
-}
-
 named!(pub hostname(&[u8]) -> &[u8],
     alt!(
         recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
@@ -182,10 +72,7 @@ named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
 named!(pub email(&[u8]) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
-    (Email {
-        localpart: local.into(),
-        hostname: host.map(SmtpString::from),
-    })
+    (Email::new(local.into(), host.map(SmtpString::from)))
 ));
 
 named!(address_in_path(&[u8]) -> (Email, &[u8]), do_parse!(
@@ -316,32 +203,20 @@ mod tests {
         let tests: Vec<(&[u8], Email)> = vec![
             (
                 b"t+e-s.t_i+n-g@foo.bar.baz",
-                Email {
-                    localpart: (&b"t+e-s.t_i+n-g"[..]).into(),
-                    hostname:  Some((&b"foo.bar.baz"[..]).into()),
-                },
+                Email::new(
+                    (&b"t+e-s.t_i+n-g"[..]).into(),
+                    Some((&b"foo.bar.baz"[..]).into()),
+                ),
             ),
             (
                 br#""quoted\"example"@example.org"#,
-                Email {
-                    localpart: (&br#""quoted\"example""#[..]).into(),
-                    hostname:  Some((&b"example.org"[..]).into()),
-                },
+                Email::new(
+                    (&br#""quoted\"example""#[..]).into(),
+                    Some((&b"example.org"[..]).into()),
+                ),
             ),
-            (
-                b"postmaster",
-                Email {
-                    localpart: (&b"postmaster"[..]).into(),
-                    hostname:  None,
-                },
-            ),
-            (
-                b"test",
-                Email {
-                    localpart: (&b"test"[..]).into(),
-                    hostname:  None,
-                },
-            ),
+            (b"postmaster", Email::new((&b"postmaster"[..]).into(), None)),
+            (b"test", Email::new((&b"test"[..]).into(), None)),
         ];
         for (s, r) in tests.into_iter() {
             assert_eq!(email(s), IResult::Done(&b""[..], r));
@@ -374,20 +249,14 @@ mod tests {
             (
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
-                    Email {
-                        localpart: (&b"test"[..]).into(),
-                        hostname:  Some((&b"example.org"[..]).into()),
-                    },
+                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
                     b"test@example.org",
                 ),
             ),
             (
                 b"foo.bar@baz.quux",
                 (
-                    Email {
-                        localpart: (&b"foo.bar"[..]).into(),
-                        hostname:  Some((&b"baz.quux"[..]).into()),
-                    },
+                    Email::new((&b"foo.bar"[..]).into(), Some((&b"baz.quux"[..]).into())),
                     b"foo.bar@baz.quux",
                 ),
             ),
@@ -403,52 +272,34 @@ mod tests {
             (
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
-                    Email {
-                        localpart: (&b"test"[..]).into(),
-                        hostname:  Some((&b"example.org"[..]).into()),
-                    },
+                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
                     b"test@example.org",
                 ),
             ),
             (
                 b"<@foo.bar,@baz.quux:test@example.org>",
                 (
-                    Email {
-                        localpart: (&b"test"[..]).into(),
-                        hostname:  Some((&b"example.org"[..]).into()),
-                    },
+                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
                     b"test@example.org",
                 ),
             ),
             (
                 b"<foo@bar.baz>",
                 (
-                    Email {
-                        localpart: (&b"foo"[..]).into(),
-                        hostname:  Some((&b"bar.baz"[..]).into()),
-                    },
+                    Email::new((&b"foo"[..]).into(), Some((&b"bar.baz"[..]).into())),
                     b"foo@bar.baz",
                 ),
             ),
             (
                 b"foo@bar.baz",
                 (
-                    Email {
-                        localpart: (&b"foo"[..]).into(),
-                        hostname:  Some((&b"bar.baz"[..]).into()),
-                    },
+                    Email::new((&b"foo"[..]).into(), Some((&b"bar.baz"[..]).into())),
                     b"foo@bar.baz",
                 ),
             ),
             (
                 b"foobar",
-                (
-                    Email {
-                        localpart: (&b"foobar"[..]).into(),
-                        hostname:  None,
-                    },
-                    b"foobar",
-                ),
+                (Email::new((&b"foobar"[..]).into(), None), b"foobar"),
             ),
         ];
         for (inp, out) in tests {

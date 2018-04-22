@@ -2,6 +2,7 @@ use std::io;
 
 use nom::crlf;
 
+use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -57,8 +58,6 @@ named!(pub command_rcpt_args(&[u8]) -> RcptCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use helpers::*;
 
     #[test]
     fn valid_command_rcpt_args() {

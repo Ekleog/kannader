@@ -87,8 +87,6 @@ named!(pub command(&[u8]) -> Command, alt!(
 mod tests {
     use super::*;
 
-    use parse_helpers::*;
-
     #[test]
     fn valid_command() {
         let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> = vec![

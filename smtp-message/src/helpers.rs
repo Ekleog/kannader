@@ -1,6 +1,8 @@
 use nom::{self, IResult, Needed};
 use std::{borrow::Cow, fmt, slice};
 
+use parse_helpers::*;
+
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
     DidNotConsumeEverything(usize),
@@ -136,5 +138,114 @@ impl<'a> fmt::Debug for SmtpString<'a> {
                 .flat_map(|x| char::from(*x).escape_default())
                 .collect::<String>()
         )
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub struct Email<'a> {
+    localpart: SmtpString<'a>,
+    hostname:  Option<SmtpString<'a>>,
+}
+
+impl<'a> Email<'a> {
+    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<SmtpString<'b>>) -> Email<'b> {
+        Email {
+            localpart,
+            hostname,
+        }
+    }
+
+    pub fn parse<'b>(s: &'b SmtpString<'b>) -> Result<Email<'b>, ParseError> {
+        nom_to_result(email(s.as_bytes()))
+    }
+
+    pub fn take_ownership<'b>(self) -> Email<'b> {
+        Email {
+            localpart: self.localpart.take_ownership(),
+            hostname:  self.hostname.map(|x| x.take_ownership()),
+        }
+    }
+
+    pub fn borrow<'b>(&'b self) -> Email<'b>
+    where
+        'a: 'b,
+    {
+        Email {
+            localpart: self.localpart.borrow(),
+            hostname:  self.hostname.as_ref().map(|x| x.borrow()),
+        }
+    }
+
+    pub fn raw_localpart(&self) -> &SmtpString {
+        &self.localpart
+    }
+
+    // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for
+    // details.
+    // This is a canonicalized version of the potentially quoted localpart, not
+    // designed to be sent over the wire as it is no longer correctly quoted
+    pub fn localpart(&self) -> SmtpString {
+        if self.localpart.byte(0) != b'"' {
+            self.localpart.borrow()
+        } else {
+            #[derive(Copy, Clone)]
+            enum State {
+                Start,
+                Backslash,
+            }
+
+            let mut res = self.localpart
+                .iter_bytes()
+                .skip(1)
+                .scan(State::Start, |state, &x| match (*state, x) {
+                    (State::Backslash, _) => {
+                        *state = State::Start;
+                        Some(Some(x))
+                    }
+                    (_, b'\\') => {
+                        *state = State::Backslash;
+                        Some(None)
+                    }
+                    (_, _) => {
+                        *state = State::Start;
+                        Some(Some(x))
+                    }
+                })
+                .filter_map(|x| x)
+                .collect::<Vec<u8>>();
+            assert_eq!(res.pop().unwrap(), b'"');
+            res.into()
+        }
+    }
+
+    pub fn hostname(&self) -> &Option<SmtpString> {
+        &self.hostname
+    }
+
+    pub fn into_smtp_string<'b>(self) -> SmtpString<'b> {
+        let mut res = self.localpart.into_bytes();
+        if let Some(host) = self.hostname {
+            res.push(b'@');
+            res.extend_from_slice(host.as_bytes());
+        }
+        res.into()
+    }
+
+    pub fn as_smtp_string<'b>(&self) -> SmtpString<'b> {
+        let mut res = self.localpart.borrow().into_bytes();
+        if let Some(host) = self.hostname.as_ref().map(|x| x.borrow()) {
+            res.push(b'@');
+            res.extend_from_slice(host.as_bytes());
+        }
+        res.into()
+    }
+}
+
+pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
+    if let &Some(ref e) = e {
+        e.as_smtp_string()
+    } else {
+        (&b""[..]).into()
     }
 }
