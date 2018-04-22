@@ -74,7 +74,10 @@ mod tests {
         for (s, l, h) in tests.into_iter() {
             let res = command_rcpt_args(s).unwrap().1;
             assert_eq!(res.to().raw_localpart().as_bytes(), l);
-            assert_eq!(res.to().hostname(), &h.map(SmtpString::from));
+            assert_eq!(
+                res.to().hostname(),
+                &h.map(|x| Domain::new(SmtpString::from(x)).unwrap())
+            );
         }
     }
 
@@ -83,7 +86,7 @@ mod tests {
         let mut v = Vec::new();
         RcptCommand::new(Email::new(
             (&b"foo"[..]).into(),
-            Some((&b"bar.com"[..]).into()),
+            Some(Domain::new((&b"bar.com"[..]).into()).unwrap()),
         )).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");

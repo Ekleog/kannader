@@ -1,5 +1,5 @@
 use nom::{self, IResult, Needed};
-use std::{borrow::Cow, fmt, slice};
+use std::{borrow::Cow, fmt, ops::Deref, slice};
 
 use parse_helpers::*;
 
@@ -12,10 +12,8 @@ pub enum ParseError {
 
 pub fn nom_to_result<'a, T>(d: nom::IResult<&'a [u8], T>) -> Result<T, ParseError> {
     match d {
-        IResult::Done(rem, res) => {
-            assert_eq!(rem, b"");
-            Ok(res)
-        }
+        IResult::Done(b"", res) => Ok(res),
+        IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
         IResult::Error(e) => Err(ParseError::ParseError(e)),
         IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
     }
@@ -143,13 +141,51 @@ impl<'a> fmt::Debug for SmtpString<'a> {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
+pub struct Domain<'a>(SmtpString<'a>); // TODO: split between IP and DNS
+
+impl<'a> Domain<'a> {
+    pub fn new(domain: SmtpString) -> Result<Domain, ParseError> {
+        nom_to_result(hostname(domain.as_bytes()))?;
+        Ok(Domain(domain))
+    }
+
+    pub fn take_ownership<'b>(self) -> Domain<'b> {
+        Domain(self.0.take_ownership())
+    }
+
+    pub fn borrow<'b>(&'b self) -> Domain<'b>
+    where
+        'a: 'b,
+    {
+        Domain(self.0.borrow())
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0.into_bytes()
+    }
+}
+
+pub fn new_domain_exclusively_for_parse_helpers_do_not_use(domain: SmtpString) -> Domain {
+    Domain(domain)
+}
+
+impl<'a> Deref for Domain<'a> {
+    type Target = SmtpString<'a>;
+
+    fn deref(&self) -> &SmtpString<'a> {
+        &self.0
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub struct Email<'a> {
     localpart: SmtpString<'a>,
-    hostname:  Option<SmtpString<'a>>,
+    hostname:  Option<Domain<'a>>, // TODO: use Domain here
 }
 
 impl<'a> Email<'a> {
-    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<SmtpString<'b>>) -> Email<'b> {
+    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<Domain<'b>>) -> Email<'b> {
         Email {
             localpart,
             hostname,
@@ -219,7 +255,7 @@ impl<'a> Email<'a> {
         }
     }
 
-    pub fn hostname(&self) -> &Option<SmtpString> {
+    pub fn hostname(&self) -> &Option<Domain> {
         &self.hostname
     }
 

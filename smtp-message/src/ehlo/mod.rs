@@ -1,4 +1,3 @@
-use nom::IResult;
 use std::io;
 
 use helpers::*;
@@ -7,22 +6,16 @@ use parse_helpers::*;
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct EhloCommand<'a> {
-    domain: SmtpString<'a>,
+    domain: Domain<'a>,
 }
 
 impl<'a> EhloCommand<'a> {
     // TODO: add a `Domain` type and use it here
-    pub fn new<'b>(domain: SmtpString<'b>) -> Result<EhloCommand<'b>, ParseError> {
-        match hostname(domain.as_bytes()) {
-            IResult::Done(b"", _) => (),
-            IResult::Done(rem, _) => return Err(ParseError::DidNotConsumeEverything(rem.len())),
-            IResult::Error(e) => return Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n) => return Err(ParseError::IncompleteString(n)),
-        }
-        Ok(EhloCommand { domain })
+    pub fn new<'b>(domain: Domain<'b>) -> EhloCommand<'b> {
+        EhloCommand { domain }
     }
 
-    pub fn domain(&self) -> &SmtpString {
+    pub fn domain(&self) -> &Domain {
         &self.domain
     }
 
@@ -53,19 +46,21 @@ named!(pub command_ehlo_args(&[u8]) -> EhloCommand,
 mod tests {
     use super::*;
 
+    use nom::IResult;
+
     #[test]
     fn valid_command_ehlo_args() {
         let tests = vec![
             (
                 &b" \t hello.world \t \r\n"[..],
                 EhloCommand {
-                    domain: (&b"hello.world"[..]).into(),
+                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
                 },
             ),
             (
                 &b"hello.world\r\n"[..],
                 EhloCommand {
-                    domain: (&b"hello.world"[..]).into(),
+                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
                 },
             ),
         ];
@@ -77,14 +72,13 @@ mod tests {
     #[test]
     fn valid_builds() {
         let mut v = Vec::new();
-        EhloCommand::new((&b"test.foo.bar"[..]).into())
-            .unwrap()
+        EhloCommand::new(Domain::new((&b"test.foo.bar"[..]).into()).unwrap())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"EHLO test.foo.bar\r\n");
 
-        assert!(EhloCommand::new((&b"test."[..]).into()).is_err());
-        assert!(EhloCommand::new((&b"test.foo.bar "[..]).into()).is_err());
-        assert!(EhloCommand::new((&b"-test.foo.bar"[..]).into()).is_err());
+        assert!(Domain::new((&b"test."[..]).into()).is_err());
+        assert!(Domain::new((&b"test.foo.bar "[..]).into()).is_err());
+        assert!(Domain::new((&b"-test.foo.bar"[..]).into()).is_err());
     }
 }

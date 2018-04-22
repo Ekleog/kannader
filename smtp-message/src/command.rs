@@ -104,7 +104,7 @@ mod tests {
                 &b"EHLO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Ehlo(r) = x {
-                        r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
+                        &**r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -124,7 +124,7 @@ mod tests {
                 &b"HELO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Helo(r) = x {
-                        r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
+                        &**r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -167,7 +167,7 @@ mod tests {
                         r.from()
                             == &Some(Email::new(
                                 (&b"hello"[..]).into(),
-                                Some((&b"world.example"[..]).into()),
+                                Some(Domain::new((&b"world.example"[..]).into()).unwrap()),
                             ))
                     } else {
                         false
@@ -199,7 +199,8 @@ mod tests {
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
                         r.to().raw_localpart().as_bytes() == b"foo"
-                            && r.to().hostname() == &Some((&b"bar.baz"[..]).into())
+                            && r.to().hostname()
+                                == &Some(Domain::new((&b"bar.baz"[..]).into()).unwrap())
                     } else {
                         false
                     }
@@ -210,7 +211,8 @@ mod tests {
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
                         r.to().raw_localpart().as_bytes() == b"baz"
-                            && r.to().hostname() == &Some((&b"quux.foo"[..]).into())
+                            && r.to().hostname()
+                                == &Some(Domain::new((&b"quux.foo"[..]).into()).unwrap())
                     } else {
                         false
                     }

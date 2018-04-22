@@ -43,13 +43,13 @@ macro_rules! graph_except_equ {
     };
 }
 
-named!(pub hostname(&[u8]) -> &[u8],
-    alt!(
+named!(pub hostname(&[u8]) -> Domain,
+    map!(alt!(
         recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
         recognize!(separated_nonempty_list_complete!(tag!("."),
                        preceded!(one_of!(alnum!()),
                                  opt!(is_a!(concat!(alnum!(), "-"))))))
-    )
+    ), |x| new_domain_exclusively_for_parse_helpers_do_not_use(x.into()))
 );
 
 named!(dot_string(&[u8]) -> &[u8], recognize!(
@@ -72,7 +72,7 @@ named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
 named!(pub email(&[u8]) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
-    (Email::new(local.into(), host.map(SmtpString::from)))
+    (Email::new(local.into(), host))
 ));
 
 named!(address_in_path(&[u8]) -> (Email, &[u8]), do_parse!(
@@ -153,7 +153,10 @@ mod tests {
             &b"[IPv6:0::ffff:8.7.6.5]"[..],
         ];
         for test in tests {
-            assert_eq!(hostname(test), IResult::Done(&b""[..], &test[..]));
+            assert_eq!(
+                hostname(test).map(|x| x.into_bytes()),
+                IResult::Done(&b""[..], test.to_vec())
+            );
         }
     }
 
@@ -161,7 +164,10 @@ mod tests {
     fn partial_hostnames() {
         let tests: &[(&[u8], &[u8])] = &[(b"foo.-bar.baz", b"foo"), (b"foo.bar.-baz", b"foo.bar")];
         for test in tests {
-            assert_eq!(hostname(test.0).unwrap().1, test.1);
+            assert_eq!(
+                hostname(test.0).unwrap().1,
+                new_domain_exclusively_for_parse_helpers_do_not_use(test.1.into())
+            );
         }
     }
 
@@ -205,14 +211,14 @@ mod tests {
                 b"t+e-s.t_i+n-g@foo.bar.baz",
                 Email::new(
                     (&b"t+e-s.t_i+n-g"[..]).into(),
-                    Some((&b"foo.bar.baz"[..]).into()),
+                    Some(Domain::new((&b"foo.bar.baz"[..]).into()).unwrap()),
                 ),
             ),
             (
                 br#""quoted\"example"@example.org"#,
                 Email::new(
                     (&br#""quoted\"example""#[..]).into(),
-                    Some((&b"example.org"[..]).into()),
+                    Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
                 ),
             ),
             (b"postmaster", Email::new((&b"postmaster"[..]).into(), None)),
@@ -249,14 +255,20 @@ mod tests {
             (
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
-                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
+                    Email::new(
+                        (&b"test"[..]).into(),
+                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
+                    ),
                     b"test@example.org",
                 ),
             ),
             (
                 b"foo.bar@baz.quux",
                 (
-                    Email::new((&b"foo.bar"[..]).into(), Some((&b"baz.quux"[..]).into())),
+                    Email::new(
+                        (&b"foo.bar"[..]).into(),
+                        Some(Domain::new((&b"baz.quux"[..]).into()).unwrap()),
+                    ),
                     b"foo.bar@baz.quux",
                 ),
             ),
@@ -272,28 +284,40 @@ mod tests {
             (
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
-                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
+                    Email::new(
+                        (&b"test"[..]).into(),
+                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
+                    ),
                     b"test@example.org",
                 ),
             ),
             (
                 b"<@foo.bar,@baz.quux:test@example.org>",
                 (
-                    Email::new((&b"test"[..]).into(), Some((&b"example.org"[..]).into())),
+                    Email::new(
+                        (&b"test"[..]).into(),
+                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
+                    ),
                     b"test@example.org",
                 ),
             ),
             (
                 b"<foo@bar.baz>",
                 (
-                    Email::new((&b"foo"[..]).into(), Some((&b"bar.baz"[..]).into())),
+                    Email::new(
+                        (&b"foo"[..]).into(),
+                        Some(Domain::new((&b"bar.baz"[..]).into()).unwrap()),
+                    ),
                     b"foo@bar.baz",
                 ),
             ),
             (
                 b"foo@bar.baz",
                 (
-                    Email::new((&b"foo"[..]).into(), Some((&b"bar.baz"[..]).into())),
+                    Email::new(
+                        (&b"foo"[..]).into(),
+                        Some(Domain::new((&b"bar.baz"[..]).into()).unwrap()),
+                    ),
                     b"foo@bar.baz",
                 ),
             ),
