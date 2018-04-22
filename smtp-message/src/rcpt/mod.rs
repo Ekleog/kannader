@@ -6,18 +6,23 @@ use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct RcptCommand {
-    // TO: parameter with the “@ONE,@TWO:” portion removed, as per RFC5321 Appendix C
-    to: Email,
+pub struct RcptCommand<'a> {
+    // TO: parameter with the forward-path (“@ONE,@TWO:” portion)
+    // removed, as per RFC5321 Appendix C
+    to: Email<'a>,
 }
 
-impl RcptCommand {
+impl<'a> RcptCommand<'a> {
     pub fn new(to: Email) -> RcptCommand {
         RcptCommand { to }
     }
 
     pub fn to(&self) -> &Email {
         &self.to
+    }
+
+    pub fn into_to(self) -> Email<'a> {
+        self.to
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
@@ -28,6 +33,12 @@ impl RcptCommand {
             w.write_all(host.as_bytes())?;
         }
         w.write_all(b">\r\n")
+    }
+
+    pub fn take_ownership<'b>(self) -> RcptCommand<'b> {
+        RcptCommand {
+            to: self.to.take_ownership(),
+        }
     }
 }
 
@@ -64,7 +75,7 @@ mod tests {
         for (s, l, h) in tests.into_iter() {
             let res = command_rcpt_args(s).unwrap().1;
             assert_eq!(res.to().raw_localpart().as_bytes(), l);
-            assert_eq!(res.to().hostname(), &h.map(SmtpString::copy_bytes));
+            assert_eq!(res.to().hostname(), &h.map(SmtpString::from));
         }
     }
 
@@ -72,14 +83,14 @@ mod tests {
     fn valid_build() {
         let mut v = Vec::new();
         RcptCommand::new(Email::new(
-            SmtpString::copy_bytes(b"foo"),
-            Some(SmtpString::copy_bytes(b"bar.com")),
+            (&b"foo"[..]).into(),
+            Some((&b"bar.com"[..]).into()),
         )).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");
 
         v = Vec::new();
-        RcptCommand::new(Email::new(SmtpString::copy_bytes(b"Postmaster"), None))
+        RcptCommand::new(Email::new((&b"Postmaster"[..]).into(), None))
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<Postmaster>\r\n");

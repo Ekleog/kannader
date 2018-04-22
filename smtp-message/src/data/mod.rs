@@ -19,6 +19,10 @@ impl DataCommand {
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"DATA\r\n")
     }
+
+    pub fn take_ownership(self) -> DataCommand {
+        self
+    }
 }
 
 named!(pub command_data_args(&[u8]) -> DataCommand, do_parse!(
@@ -280,9 +284,9 @@ mod tests {
             use helpers::SmtpString;
             println!(
                 "Trying to parse {:?} into {:?} with {:?} remaining",
-                SmtpString::copy_bytes(inp),
-                SmtpString::copy_bytes(out),
-                SmtpString::copy_bytes(rem)
+                SmtpString::from(inp),
+                SmtpString::from(out),
+                SmtpString::from(rem)
             );
             let mut stream = DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()));
             let output = stream.by_ref().collect().wait().unwrap();
@@ -290,8 +294,8 @@ mod tests {
             let remaining = stream.consume_and_continue().collect().wait().unwrap();
             println!(
                 " -> Got {:?} with {:?} remaining",
-                SmtpString::copy_bytes(&output),
-                SmtpString::copy_bytes(&remaining)
+                SmtpString::from(&output[..]),
+                SmtpString::from(&remaining[..])
             );
             assert_eq!(output, out.to_vec());
             assert_eq!(remaining, rem.to_vec());

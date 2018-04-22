@@ -25,7 +25,7 @@ pub enum Command<'a> {
     Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Noop(NoopCommand<'a>), // NOOP [<string>] <CRLF>
     Quit(QuitCommand),     // QUIT <CRLF>
-    Rcpt(RcptCommand),     // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset(RsetCommand),     // RSET <CRLF>
     Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
 }
@@ -33,6 +33,23 @@ pub enum Command<'a> {
 impl<'a> Command<'a> {
     pub fn parse(arg: &[u8]) -> Result<Command, ParseError> {
         nom_to_result(command(arg))
+    }
+
+    pub fn take_ownership<'b>(self) -> Command<'b> {
+        use Command::*;
+        match self {
+            Data(c) => Data(c.take_ownership()),
+            Ehlo(c) => Ehlo(c.take_ownership()),
+            Expn(c) => Expn(c.take_ownership()),
+            Helo(c) => Helo(c.take_ownership()),
+            Help(c) => Help(c.take_ownership()),
+            Mail(c) => Mail(c.take_ownership()),
+            Noop(c) => Noop(c.take_ownership()),
+            Quit(c) => Quit(c.take_ownership()),
+            Rcpt(c) => Rcpt(c.take_ownership()),
+            Rset(c) => Rset(c.take_ownership()),
+            Vrfy(c) => Vrfy(c.take_ownership()),
+        }
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
@@ -70,6 +87,8 @@ named!(pub command(&[u8]) -> Command, alt!(
 mod tests {
     use super::*;
 
+    use parse_helpers::*;
+
     #[test]
     fn valid_command() {
         let tests: Vec<(&[u8], Box<fn(Command) -> bool>)> = vec![
@@ -87,7 +106,7 @@ mod tests {
                 &b"EHLO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Ehlo(r) = x {
-                        r.domain() == b"foo.bar.baz"
+                        r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -97,7 +116,7 @@ mod tests {
                 &b"EXPN mailing.list \r\n"[..],
                 Box::new(|x| {
                     if let Command::Expn(r) = x {
-                        r.name() == b"mailing.list "
+                        r.name() == &SmtpString::from(&b"mailing.list "[..])
                     } else {
                         false
                     }
@@ -107,7 +126,7 @@ mod tests {
                 &b"HELO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Helo(r) = x {
-                        r.domain() == b"foo.bar.baz"
+                        r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -117,7 +136,7 @@ mod tests {
                 &b"HELP foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Help(r) = x {
-                        r.subject() == b"foo.bar.baz"
+                        r.subject() == &SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -127,7 +146,7 @@ mod tests {
                 &b"HELP \r\n"[..],
                 Box::new(|x| {
                     if let Command::Help(r) = x {
-                        r.subject() == b""
+                        r.subject() == &SmtpString::from(&b""[..])
                     } else {
                         false
                     }
@@ -137,7 +156,7 @@ mod tests {
                 &b"HELP\r\n"[..],
                 Box::new(|x| {
                     if let Command::Help(r) = x {
-                        r.subject() == b""
+                        r.subject() == &SmtpString::from(&b""[..])
                     } else {
                         false
                     }
@@ -147,7 +166,11 @@ mod tests {
                 &b"MAIL FROM:<hello@world.example>\r\n"[..],
                 Box::new(|x| {
                     if let Command::Mail(r) = x {
-                        r.raw_from() == b"hello@world.example"
+                        r.from()
+                            == &Some(Email::new(
+                                (&b"hello"[..]).into(),
+                                Some((&b"world.example"[..]).into()),
+                            ))
                     } else {
                         false
                     }
@@ -178,7 +201,7 @@ mod tests {
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
                         r.to().raw_localpart().as_bytes() == b"foo"
-                            && r.to().hostname() == &Some(SmtpString::copy_bytes(b"bar.baz"))
+                            && r.to().hostname() == &Some((&b"bar.baz"[..]).into())
                     } else {
                         false
                     }
@@ -189,7 +212,7 @@ mod tests {
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
                         r.to().raw_localpart().as_bytes() == b"baz"
-                            && r.to().hostname() == &Some(SmtpString::copy_bytes(b"quux.foo"))
+                            && r.to().hostname() == &Some((&b"quux.foo"[..]).into())
                     } else {
                         false
                     }
@@ -219,7 +242,7 @@ mod tests {
                 &b"VRFY  root\r\n"[..],
                 Box::new(|x| {
                     if let Command::Vrfy(r) = x {
-                        r.name() == b" root"
+                        r.name() == &SmtpString::from(&b" root"[..])
                     } else {
                         false
                     }
@@ -234,7 +257,7 @@ mod tests {
     #[test]
     pub fn do_send_ok() {
         let mut v = Vec::new();
-        Command::Vrfy(VrfyCommand::new(b"fubar"))
+        Command::Vrfy(VrfyCommand::new((&b"fubar"[..]).into()))
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"VRFY fubar\r\n");

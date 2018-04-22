@@ -18,6 +18,10 @@ impl QuitCommand {
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"QUIT\r\n")
     }
+
+    pub fn take_ownership(self) -> QuitCommand {
+        self
+    }
 }
 
 named!(pub command_quit_args(&[u8]) -> QuitCommand,

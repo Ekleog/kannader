@@ -1,46 +1,41 @@
 use nom::IResult;
-use std::{fmt, io};
+use std::io;
 
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub struct HeloCommand<'a> {
-    domain: &'a [u8],
+    domain: SmtpString<'a>,
 }
 
 impl<'a> HeloCommand<'a> {
-    pub fn new<'b>(domain: &'b [u8]) -> Result<HeloCommand<'b>, ParseError> {
-        match hostname(domain) {
-            IResult::Done(b"", domain) => Ok(HeloCommand { domain }),
-            IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
-            IResult::Error(e) => Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
+    // TODO: add a Domain<'b> type and use it here
+    pub fn new<'b>(domain: SmtpString<'b>) -> Result<HeloCommand<'b>, ParseError> {
+        match hostname(domain.as_bytes()) {
+            IResult::Done(b"", _) => (),
+            IResult::Done(rem, _) => return Err(ParseError::DidNotConsumeEverything(rem.len())),
+            IResult::Error(e) => return Err(ParseError::ParseError(e)),
+            IResult::Incomplete(n) => return Err(ParseError::IncompleteString(n)),
         }
+        Ok(HeloCommand { domain })
     }
 
-    pub unsafe fn with_raw_domain<'b>(domain: &'b [u8]) -> HeloCommand<'b> {
-        HeloCommand { domain }
-    }
-
-    pub fn domain(&self) -> &'a [u8] {
-        self.domain
+    pub fn domain(&self) -> &SmtpString {
+        &self.domain
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"HELO ")?;
-        w.write_all(self.domain)?;
+        w.write_all(self.domain.as_bytes())?;
         w.write_all(b"\r\n")
     }
-}
 
-impl<'a> fmt::Debug for HeloCommand<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "HeloCommand {{ domain: {:?} }}",
-            bytes_to_dbg(self.domain)
-        )
+    pub fn take_ownership<'b>(self) -> HeloCommand<'b> {
+        HeloCommand {
+            domain: self.domain.take_ownership(),
+        }
     }
 }
 
@@ -49,7 +44,7 @@ named!(pub command_helo_args(&[u8]) -> HeloCommand,
         domain: hostname >>
         tag!("\r\n") >>
         (HeloCommand {
-            domain: domain
+            domain: domain.into(),
         })
     ))
 );
@@ -64,13 +59,13 @@ mod tests {
             (
                 &b" \t hello.world \t \r\n"[..],
                 HeloCommand {
-                    domain: &b"hello.world"[..],
+                    domain: (&b"hello.world"[..]).into(),
                 },
             ),
             (
                 &b"hello.world\r\n"[..],
                 HeloCommand {
-                    domain: &b"hello.world"[..],
+                    domain: (&b"hello.world"[..]).into(),
                 },
             ),
         ];
@@ -82,18 +77,12 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        HeloCommand::new(b"test.example.org")
+        HeloCommand::new(SmtpString::from(&b"test.example.org"[..]))
             .unwrap()
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"HELO test.example.org\r\n");
 
-        assert!(HeloCommand::new(b"test.").is_err());
-
-        v = Vec::new();
-        unsafe { HeloCommand::with_raw_domain(b"test.") }
-            .send_to(&mut v)
-            .unwrap();
-        assert_eq!(v, b"HELO test.\r\n");
+        assert!(HeloCommand::new((&b"test."[..]).into()).is_err());
     }
 }

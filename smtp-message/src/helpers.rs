@@ -1,5 +1,5 @@
 use nom::{self, IResult, Needed};
-use std::{fmt, slice};
+use std::{borrow::Cow, fmt, slice};
 
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
@@ -57,17 +57,43 @@ impl fmt::Display for BuildError {
     }
 }
 
-// TODO: actually own a Cow<'a, [u8]>?
-#[derive(Clone, PartialEq, Eq)]
-pub struct SmtpString(Vec<u8>);
+#[derive(Eq, Hash, PartialEq)]
+pub struct SmtpString<'a>(Cow<'a, [u8]>);
 
-impl SmtpString {
-    pub fn from_bytes(b: Vec<u8>) -> SmtpString {
-        SmtpString(b)
+impl<'a> From<&'a [u8]> for SmtpString<'a> {
+    fn from(t: &'a [u8]) -> SmtpString<'a> {
+        SmtpString(Cow::from(t))
+    }
+}
+
+impl<'a> From<Vec<u8>> for SmtpString<'a> {
+    fn from(t: Vec<u8>) -> SmtpString<'a> {
+        SmtpString(Cow::from(t))
+    }
+}
+
+impl<'a> From<&'a str> for SmtpString<'a> {
+    fn from(s: &'a str) -> SmtpString<'a> {
+        SmtpString(Cow::from(s.as_bytes()))
+    }
+}
+
+impl<'a> From<String> for SmtpString<'a> {
+    fn from(s: String) -> SmtpString<'a> {
+        SmtpString(Cow::from(s.into_bytes()))
+    }
+}
+
+impl<'a> SmtpString<'a> {
+    pub fn take_ownership<'b>(self) -> SmtpString<'b> {
+        SmtpString(Cow::from(self.0.into_owned()))
     }
 
-    pub fn copy_bytes(b: &[u8]) -> SmtpString {
-        SmtpString::from_bytes(b.to_vec())
+    pub fn borrow<'b>(&'b self) -> SmtpString<'b>
+    where
+        'a: 'b,
+    {
+        SmtpString(Cow::from(&*self.0))
     }
 
     pub fn iter_bytes(&self) -> slice::Iter<u8> {
@@ -87,20 +113,20 @@ impl SmtpString {
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
-        self.0
+        self.0.into_owned()
     }
 
-    pub fn copy_chunks(&self, bytes: usize) -> Vec<SmtpString> {
+    pub fn copy_chunks<'b>(&self, bytes: usize) -> Vec<SmtpString<'b>> {
         let mut res = Vec::with_capacity((self.byte_len() + bytes - 1) / bytes);
         let mut it = self.0.iter().cloned();
         for _ in 0..((self.byte_len() + bytes - 1) / bytes) {
-            res.push(SmtpString::from_bytes(it.by_ref().take(bytes).collect()));
+            res.push(it.by_ref().take(bytes).collect::<Vec<_>>().into());
         }
         res
     }
 }
 
-impl fmt::Debug for SmtpString {
+impl<'a> fmt::Debug for SmtpString<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -111,24 +137,4 @@ impl fmt::Debug for SmtpString {
                 .collect::<String>()
         )
     }
-}
-
-#[derive(Hash, PartialEq, Eq)]
-pub struct DbgBytes<'a>(&'a [u8]);
-
-impl<'a> fmt::Debug for DbgBytes<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "b\"{}\"",
-            self.0
-                .iter()
-                .flat_map(|x| char::from(*x).escape_default())
-                .collect::<String>()
-        )
-    }
-}
-
-pub fn bytes_to_dbg(b: &[u8]) -> DbgBytes {
-    DbgBytes(b)
 }

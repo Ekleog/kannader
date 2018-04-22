@@ -1,36 +1,25 @@
-use nom::{crlf, IResult};
-use std::{collections::HashMap, fmt, io};
+use nom::crlf;
+use std::io;
 
-use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub struct MailCommand<'a> {
-    from:   &'a [u8], // TODO: actually store an Email
+    from:   Option<Email<'a>>,
     params: Option<SpParameters<'a>>,
 }
 
 impl<'a> MailCommand<'a> {
-    pub fn new<'b>(
-        from: &'b [u8],
-        params: Option<SpParameters<'b>>,
-    ) -> Result<MailCommand<'b>, ParseError> {
-        match email(from) {
-            IResult::Done(b"", _) => Ok(MailCommand { from, params }),
-            IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
-            IResult::Error(e) => Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
-        }
-    }
-
-    pub unsafe fn with_raw_from<'b>(
-        from: &'b [u8],
-        params: Option<SpParameters<'b>>,
-    ) -> MailCommand<'b> {
+    pub fn new<'b>(from: Option<Email<'b>>, params: Option<SpParameters<'b>>) -> MailCommand<'b> {
         MailCommand { from, params }
     }
 
-    pub fn raw_from(&self) -> &'a [u8] {
+    pub fn from(&self) -> &Option<Email> {
+        &self.from
+    }
+
+    pub fn into_from(self) -> Option<Email<'a>> {
         self.from
     }
 
@@ -39,24 +28,18 @@ impl<'a> MailCommand<'a> {
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        let address = self.from.as_ref().map(|x| x.as_smtp_string());
         w.write_all(b"MAIL FROM:<")?;
-        w.write_all(self.from)?;
+        w.write_all(address.as_ref().map(|x| x.as_bytes()).unwrap_or(b""))?;
         w.write_all(b">\r\n")
         // TODO: also send parameters
     }
-}
 
-impl<'a> fmt::Debug for MailCommand<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "MailCommand {{ from: {:?}, params: {:?} }}",
-            bytes_to_dbg(self.from),
-            self.params.as_ref().map(|x| x.0
-                .iter()
-                .map(|(k, v)| (bytes_to_dbg(k), v.map(bytes_to_dbg)))
-                .collect::<HashMap<_, _>>())
-        )
+    pub fn take_ownership<'b>(self) -> MailCommand<'b> {
+        MailCommand {
+            from:   self.from.map(|x| x.take_ownership()),
+            params: self.params.map(|x| x.take_ownership()),
+        }
     }
 }
 
@@ -73,14 +56,14 @@ named!(pub command_mail_args(&[u8]) -> MailCommand,
     sep!(eat_spaces, do_parse!(
         tag_no_case!("FROM:") >>
         from: alt!(
-            map!(tag!("<>"), |_| &b""[..]) |
-            map!(address_in_maybe_bracketed_path, |x| x.1)
+            map!(tag!("<>"), |_| None) |
+            map!(address_in_maybe_bracketed_path, |x| Some(x.0))
         ) >>
         sp: opt!(preceded!(tag!("SP"), sp_parameters)) >>
         crlf >>
         (MailCommand {
             from: from,
-            params: sp,
+            params: sp.into(),
         })
     ))
 );
@@ -89,44 +72,59 @@ named!(pub command_mail_args(&[u8]) -> MailCommand,
 mod tests {
     use super::*;
 
+    use nom::IResult;
+
     #[test]
     fn valid_command_mail_args() {
         let tests = vec![
             (
                 &b" FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
-                    from:   &b"foo@bar.baz"[..],
+                    from:   Some(
+                        Email::parse(&(&b"foo@bar.baz"[..]).into())
+                            .unwrap()
+                            .take_ownership(),
+                    ),
                     params: None,
                 },
             ),
             (
                 &b"FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
-                    from:   &b"quux@example.net"[..],
+                    from:   Some(
+                        Email::parse(&(&b"quux@example.net"[..]).into())
+                            .unwrap()
+                            .take_ownership(),
+                    ),
                     params: None,
                 },
             ),
             (
                 &b"FROM:<>\r\n"[..],
                 MailCommand {
-                    from:   &b""[..],
+                    from:   None,
                     params: None,
                 },
             ),
             (
                 &b"FROM:<> SP hello=world SP foo\r\n"[..],
                 MailCommand {
-                    from:   &b""[..],
-                    params: Some(SpParameters(
-                        vec![(&b"hello"[..], Some(&b"world"[..])), (b"foo", None)]
-                            .into_iter()
+                    from:   None,
+                    params: Some(SpParameters::new(
+                        vec![
+                            ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
+                            ((b"foo"[..]).into(), None),
+                        ].into_iter()
                             .collect(),
                     )),
                 },
             ),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_mail_args(s), IResult::Done(&b""[..], r));
+            let res = command_mail_args(s);
+            let exp = IResult::Done(&b""[..], r);
+            println!("Parsing {:?}: {:?}, expected {:?}", s, res, exp);
+            assert_eq!(res, exp);
         }
     }
 
@@ -136,25 +134,23 @@ mod tests {
         assert!(command_mail_args(b" FROM:foo@bar.com").is_incomplete());
     }
 
+    // TODO: quickcheck parse = generate for all
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(b"foo@bar.baz", None)
-            .unwrap()
-            .send_to(&mut v)
+        MailCommand::new(
+            Some(
+                Email::parse(&(&b"foo@bar.baz"[..]).into())
+                    .unwrap()
+                    .take_ownership(),
+            ),
+            None,
+        ).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
-        assert!(MailCommand::new(b"foo@", None).is_err());
-        assert!(MailCommand::new(b"foo@bar.", None).is_err());
-        assert!(MailCommand::new(b"foo@.baz", None).is_err());
-        assert!(MailCommand::new(b"@bar.baz", None).is_err());
-        assert!(MailCommand::new(b"\"foo@bar.baz", None).is_err());
-
-        v = Vec::new();
-        unsafe { MailCommand::with_raw_from(b"foo@", None) }
-            .send_to(&mut v)
-            .unwrap();
-        assert_eq!(v, b"MAIL FROM:<foo@>\r\n");
+        let mut v = Vec::new();
+        MailCommand::new(None, None).send_to(&mut v).unwrap();
+        assert_eq!(v, b"MAIL FROM:<>\r\n");
     }
 }

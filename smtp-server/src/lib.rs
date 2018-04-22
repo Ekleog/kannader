@@ -1,3 +1,5 @@
+// TODO: add in deadlines
+// TODO: refactor in multiple files
 extern crate itertools;
 extern crate smtp_message;
 extern crate tokio;
@@ -11,21 +13,18 @@ use tokio::prelude::*;
 
 use helpers::*;
 
-pub type MailAddress = Vec<u8>;
-pub type MailAddressRef<'a> = &'a [u8];
-
 pub struct ConnectionMetadata<U> {
     pub user: U,
 }
 
-pub struct MailMetadata {
-    from: MailAddress,
-    to:   Vec<Email>,
+pub struct MailMetadata<'a> {
+    from: Option<Email<'a>>,
+    to:   Vec<Email<'a>>,
 }
 
 pub struct Refusal {
     code: ReplyCode,
-    msg:  String,
+    msg:  String, // TODO: drop in favor of SmtpString
 }
 
 pub enum Decision<T> {
@@ -44,13 +43,13 @@ pub fn interact<
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
     State: 'a,
-    FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
+    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
     FilterTo: 'a
         + Fn(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
             -> Decision<()>,
     HandleMail: 'a
         + Fn(
-            MailMetadata,
+            MailMetadata<'static>,
             State,
             &ConnectionMetadata<UserProvidedMetadata>,
             DataStream<stream::MapErr<Reader, HandleReaderError>>,
@@ -91,16 +90,21 @@ pub fn interact<
 fn handle_lines<
     'a,
     U: 'a,
-    Writer: 'a + Sink<SinkItem = Reply, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = Reply<'a>, SinkError = ()>,
     Reader: 'a + Stream<Item = u8, Error = ()>,
     State: 'a,
-    FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
+    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
-        + Fn(MailMetadata, State, &ConnectionMetadata<U>, DataStream<Reader>) -> (Reader, Decision<()>),
+        + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
+            -> (Reader, Decision<()>),
 >(
     (line, reader): (Option<Vec<u8>>, CrlfLines<Reader>),
-    add_data: (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+    add_data: (
+        Writer,
+        ConnectionMetadata<U>,
+        Option<(MailMetadata<'static>, State)>,
+    ),
     filter_from: &'a FilterFrom,
     filter_to: &'a FilterTo,
     handler: &'a HandleMail,
@@ -135,16 +139,21 @@ fn handle_lines<
 fn handle_line<
     'a,
     U: 'a,
-    Writer: 'a + Sink<SinkItem = Reply, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = Reply<'a>, SinkError = ()>,
     Reader: 'a + Stream<Item = u8, Error = ()>,
     State: 'a,
-    FilterFrom: 'a + Fn(MailAddressRef, &ConnectionMetadata<U>) -> Decision<State>,
+    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
-        + Fn(MailMetadata, State, &ConnectionMetadata<U>, DataStream<Reader>) -> (Reader, Decision<()>),
+        + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
+            -> (Reader, Decision<()>),
 >(
     reader: Reader,
-    (writer, conn_meta, mail_data): (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+    (writer, conn_meta, mail_data): (
+        Writer,
+        ConnectionMetadata<U>,
+        Option<(MailMetadata<'static>, State)>,
+    ),
     line: Vec<u8>,
     filter_from: &FilterFrom,
     filter_to: &FilterTo,
@@ -152,13 +161,18 @@ fn handle_line<
 ) -> impl Future<
     Item = (
         Reader,
-        (Writer, ConnectionMetadata<U>, Option<(MailMetadata, State)>),
+        (
+            Writer,
+            ConnectionMetadata<U>,
+            Option<(MailMetadata<'static>, State)>,
+        ),
     ),
     Error = (),
 >
          + 'a {
-    let cmd = Command::parse(&line);
-    let res = match cmd {
+    // TODO: is this take_ownership actually required?
+    let cmd = Command::parse(&line).map(|x| x.take_ownership());
+    match cmd {
         Ok(Command::Mail(m)) => {
             if mail_data.is_some() {
                 // TODO: make the message configurable
@@ -166,18 +180,18 @@ fn handle_line<
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
-                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                        (&b"Bad sequence of commands"[..]).into(),
                     ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
                 )
             } else {
-                match filter_from(m.raw_from(), &conn_meta) {
+                match filter_from(m.from(), &conn_meta) {
                     Decision::Accept(state) => {
-                        let from = m.raw_from().to_vec();
+                        let from = m.into_from();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
                         FutIn12::Fut2(
-                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
-                                .and_then(|writer| {
+                            send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
+                                |writer| {
                                     future::ok((
                                         reader,
                                         (
@@ -186,15 +200,15 @@ fn handle_line<
                                             Some((MailMetadata { from, to }, state)),
                                         ),
                                     ))
-                                }),
+                                },
+                            ),
                         )
                     }
-                    Decision::Reject(r) => FutIn12::Fut3(
-                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| {
-                                future::ok((reader, (writer, conn_meta, mail_data)))
-                            }),
-                    ),
+                    Decision::Reject(r) => {
+                        FutIn12::Fut3(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                            future::ok((reader, (writer, conn_meta, mail_data)))
+                        }))
+                    }
                 }
             }
         }
@@ -203,11 +217,11 @@ fn handle_line<
                 match filter_to(r.to(), &mut state, &conn_meta, &mail_meta) {
                     Decision::Accept(()) => {
                         let MailMetadata { from, mut to } = mail_meta;
-                        to.push(r.to().clone());
+                        to.push(r.into_to());
                         // TODO: make this "Okay" configurable
                         FutIn12::Fut4(
-                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
-                                .and_then(|writer| {
+                            send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
+                                |writer| {
                                     future::ok((
                                         reader,
                                         (
@@ -216,15 +230,15 @@ fn handle_line<
                                             Some((MailMetadata { from, to }, state)),
                                         ),
                                     ))
-                                }),
+                                },
+                            ),
                         )
                     }
-                    Decision::Reject(r) => FutIn12::Fut5(
-                        send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                            .and_then(|writer| {
-                                future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
-                            }),
-                    ),
+                    Decision::Reject(r) => {
+                        FutIn12::Fut5(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                            future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
+                        }))
+                    }
                 }
             } else {
                 // TODO: make the message configurable
@@ -232,7 +246,7 @@ fn handle_line<
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
-                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                        (&b"Bad sequence of commands"[..]).into(),
                     ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
                 )
             }
@@ -242,18 +256,17 @@ fn handle_line<
                 if !mail_meta.to.is_empty() {
                     match handler(mail_meta, state, &conn_meta, DataStream::new(reader)) {
                         (reader, Decision::Accept(())) => FutIn12::Fut7(
-                            send_reply(writer, ReplyCode::OKAY, SmtpString::copy_bytes(b"Okay"))
+                            send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into())
                                 .and_then(|writer| future::ok((reader, (writer, conn_meta, None)))),
                         ),
                         (reader, Decision::Reject(r)) => FutIn12::Fut8(
-                            send_reply(writer, r.code, SmtpString::from_bytes(r.msg.into_bytes()))
-                                .and_then(|writer| {
-                                    // Other mail systems (at least postfix, OpenSMTPD and gmail)
-                                    // appear to drop the state on an unsuccessful DATA command
-                                    // (eg. too long). Couldn't find the RFC reference anywhere,
-                                    // though.
-                                    future::ok((reader, (writer, conn_meta, None)))
-                                }),
+                            send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                                // Other mail systems (at least postfix, OpenSMTPD and gmail)
+                                // appear to drop the state on an unsuccessful DATA command
+                                // (eg. too long). Couldn't find the RFC reference anywhere,
+                                // though.
+                                future::ok((reader, (writer, conn_meta, None)))
+                            }),
                         ),
                     }
                 } else {
@@ -261,7 +274,7 @@ fn handle_line<
                         send_reply(
                             writer,
                             ReplyCode::BAD_SEQUENCE,
-                            SmtpString::copy_bytes(b"Bad sequence of commands"),
+                            (&b"Bad sequence of commands"[..]).into(),
                         ).and_then(|writer| {
                             future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
                         }),
@@ -272,7 +285,7 @@ fn handle_line<
                     send_reply(
                         writer,
                         ReplyCode::BAD_SEQUENCE,
-                        SmtpString::copy_bytes(b"Bad sequence of commands"),
+                        (&b"Bad sequence of commands"[..]).into(),
                     ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
                 )
             }
@@ -283,7 +296,7 @@ fn handle_line<
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
-                SmtpString::copy_bytes(b"Command not implemented"),
+                (&b"Command not implemented"[..]).into(),
             ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
         Err(_) => FutIn12::Fut12(
@@ -291,11 +304,10 @@ fn handle_line<
             send_reply(
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
-                SmtpString::copy_bytes(b"Command not recognized"),
+                (&b"Command not recognized"[..]).into(),
             ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
         ),
-    };
-    res
+    }
 }
 
 // Panics if `text` has a byte not in {9} \union [32; 126]
@@ -305,7 +317,7 @@ fn send_reply<'a, W>(
     text: SmtpString,
 ) -> impl Future<Item = W, Error = W::SinkError> + 'a
 where
-    W: 'a + Sink<SinkItem = Reply>,
+    W: 'a + Sink<SinkItem = Reply<'a>>,
     W::SinkError: 'a,
 {
     // TODO: figure out a way using fewer copies
@@ -412,8 +424,8 @@ mod tests {
         );
     }
 
-    fn filter_from(addr: MailAddressRef, _: &ConnectionMetadata<()>) -> Decision<()> {
-        if addr == b"bad@quux.example.org" {
+    fn filter_from(addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision<()> {
+        if opt_email_repr(addr) == (&b"bad@quux.example.org"[..]).into() {
             Decision::Reject(Refusal {
                 code: ReplyCode::POLICY_REASON,
                 msg:  "User 'bad' banned".to_owned(),
@@ -440,11 +452,11 @@ mod tests {
     }
 
     fn handler<R: Stream<Item = u8>>(
-        meta: MailMetadata,
+        meta: MailMetadata<'static>,
         (): (),
         _: &ConnectionMetadata<()>,
         mut reader: DataStream<R>,
-        mails: &Cell<Vec<(Vec<u8>, Vec<Email>, Vec<u8>)>>,
+        mails: &Cell<Vec<(Option<Email>, Vec<Email>, Vec<u8>)>>,
     ) -> (R, Decision<()>) {
         // TODO: this API should be asynchronous!!!!!
         let mail_text = reader.by_ref().collect().wait().map_err(|_| ()).unwrap();
@@ -467,11 +479,11 @@ mod tests {
 
     #[test]
     fn interacts_ok() {
-        let tests: &[(&[u8], &[u8], &[(&[u8], &[&[u8]], &[u8])])] = &[
+        let tests: &[(&[u8], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
             // TODO: send banner before EHLO
             // TODO: send please go on after DATA
             (
-                b"MAIL FROM:<foo@bar.example.org>\r\n\
+                b"MAIL FROM:<>\r\n\
                   RCPT TO:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
                   RCPT TO:<foo3@bar.example.org>\r\n\
@@ -486,7 +498,7 @@ mod tests {
                   250 Okay\r\n\
                   502 Command not implemented\r\n",
                 &[(
-                    b"foo@bar.example.org",
+                    None,
                     &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
                     b"Hello world\r\n",
                 )],
@@ -521,7 +533,7 @@ mod tests {
                   250 Okay\r\n\
                   502 Command not implemented\r\n",
                 &[(
-                    b"foo@bar.example.org",
+                    Some(b"foo@bar.example.org"),
                     &[b"foo2@bar.example.org"],
                     b"Hello\r\n",
                 )],
@@ -561,15 +573,11 @@ mod tests {
             assert_eq!(resp_mail.len(), mail.len());
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
                 println!("Mail\n---");
-                println!(
-                    "From: expected {:?}, got {:?}",
-                    SmtpString::copy_bytes(fo),
-                    SmtpString::copy_bytes(&fr)
-                );
-                assert_eq!(fo, &fr[..]);
-                let to_smtp = to.iter()
-                    .map(|x| SmtpString::copy_bytes(x))
-                    .collect::<Vec<_>>();
+                let fo = fo.map(SmtpString::from);
+                let fr = fr.map(|x| x.as_smtp_string());
+                println!("From: expected {:?}, got {:?}", fo, fr);
+                assert_eq!(fo, fr);
+                let to_smtp = to.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>();
                 let tr_smtp = tr.into_iter()
                     .map(|x| x.into_smtp_string())
                     .collect::<Vec<_>>();

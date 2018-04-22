@@ -18,6 +18,10 @@ impl RsetCommand {
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"RSET\r\n")
     }
+
+    pub fn take_ownership(self) -> RsetCommand {
+        self
+    }
 }
 
 named!(pub command_rset_args(&[u8]) -> RsetCommand,

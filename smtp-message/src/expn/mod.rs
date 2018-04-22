@@ -1,31 +1,32 @@
-use std::{fmt, io};
+use std::io;
 
 use helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub struct ExpnCommand<'a> {
-    name: &'a [u8],
+    name: SmtpString<'a>,
 }
 
 impl<'a> ExpnCommand<'a> {
-    pub fn new(name: &[u8]) -> ExpnCommand {
+    pub fn new(name: SmtpString) -> ExpnCommand {
         ExpnCommand { name }
     }
 
-    pub fn name(&self) -> &'a [u8] {
-        self.name
+    pub fn name(&self) -> &SmtpString {
+        &self.name
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"EXPN ")?;
-        w.write_all(self.name)?;
+        w.write_all(self.name.as_bytes())?;
         w.write_all(b"\r\n")
     }
-}
 
-impl<'a> fmt::Debug for ExpnCommand<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "ExpnCommand {{ name: {:?} }}", bytes_to_dbg(self.name))
+    pub fn take_ownership<'b>(self) -> ExpnCommand<'b> {
+        ExpnCommand {
+            name: self.name.take_ownership(),
+        }
     }
 }
 
@@ -33,7 +34,7 @@ named!(pub command_expn_args(&[u8]) -> ExpnCommand, do_parse!(
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (ExpnCommand {
-        name: res,
+        name: res.into(),
     })
 ));
 
@@ -47,7 +48,7 @@ mod tests {
         let tests = vec![(
             &b" \t hello.world \t \r\n"[..],
             ExpnCommand {
-                name: &b" \t hello.world \t "[..],
+                name: (&b" \t hello.world \t "[..]).into(),
             },
         )];
         for (s, r) in tests.into_iter() {
@@ -58,7 +59,9 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        ExpnCommand::new(b"foobar").send_to(&mut v).unwrap();
+        ExpnCommand::new((&b"foobar"[..]).into())
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"EXPN foobar\r\n");
     }
 }

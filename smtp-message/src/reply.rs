@@ -48,21 +48,21 @@ impl ReplyCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsLastLine {
     Yes,
     No,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
-pub struct Reply {
+#[derive(Debug)]
+pub struct Reply<'a> {
     code:    ReplyCode,
     is_last: IsLastLine,
-    line:    SmtpString,
+    line:    SmtpString<'a>,
 }
 
-impl Reply {
+impl<'a> Reply<'a> {
     pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
 
     pub fn build(
@@ -88,6 +88,25 @@ impl Reply {
                 is_last,
                 line,
             })
+        }
+    }
+
+    pub fn take_ownership<'b>(self) -> Reply<'b> {
+        Reply {
+            code:    self.code,
+            is_last: self.is_last,
+            line:    self.line.take_ownership(),
+        }
+    }
+
+    pub fn borrow<'b>(&'b self) -> Reply<'b>
+    where
+        'a: 'b,
+    {
+        Reply {
+            code:    self.code,
+            is_last: self.is_last,
+            line:    self.line.borrow(),
         }
     }
 
@@ -130,7 +149,7 @@ named!(pub reply(&[u8]) -> Reply, do_parse!(
     ) >>
     is_last: map!(alt!(tag!("-") | tag!(" ")), |b| if b == b" " { IsLastLine::Yes } else { IsLastLine::No }) >>
     line: take_until_and_consume!("\r\n") >>
-    (Reply { code, is_last, line: SmtpString::copy_bytes(line) })
+    (Reply { code, is_last, line: line.into() })
 ));
 
 #[cfg(test)]
@@ -142,14 +161,14 @@ mod tests {
         let r = Reply::build(
             ReplyCode::SERVICE_READY,
             IsLastLine::No,
-            SmtpString::copy_bytes(b"hello world!"),
+            (&b"hello world!"[..]).into(),
         ).unwrap();
         assert_eq!(
             r,
             Reply {
                 code:    ReplyCode { code: 220 },
                 is_last: IsLastLine::No,
-                line:    SmtpString::copy_bytes(b"hello world!"),
+                line:    (&b"hello world!"[..]).into(),
             }
         );
 
@@ -163,14 +182,14 @@ mod tests {
         let r = Reply::build(
             ReplyCode::COMMAND_UNIMPLEMENTED,
             IsLastLine::Yes,
-            SmtpString::copy_bytes(b"test"),
+            (&b"test"[..]).into(),
         ).unwrap();
         assert_eq!(
             r,
             Reply {
                 code:    ReplyCode { code: 502 },
                 is_last: IsLastLine::Yes,
-                line:    SmtpString::copy_bytes(b"test"),
+                line:    (&b"test"[..]).into(),
             }
         );
 
@@ -185,14 +204,14 @@ mod tests {
             Reply::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::Yes,
-                SmtpString::from_bytes(vec![b'a'; 1000]),
+                vec![b'a'; 1000].into(),
             ).is_err()
         );
         assert!(
             Reply::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::No,
-                SmtpString::copy_bytes(b"\r")
+                (&b"\r"[..]).into()
             ).is_err()
         );
     }
@@ -205,7 +224,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 250 },
                     is_last: IsLastLine::Yes,
-                    line:    SmtpString::copy_bytes(b"All is well"),
+                    line:    (&b"All is well"[..]).into(),
                 },
             ),
             (
@@ -213,7 +232,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 450 },
                     is_last: IsLastLine::No,
-                    line:    SmtpString::copy_bytes(b"Temporary"),
+                    line:    (&b"Temporary"[..]).into(),
                 },
             ),
             (
@@ -221,7 +240,7 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 354 },
                     is_last: IsLastLine::No,
-                    line:    SmtpString::copy_bytes(b"Please do start input now"),
+                    line:    (&b"Please do start input now"[..]).into(),
                 },
             ),
             (
@@ -229,12 +248,12 @@ mod tests {
                 Reply {
                     code:    ReplyCode { code: 550 },
                     is_last: IsLastLine::Yes,
-                    line:    SmtpString::copy_bytes(b"Something is really very wrong!"),
+                    line:    (&b"Something is really very wrong!"[..]).into(),
                 },
             ),
         ];
-        for test in tests {
-            assert_eq!(reply(test.0), IResult::Done(&b""[..], test.1.clone()));
+        for (inp, out) in tests {
+            assert_eq!(reply(inp), IResult::Done(&b""[..], out.borrow()));
         }
     }
 }

@@ -45,17 +45,38 @@ macro_rules! graph_except_equ {
 
 // TODO: move to helpers.rs
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
-pub struct Email {
-    localpart: SmtpString,
-    hostname:  Option<SmtpString>,
+#[derive(Debug)]
+pub struct Email<'a> {
+    localpart: SmtpString<'a>,
+    hostname:  Option<SmtpString<'a>>,
 }
 
-impl Email {
-    pub fn new<'b>(localpart: SmtpString, hostname: Option<SmtpString>) -> Email {
+impl<'a> Email<'a> {
+    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<SmtpString<'b>>) -> Email<'b> {
         Email {
             localpart,
             hostname,
+        }
+    }
+
+    pub fn parse<'b>(s: &'b SmtpString<'b>) -> Result<Email<'b>, ParseError> {
+        nom_to_result(email(s.as_bytes()))
+    }
+
+    pub fn take_ownership<'b>(self) -> Email<'b> {
+        Email {
+            localpart: self.localpart.take_ownership(),
+            hostname:  self.hostname.map(|x| x.take_ownership()),
+        }
+    }
+
+    pub fn borrow<'b>(&'b self) -> Email<'b>
+    where
+        'a: 'b,
+    {
+        Email {
+            localpart: self.localpart.borrow(),
+            hostname:  self.hostname.as_ref().map(|x| x.borrow()),
         }
     }
 
@@ -69,7 +90,7 @@ impl Email {
     // designed to be sent over the wire as it is no longer correctly quoted
     pub fn localpart(&self) -> SmtpString {
         if self.localpart.byte(0) != b'"' {
-            self.localpart.clone()
+            self.localpart.borrow()
         } else {
             #[derive(Copy, Clone)]
             enum State {
@@ -97,7 +118,7 @@ impl Email {
                 .filter_map(|x| x)
                 .collect::<Vec<u8>>();
             assert_eq!(res.pop().unwrap(), b'"');
-            SmtpString::from_bytes(res)
+            res.into()
         }
     }
 
@@ -105,14 +126,30 @@ impl Email {
         &self.hostname
     }
 
-    pub fn into_smtp_string(self) -> SmtpString {
+    pub fn into_smtp_string<'b>(self) -> SmtpString<'b> {
         let mut res = self.localpart.into_bytes();
         if let Some(host) = self.hostname {
-            let mut host = host.into_bytes();
             res.push(b'@');
-            res.append(&mut host);
+            res.extend_from_slice(host.as_bytes());
         }
-        SmtpString::from_bytes(res)
+        res.into()
+    }
+
+    pub fn as_smtp_string<'b>(&self) -> SmtpString<'b> {
+        let mut res = self.localpart.borrow().into_bytes();
+        if let Some(host) = self.hostname.as_ref().map(|x| x.borrow()) {
+            res.push(b'@');
+            res.extend_from_slice(host.as_bytes());
+        }
+        res.into()
+    }
+}
+
+pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
+    if let &Some(ref e) = e {
+        e.as_smtp_string()
+    } else {
+        (&b""[..]).into()
     }
 }
 
@@ -146,8 +183,8 @@ named!(pub email(&[u8]) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
     (Email {
-        localpart: SmtpString::copy_bytes(local),
-        hostname: host.map(SmtpString::copy_bytes),
+        localpart: local.into(),
+        hostname: host.map(SmtpString::from),
     })
 ));
 
@@ -162,6 +199,7 @@ named!(address_in_path(&[u8]) -> (Email, &[u8]), do_parse!(
     (res, s)
 ));
 
+// TODO: return only Email? (and above too)
 named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
     alt!(
         do_parse!(
@@ -178,7 +216,22 @@ named!(pub eat_spaces, eat_separator!(" \t"));
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
-pub struct SpParameters<'a>(pub HashMap<&'a [u8], Option<&'a [u8]>>);
+pub struct SpParameters<'a>(HashMap<SmtpString<'a>, Option<SmtpString<'a>>>);
+
+impl<'a> SpParameters<'a> {
+    pub fn new<'b>(v: HashMap<SmtpString<'b>, Option<SmtpString<'b>>>) -> SpParameters<'b> {
+        SpParameters(v)
+    }
+
+    pub fn take_ownership<'b>(self) -> SpParameters<'b> {
+        SpParameters(
+            self.0
+                .into_iter()
+                .map(|(k, v)| (k.take_ownership(), v.map(|x| x.take_ownership())))
+                .collect(),
+        )
+    }
+}
 
 named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
     params: separated_nonempty_list_complete!(
@@ -192,7 +245,7 @@ named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
             eat_spaces >>
             key: recognize!(preceded!(one_of!(alnum!()), opt!(is_a!(alnumdash!())))) >>
             value: opt!(complete!(preceded!(tag!("="), is_a!(graph_except_equ!())))) >>
-            (key, value)
+            (key.into(), value.map(SmtpString::from))
         )
     ) >>
     (SpParameters(params.into_iter().collect()))
@@ -264,28 +317,28 @@ mod tests {
             (
                 b"t+e-s.t_i+n-g@foo.bar.baz",
                 Email {
-                    localpart: SmtpString::copy_bytes(b"t+e-s.t_i+n-g"),
-                    hostname:  Some(SmtpString::copy_bytes(b"foo.bar.baz")),
+                    localpart: (&b"t+e-s.t_i+n-g"[..]).into(),
+                    hostname:  Some((&b"foo.bar.baz"[..]).into()),
                 },
             ),
             (
                 br#""quoted\"example"@example.org"#,
                 Email {
-                    localpart: SmtpString::copy_bytes(br#""quoted\"example""#),
-                    hostname:  Some(SmtpString::copy_bytes(b"example.org")),
+                    localpart: (&br#""quoted\"example""#[..]).into(),
+                    hostname:  Some((&b"example.org"[..]).into()),
                 },
             ),
             (
                 b"postmaster",
                 Email {
-                    localpart: SmtpString::copy_bytes(b"postmaster"),
+                    localpart: (&b"postmaster"[..]).into(),
                     hostname:  None,
                 },
             ),
             (
                 b"test",
                 Email {
-                    localpart: SmtpString::copy_bytes(b"test"),
+                    localpart: (&b"test"[..]).into(),
                     hostname:  None,
                 },
             ),
@@ -317,13 +370,13 @@ mod tests {
 
     #[test]
     fn valid_addresses_in_paths() {
-        let tests: &[(&[u8], (Email, &[u8]))] = &[
+        let tests: Vec<(&[u8], (Email, &[u8]))> = vec![
             (
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"test"),
-                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
+                        localpart: (&b"test"[..]).into(),
+                        hostname:  Some((&b"example.org"[..]).into()),
                     },
                     b"test@example.org",
                 ),
@@ -332,18 +385,15 @@ mod tests {
                 b"foo.bar@baz.quux",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"foo.bar"),
-                        hostname:  Some(SmtpString::copy_bytes(b"baz.quux")),
+                        localpart: (&b"foo.bar"[..]).into(),
+                        hostname:  Some((&b"baz.quux"[..]).into()),
                     },
                     b"foo.bar@baz.quux",
                 ),
             ),
         ];
-        for test in tests {
-            assert_eq!(
-                address_in_path(test.0),
-                IResult::Done(&b""[..], test.1.clone())
-            );
+        for (inp, out) in tests.into_iter() {
+            assert_eq!(address_in_path(inp), IResult::Done(&b""[..], out));
         }
     }
 
@@ -354,8 +404,8 @@ mod tests {
                 b"@foo.bar,@baz.quux:test@example.org",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"test"),
-                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
+                        localpart: (&b"test"[..]).into(),
+                        hostname:  Some((&b"example.org"[..]).into()),
                     },
                     b"test@example.org",
                 ),
@@ -364,8 +414,8 @@ mod tests {
                 b"<@foo.bar,@baz.quux:test@example.org>",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"test"),
-                        hostname:  Some(SmtpString::copy_bytes(b"example.org")),
+                        localpart: (&b"test"[..]).into(),
+                        hostname:  Some((&b"example.org"[..]).into()),
                     },
                     b"test@example.org",
                 ),
@@ -374,8 +424,8 @@ mod tests {
                 b"<foo@bar.baz>",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"foo"),
-                        hostname:  Some(SmtpString::copy_bytes(b"bar.baz")),
+                        localpart: (&b"foo"[..]).into(),
+                        hostname:  Some((&b"bar.baz"[..]).into()),
                     },
                     b"foo@bar.baz",
                 ),
@@ -384,8 +434,8 @@ mod tests {
                 b"foo@bar.baz",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"foo"),
-                        hostname:  Some(SmtpString::copy_bytes(b"bar.baz")),
+                        localpart: (&b"foo"[..]).into(),
+                        hostname:  Some((&b"bar.baz"[..]).into()),
                     },
                     b"foo@bar.baz",
                 ),
@@ -394,17 +444,17 @@ mod tests {
                 b"foobar",
                 (
                     Email {
-                        localpart: SmtpString::copy_bytes(b"foobar"),
+                        localpart: (&b"foobar"[..]).into(),
                         hostname:  None,
                     },
                     b"foobar",
                 ),
             ),
         ];
-        for test in tests {
+        for (inp, out) in tests {
             assert_eq!(
-                address_in_maybe_bracketed_path(test.0),
-                IResult::Done(&b""[..], test.1.clone())
+                address_in_maybe_bracketed_path(inp),
+                IResult::Done(&b""[..], (out.0.borrow(), out.1))
             );
         }
     }
@@ -435,7 +485,10 @@ mod tests {
             let res = sp_parameters(test.0);
             let (rem, res) = res.unwrap();
             assert_eq!(rem, b"");
-            let res_reference = test.1.iter().map(|&x| x).collect::<HashMap<_, _>>();
+            let res_reference = test.1
+                .iter()
+                .map(|(a, b)| ((*a).into(), b.map(|x| x.into())))
+                .collect::<HashMap<_, _>>();
             assert_eq!(res.0, res_reference);
         }
     }
