@@ -1,0 +1,8 @@
+crlf="\x0D\x0A"
+
+reply_ok="250"
+reply_ok_last="250 "
+reply_ok_notlast="250-"
+reply_service_not_available="421"
+reply_service_not_available_last="421 "
+reply_service_not_available_notlast="421-"
