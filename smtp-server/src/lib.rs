@@ -9,7 +9,7 @@ mod helpers;
 use itertools::Itertools;
 use smtp_message::*;
 use std::mem;
-use tokio::prelude::*;
+use tokio::prelude::{stream::Fuse, *};
 
 use helpers::*;
 
@@ -55,7 +55,10 @@ pub fn interact<
             State,
             &ConnectionMetadata<UserProvidedMetadata>,
             DataStream<stream::MapErr<Reader, HandleReaderError>>,
-        ) -> (stream::MapErr<Reader, HandleReaderError>, Decision<()>),
+        ) -> (
+            Fuse<stream::MapErr<Reader, HandleReaderError>>,
+            Decision<()>,
+        ),
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
@@ -75,7 +78,7 @@ pub fn interact<
             c.send_to(&mut v).unwrap(); // and this is ugly
             stream::iter_ok(v)
         });
-    CrlfLines::new(incoming.map_err(handle_reader_error))
+    CrlfLines::new(incoming.map_err(handle_reader_error).fuse())
         .into_future()
         .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
         .and_then(move |x| {
@@ -99,9 +102,9 @@ fn handle_lines<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Reader, Decision<()>),
+            -> (Fuse<Reader>, Decision<()>),
 >(
-    (line, reader): (Option<Vec<u8>>, CrlfLines<Reader>),
+    (line, reader): (Option<Vec<u8>>, CrlfLines<Fuse<Reader>>),
     add_data: (
         Writer,
         ConnectionMetadata<U>,
@@ -148,9 +151,9 @@ fn handle_line<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Reader, Decision<()>),
+            -> (Fuse<Reader>, Decision<()>),
 >(
-    reader: Reader,
+    reader: Fuse<Reader>,
     (writer, conn_meta, mail_data): (
         Writer,
         ConnectionMetadata<U>,
@@ -162,7 +165,7 @@ fn handle_line<
     handler: &HandleMail,
 ) -> impl Future<
     Item = (
-        Reader,
+        Fuse<Reader>,
         (
             Writer,
             ConnectionMetadata<U>,
@@ -459,7 +462,7 @@ mod tests {
         _: &ConnectionMetadata<()>,
         mut reader: DataStream<R>,
         mails: &Cell<Vec<(Option<Email>, Vec<Email>, Vec<u8>)>>,
-    ) -> (R, Decision<()>) {
+    ) -> (Fuse<R>, Decision<()>) {
         // TODO: this API should be asynchronous!!!!!
         let mail_text = reader.by_ref().collect().wait().map_err(|_| ()).unwrap();
         if mail_text.windows(5).position(|x| x == b"World").is_some() {
@@ -589,5 +592,28 @@ mod tests {
                 assert_eq!(co, &cr[..]);
             }
         }
+    }
+
+    #[test]
+    fn fuzzing_found() {
+        let txt = b"MAIL FROM:foo\r\n\
+                    RCPT TO:bar\r\n\
+                    DATA\r\n\
+                    hello";
+        let stream = stream::iter_ok(txt.iter().cloned());
+        let mut resp = Vec::new();
+        let resp_mail = Cell::new(Vec::new());
+        let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
+        interact(
+            stream,
+            &mut resp,
+            (),
+            |()| (),
+            |()| (),
+            &|_: &_, _: &_| Decision::Accept(()),
+            &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
+            &handler_closure,
+        ).wait()
+            .unwrap();
     }
 }

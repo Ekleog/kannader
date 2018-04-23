@@ -42,12 +42,12 @@ enum DataStreamState {
 }
 
 pub struct DataStream<S: Stream<Item = u8>> {
-    source: S,
+    source: stream::Fuse<S>,
     state:  DataStreamState,
 }
 
 impl<S: Stream<Item = u8>> DataStream<S> {
-    pub fn new(source: S) -> DataStream<S> {
+    pub fn new(source: stream::Fuse<S>) -> DataStream<S> {
         DataStream {
             source,
             state: DataStreamState::CrLfPassed,
@@ -55,10 +55,9 @@ impl<S: Stream<Item = u8>> DataStream<S> {
     }
 
     // Beware: this will panic if it hasn't been fully consumed.
-    pub fn into_inner(self) -> S {
-        assert_eq!(self.state, DataStreamState::Finished);
+    pub fn into_inner(self) -> stream::Fuse<S> {
+        assert!(self.source.is_done() || self.state == DataStreamState::Finished);
         self.source
-
     }
 }
 
@@ -285,7 +284,8 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem)
             );
-            let mut stream = DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()));
+            let mut stream =
+                DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()).fuse());
             let output = stream.by_ref().collect().wait().unwrap();
             println!("Now computing remaining stuff");
             let remaining = stream.into_inner().collect().wait().unwrap();
@@ -344,7 +344,7 @@ mod tests {
                     .wait()
                     .unwrap();
             }
-            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter()))
+            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter()).fuse())
                 .map_err(|()| ())
                 .collect()
                 .wait()
@@ -356,7 +356,7 @@ mod tests {
         }
 
         fn all_leading_dots_are_escaped(v: Vec<u8>) -> bool {
-            let r = DataStream::new(stream::iter_ok(v.into_iter()))
+            let r = DataStream::new(stream::iter_ok(v.into_iter()).fuse())
                 .map_err(|()| ())
                 .collect()
                 .wait()
