@@ -54,7 +54,7 @@ fn filter_to(email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMeta
     }
 }
 
-fn handler<R: Stream<Item = u8>>(mail: MailMetadata, (): (), _: &ConnectionMetadata<()>, mut reader: DataStream<R>) -> (R, Decision<()>) {
+fn handler<R: Stream<Item = u8>>(mail: MailMetadata, (): (), _: &ConnectionMetadata<()>, mut reader: DataStream<R>) -> (stream::Fuse<R>, Decision<()>) {
     // TODO: should be async
     // TODO: when an error arises in the stream, it can't be legitimately returned, and the API
     // offers no way of indicating this
