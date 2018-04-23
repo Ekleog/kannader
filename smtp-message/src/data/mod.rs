@@ -54,14 +54,11 @@ impl<S: Stream<Item = u8>> DataStream<S> {
         }
     }
 
-    pub fn consume_and_continue(mut self) -> S {
-        // TODO: make this wait() async
-        self.by_ref()
-            .fold((), |_, _| future::ok(()))
-            .wait()
-            .map_err(|_| ())
-            .unwrap();
+    // Beware: this will panic if it hasn't been fully consumed.
+    pub fn into_inner(self) -> S {
+        assert_eq!(self.state, DataStreamState::Finished);
         self.source
+
     }
 }
 
@@ -291,7 +288,7 @@ mod tests {
             let mut stream = DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()));
             let output = stream.by_ref().collect().wait().unwrap();
             println!("Now computing remaining stuff");
-            let remaining = stream.consume_and_continue().collect().wait().unwrap();
+            let remaining = stream.into_inner().collect().wait().unwrap();
             println!(
                 " -> Got {:?} with {:?} remaining",
                 SmtpString::from(&output[..]),

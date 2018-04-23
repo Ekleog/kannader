@@ -10,7 +10,6 @@ pub struct HeloCommand<'a> {
 }
 
 impl<'a> HeloCommand<'a> {
-    // TODO: add a Domain<'b> type and use it here
     pub fn new<'b>(domain: Domain<'b>) -> HeloCommand<'b> {
         HeloCommand { domain }
     }

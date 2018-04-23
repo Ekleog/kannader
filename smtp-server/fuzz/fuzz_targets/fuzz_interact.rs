@@ -56,12 +56,12 @@ fn filter_to(email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMeta
 
 fn handler<R: Stream<Item = u8>>(mail: MailMetadata, (): (), _: &ConnectionMetadata<()>, mut reader: DataStream<R>) -> (R, Decision<()>) {
     if mail.to.len() > 3 {
-        (reader.consume_and_continue(), Decision::Reject(Refusal {
+        (reader.into_inner(), Decision::Reject(Refusal {
             code: ReplyCode::POLICY_REASON,
             msg: (&"Too many recipients!"[..]).into(),
         }))
     } else {
-        (reader.consume_and_continue(), Decision::Accept(()))
+        (reader.into_inner(), Decision::Accept(()))
     }
 }
 

@@ -464,8 +464,7 @@ mod tests {
         let mail_text = reader.by_ref().collect().wait().map_err(|_| ()).unwrap();
         if mail_text.windows(5).position(|x| x == b"World").is_some() {
             (
-                // TODO: rename `continue` and panic instead of auto-consuming the remaining stuff
-                reader.consume_and_continue(),
+                reader.into_inner(),
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
                     msg:  "Don't you dare say 'World'!".to_owned(),
@@ -475,7 +474,7 @@ mod tests {
             let mut m = mails.take();
             m.push((meta.from, meta.to, mail_text));
             mails.set(m);
-            (reader.consume_and_continue(), Decision::Accept(()))
+            (reader.into_inner(), Decision::Accept(()))
         }
     }
 

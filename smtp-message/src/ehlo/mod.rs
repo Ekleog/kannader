@@ -10,7 +10,6 @@ pub struct EhloCommand<'a> {
 }
 
 impl<'a> EhloCommand<'a> {
-    // TODO: add a `Domain` type and use it here
     pub fn new<'b>(domain: Domain<'b>) -> EhloCommand<'b> {
         EhloCommand { domain }
     }
