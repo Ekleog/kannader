@@ -17,14 +17,16 @@ pub struct ConnectionMetadata<U> {
     pub user: U,
 }
 
+// TODO: make pub fields private?
 pub struct MailMetadata<'a> {
-    from: Option<Email<'a>>,
-    to:   Vec<Email<'a>>,
+    pub from: Option<Email<'a>>,
+    pub to:   Vec<Email<'a>>,
 }
 
+// TODO: make pub fields private?
 pub struct Refusal {
-    code: ReplyCode,
-    msg:  String, // TODO: drop in favor of SmtpString
+    pub code: ReplyCode,
+    pub msg:  String, // TODO: drop in favor of SmtpString
 }
 
 pub enum Decision<T> {

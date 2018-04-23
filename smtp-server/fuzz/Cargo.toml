@@ -1,0 +1,26 @@
+
+[package]
+name = "smtp-server-fuzz"
+version = "0.0.1"
+authors = ["Automatically generated"]
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+tokio = "0.1.5"
+[dependencies.smtp-message]
+path = "../../smtp-message"
+[dependencies.smtp-server]
+path = ".."
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_interact"
+path = "fuzz_targets/fuzz_interact.rs"
