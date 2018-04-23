@@ -1,21 +1,18 @@
 crlf="\x0D\x0A"
 
-cmd_data="DATA"
-cmd_ehlo="EHLO"
-cmd_expn="EXPN"
-cmd_helo="HELO"
-cmd_help="HELP"
-cmd_mail="MAIL"
-cmd_noop="NOOP"
-cmd_quit="QUIT"
-cmd_rcpt="RCPT"
-cmd_rset="RSET"
-cmd_vrfy="VRFY"
+cmd_data="\x0D\x0ADATA\x0D\x0A"
+cmd_ehlo="\x0D\x0AEHLO "
+cmd_expn="\x0D\x0AEXPN "
+cmd_helo="\x0D\x0AHELO "
+cmd_help="\x0D\x0AHELP "
+cmd_mail="\x0D\x0AMAIL FROM:"
+cmd_noop="\x0D\x0ANOOP "
+cmd_quit="\x0D\x0AQUIT\x0D\x0A"
+cmd_rcpt="\x0D\x0ARCPT TO:"
+cmd_rset="\x0D\x0ARSET\x0D\x0A"
+cmd_vrfy="\x0D\x0AVRFY "
 
-mail_from="FROM"
-rcpt_to="TO"
-
-mail_rcpt_sp="SP"
+mail_rcpt_sp=" SP "
 
 data_end="\x0D\x0A.\x0D\x0A"
 
