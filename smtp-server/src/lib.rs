@@ -106,7 +106,7 @@ fn handle_lines<
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
             -> (Option<Prependable<Reader>>, Decision<()>),
 >(
-    (line, reader): (Option<BytesMut>, CrlfLines<Prependable<Reader>>),
+    (line, reader): (Option<BytesMut>, CrlfLines<Reader>),
     add_data: (
         Writer,
         ConnectionMetadata<U>,
@@ -357,23 +357,28 @@ where
 }
 
 struct CrlfLines<S: Stream<Item = BytesMut>> {
-    source: S,
+    source: Prependable<S>,
     buf:    BytesMut,
 }
 
 impl<S: Stream<Item = BytesMut>> CrlfLines<S> {
-    pub fn new(s: S) -> CrlfLines<S> {
+    pub fn new(s: Prependable<S>) -> CrlfLines<S> {
         CrlfLines {
             source: s,
             buf:    BytesMut::new(),
         }
     }
 
-    // Panics if a line was currently being read
-    pub fn into_inner(self) -> S {
-        // TODO!!!!: do not panic if not empty, but push back the remaining buffer in
-        // front of S (and uncomment tests below that depend on it)
-        assert!(self.buf.is_empty());
+    pub fn into_inner(mut self) -> Prependable<S> {
+        if !self.buf.is_empty() {
+            // If this `unwrap` fails, this means that somehow:
+            //  1. The stream passed to `new` was already prepended
+            //  2. Somehow the buffer has been filled without ever pulling a single element
+            //     from the stream
+            // So, quite obviously, that'd be a programming error from here, so let's just
+            // unwrap
+            self.source.prepend(self.buf).unwrap();
+        }
         self.source
     }
 }
@@ -430,7 +435,8 @@ mod tests {
                     b"QUIT\r\n",
                 ].into_iter()
                     .map(BytesMut::from),
-            ).map_err(|()| ()),
+            ).map_err(|()| ())
+                .prependable(),
         );
 
         assert_eq!(
@@ -514,31 +520,27 @@ mod tests {
         let tests: &[(&[&[u8]], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
             // TODO: send banner before EHLO
             // TODO: send please go on after DATA
-            // For a reason of commented tests, see // TODO!!!!: do not panic if not empty, but
-            // push back the remaining buffer in front of S
-            //
-            // (
-            // &[b"MAIL FROM:<>\r\n\
-            // RCPT TO:<baz@quux.example.org>\r\n\
-            // RCPT TO:<foo2@bar.example.org>\r\n\
-            // RCPT TO:<foo3@bar.example.org>\r\n\
-            // DATA\r\n\
-            // Hello world\r\n\
-            // .\r\n\
-            // QUIT\r\n"],
-            // b"250 Okay\r\n\
-            // 550 No user 'baz'\r\n\
-            // 250 Okay\r\n\
-            // 250 Okay\r\n\
-            // 250 Okay\r\n\
-            // 502 Command not implemented\r\n",
-            // &[(
-            // None,
-            // &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
-            // b"Hello world\r\n",
-            // )],
-            // ),
-            //
+            (
+                &[b"MAIL FROM:<>\r\n\
+                    RCPT TO:<baz@quux.example.org>\r\n\
+                    RCPT TO:<foo2@bar.example.org>\r\n\
+                    RCPT TO:<foo3@bar.example.org>\r\n\
+                    DATA\r\n\
+                    Hello world\r\n\
+                    .\r\n\
+                    QUIT\r\n"],
+                b"250 Okay\r\n\
+                  550 No user 'baz'\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
+                  502 Command not implemented\r\n",
+                &[(
+                    None,
+                    &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
+                    b"Hello world\r\n",
+                )],
+            ),
             (
                 &[
                     b"MAIL FROM:<test@example.org>\r\n",
@@ -554,43 +556,49 @@ mod tests {
                   502 Command not implemented\r\n",
                 &[],
             ),
-            /*    (&[b"HELP hello\r\n"], b"502 Command not implemented\r\n", &[]),
-             *    (
-             *        &[b"MAIL FROM:<bad@quux.example.org>\r\n\
-             *          MAIL FROM:<foo@bar.example.org>\r\n\
-             *          MAIL FROM:<baz@quux.example.org>\r\n",
-             *          b"RCPT TO:<foo2@bar.example.org>\r\n\
-             *          DATA\r\n\
-             *          Hello\r\n",
-             *          b".\r\n\
-             *          QUIT\r\n"],
-             *        b"550 User 'bad' banned\r\n\
-             *          250 Okay\r\n\
-             *          503 Bad sequence of commands\r\n\
-             *          250 Okay\r\n\
-             *          250 Okay\r\n\
-             *          502 Command not implemented\r\n",
-             *        &[(
-             *            Some(b"foo@bar.example.org"),
-             *            &[b"foo2@bar.example.org"],
-             *            b"Hello\r\n",
-             *        )],
-             *    ),
-             *    (
-             *        &[b"MAIL FROM:<foo@test.example.com>\r\n\
-             *          DATA\r\n\
-             *          QUIT\r\n"],
-             *        b"250 Okay\r\n\
-             *          503 Bad sequence of commands\r\n\
-             *          502 Command not implemented\r\n",
-             *        &[],
-             *    ),
-             *    (
-             *        &[b"MAIL FROM:<foo@test.example.com>\r\n\
-             *          RCPT TO:<foo@bar.example.org>\r"],
-             *        b"250 Okay\r\n",
-             *        &[],
-             *    ), */
+            (
+                &[b"HELP hello\r\n"],
+                b"502 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                &[
+                    b"MAIL FROM:<bad@quux.example.org>\r\n\
+                      MAIL FROM:<foo@bar.example.org>\r\n\
+                      MAIL FROM:<baz@quux.example.org>\r\n",
+                    b"RCPT TO:<foo2@bar.example.org>\r\n\
+                      DATA\r\n\
+                      Hello\r\n",
+                    b".\r\n\
+                      QUIT\r\n",
+                ],
+                b"550 User 'bad' banned\r\n\
+                  250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
+                  502 Command not implemented\r\n",
+                &[(
+                    Some(b"foo@bar.example.org"),
+                    &[b"foo2@bar.example.org"],
+                    b"Hello\r\n",
+                )],
+            ),
+            (
+                &[b"MAIL FROM:<foo@test.example.com>\r\n\
+                    DATA\r\n\
+                    QUIT\r\n"],
+                b"250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  502 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                &[b"MAIL FROM:<foo@test.example.com>\r\n\
+                    RCPT TO:<foo@bar.example.org>\r"],
+                b"250 Okay\r\n",
+                &[],
+            ),
         ];
         for &(inp, out, mail) in tests {
             println!(
@@ -641,28 +649,24 @@ mod tests {
 
     #[test]
     fn interrupted_data() {
-        // See // TODO!!!!: do not panic if not empty, but push back the remaining
-        // buffer in front of S
-        //
-        // let txt: &[&[u8]] = &[b"MAIL FROM:foo\r\n\
-        // RCPT TO:bar\r\n\
-        // DATA\r\n\
-        // hello"];
-        // let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
-        // let mut resp = Vec::new();
-        // let resp_mail = Cell::new(Vec::new());
-        // let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
-        // let res = interact(
-        // stream,
-        // &mut resp,
-        // (),
-        // |()| (),
-        // |()| (),
-        // &|_: &_, _: &_| Decision::Accept(()),
-        // &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
-        // &handler_closure,
-        // ).wait();
-        // assert!(res.is_err());
-        //
+        let txt: &[&[u8]] = &[b"MAIL FROM:foo\r\n\
+                                RCPT TO:bar\r\n\
+                                DATA\r\n\
+                                hello"];
+        let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
+        let mut resp = Vec::new();
+        let resp_mail = Cell::new(Vec::new());
+        let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
+        let res = interact(
+            stream,
+            &mut resp,
+            (),
+            |()| (),
+            |()| (),
+            &|_: &_, _: &_| Decision::Accept(()),
+            &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
+            &handler_closure,
+        ).wait();
+        assert!(res.is_err());
     }
 }

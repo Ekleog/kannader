@@ -59,12 +59,15 @@ impl<S: Stream<Item = BytesMut>> DataStream<S> {
     // Beware: this will panic if it hasn't been fully consumed.
     pub fn into_inner(mut self) -> Prependable<S> {
         assert_eq!(self.state, DataStreamState::Finished);
-        // If this `unwrap` fails, this means that somehow:
-        //  1. The DataStream passed to `new` was already prepended
-        //  2. Somehow the state managed to go into `Finished` without ever pulling a single
-        //     element off the stream
-        // So, quite obviously, that'd be a programming error from here, so let's just unwrap
-        self.source.prepend(self.buf).unwrap();
+        if !self.buf.is_empty() {
+            // If this `unwrap` fails, this means that somehow:
+            //  1. The stream passed to `new` was already prepended
+            //  2. Somehow the state managed to go into `Finished` and the buffer has been
+            //     filled without ever pulling a single element from the stream
+            // So, quite obviously, that'd be a programming error from here, so let's just
+            // unwrap
+            self.source.prepend(self.buf).unwrap();
+        }
         self.source
     }
 }
@@ -352,7 +355,9 @@ mod tests {
                 SmtpString::from(rem),
             );
             let mut stream = DataStream::new(
-                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x))).map_err(|()| ()).prependable(),
+                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)))
+                    .map_err(|()| ())
+                    .prependable(),
             );
             let output = stream.by_ref().concat2().wait().unwrap();
             println!("Now computing remaining stuff");

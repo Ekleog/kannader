@@ -288,7 +288,7 @@ pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
 }
 
 pub struct Prependable<S: Stream> {
-    stream: S,
+    stream:    S,
     prepended: Option<S::Item>,
 }
 
@@ -317,12 +317,19 @@ impl<S: Stream> Stream for Prependable<S> {
 }
 
 pub trait StreamExt: Stream {
-    fn prependable(self) -> Prependable<Self> where Self: Sized {
+    fn prependable(self) -> Prependable<Self>
+    where
+        Self: Sized,
+    {
         Prependable {
-            stream: self,
+            stream:    self,
             prepended: None,
         }
     }
 }
 
-impl<T: ?Sized> StreamExt for T where T: Stream {}
+impl<T: ?Sized> StreamExt for T
+where
+    T: Stream,
+{
+}
