@@ -44,10 +44,16 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Compute with a naive algorithm
-    let eof = raw_data.windows(5).position(|x| x == b"\r\n.\r\n").map(|p| (p + 2, p + 5));
+    let eof = (
+        if raw_data.get(..3) == Some(b".\r\n") {
+            Some((0, 3))
+        } else {
+            None
+        }
+    ).or_else(|| raw_data.windows(5).position(|x| x == b"\r\n.\r\n").map(|p| (p + 2, p + 5)));
     let naive_result = eof.map(|(eof, rem)| {
         if eof < 2 {
-            (BytesMut::from(&raw_data[..eof]), BytesMut::from(&raw_data[eof..]))
+            (BytesMut::from(&raw_data[..eof]), BytesMut::from(&raw_data[rem..]))
         } else {
             let mut out = if raw_data[0] == b'.' {
                 raw_data[1..2].to_vec()
