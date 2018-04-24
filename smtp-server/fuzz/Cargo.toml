@@ -8,6 +8,9 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[profile.release]
+lto = true
+
 [dependencies]
 tokio = "0.1.5"
 [dependencies.smtp-message]

@@ -2,3 +2,4 @@
 members = [ "smtp-message", "smtp-server" ]
 
 # TODO: setup clippy
+# TODO: setup cargo-bench
