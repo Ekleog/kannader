@@ -34,7 +34,7 @@ fuzz_target!(|data: &[u8]| {
             stream::iter_ok(lengths.iter().scan(raw_data, |d, &l| {
                 let res = BytesMut::from(&d[..l]);
                 *d = &d[l..];
-                println!("Sending chunk {:?}", res);
+                //println!("Sending chunk {:?}", res);
                 Some(res)
             })).map_err(|()| ())
                 .prependable()
@@ -49,7 +49,11 @@ fuzz_target!(|data: &[u8]| {
         if eof < 2 {
             (BytesMut::from(&raw_data[..eof]), BytesMut::from(&raw_data[eof..]))
         } else {
-            let mut out = raw_data[..2].to_vec();
+            let mut out = if raw_data[0] == b'.' {
+                raw_data[1..2].to_vec()
+            } else {
+                raw_data[..2].to_vec()
+            };
             for w in raw_data[..eof].windows(3) {
                 if w != b"\r\n." {
                     out.push(w[2]);
