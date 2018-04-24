@@ -8,6 +8,12 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[profile.release]
+lto = true
+
+[dependencies]
+bytes = "0.4.6"
+tokio = "0.1.5"
 [dependencies.smtp-message]
 path = ".."
 [dependencies.libfuzzer-sys]
@@ -24,3 +30,7 @@ path = "fuzz_targets/fuzz_command_parser.rs"
 [[bin]]
 name = "fuzz_reply_parser"
 path = "fuzz_targets/fuzz_reply_parser.rs"
+
+[[bin]]
+name = "fuzz_data_parser"
+path = "fuzz_targets/fuzz_data_parser.rs"
