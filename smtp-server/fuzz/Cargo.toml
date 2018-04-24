@@ -12,6 +12,7 @@ cargo-fuzz = true
 lto = true
 
 [dependencies]
+bytes = "0.4.6"
 tokio = "0.1.5"
 [dependencies.smtp-message]
 path = "../../smtp-message"
