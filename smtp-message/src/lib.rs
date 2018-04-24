@@ -29,7 +29,7 @@ mod command;
 mod reply;
 
 pub use command::Command;
-pub use helpers::{opt_email_repr, Email, ParseError, SmtpString};
+pub use helpers::{opt_email_repr, Email, ParseError, Prependable, SmtpString, StreamExt};
 pub use reply::{IsLastLine, Reply, ReplyCode};
 
 pub use data::{DataCommand, DataSink, DataStream};

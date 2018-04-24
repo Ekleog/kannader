@@ -3,6 +3,7 @@ use nom::crlf;
 use std::io;
 use tokio::prelude::*;
 
+use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -41,13 +42,13 @@ enum DataStreamState {
 
 // state is the state of the state machine at the BEGINNING of `buf`
 pub struct DataStream<S: Stream<Item = BytesMut>> {
-    source: S,
+    source: Prependable<S>,
     state:  DataStreamState,
     buf:    BytesMut,
 }
 
 impl<S: Stream<Item = BytesMut>> DataStream<S> {
-    pub fn new(source: S) -> DataStream<S> {
+    pub fn new(source: Prependable<S>) -> DataStream<S> {
         DataStream {
             source,
             state: DataStreamState::CrLfPassed,
@@ -56,10 +57,14 @@ impl<S: Stream<Item = BytesMut>> DataStream<S> {
     }
 
     // Beware: this will panic if it hasn't been fully consumed.
-    pub fn into_inner(self) -> S {
+    pub fn into_inner(mut self) -> Prependable<S> {
         assert_eq!(self.state, DataStreamState::Finished);
-        // TODO!!!!!: push back the remaining buffer at the beginning of the stream
-        // (and uncomment tests below that depend on it)
+        // If this `unwrap` fails, this means that somehow:
+        //  1. The DataStream passed to `new` was already prepended
+        //  2. Somehow the state managed to go into `Finished` without ever pulling a single
+        //     element off the stream
+        // So, quite obviously, that'd be a programming error from here, so let's just unwrap
+        self.source.prepend(self.buf).unwrap();
         self.source
     }
 }
@@ -330,9 +335,9 @@ mod tests {
             ),
             (&[b"\r\n.\r\n", b"\r\n"], b"\r\n", b"\r\n"),
             (&[b".baz\r\n", b".\r\n", b"foo"], b"baz\r\n", b"foo"),
-            // See // TODO!!!!!: push back the remaining buffer at the beginning of the stream
-            // (&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n", b"foo"),
+            (&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n", b"foo"),
             (&[b".\r\n", b"MAIL FROM"], b"", b"MAIL FROM"),
+            (&[b"..\r\n.\r\n"], b".\r\n", b""),
         ];
         for &(inp, out, rem) in tests {
             use helpers::SmtpString;
@@ -343,7 +348,7 @@ mod tests {
                 SmtpString::from(rem),
             );
             let mut stream = DataStream::new(
-                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x))).map_err(|()| ()),
+                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x))).map_err(|()| ()).prependable(),
             );
             let output = stream.by_ref().concat2().wait().unwrap();
             println!("Now computing remaining stuff");
@@ -384,9 +389,8 @@ mod tests {
     }
 
     quickcheck! {
-        // See // TODO!!!!!: push back the remaining buffer at the beginning of the stream
-        /*
         fn data_stream_and_sink_are_compatible(end_with_crlf: bool, v: Vec<u8>) -> bool {
+            eprintln!("Got: ({:?}, {:?})", end_with_crlf, SmtpString::from(&v[..]));
             let mut input = v;
             if end_with_crlf && (input.len() < 2 || &input[(input.len() - 2)..] != b"\r\n") {
                 input.extend_from_slice(b"\r\n");
@@ -405,7 +409,8 @@ mod tests {
                     .wait()
                     .unwrap();
             }
-            let received = DataStream::new(stream::iter_ok(vec![on_the_wire].into_iter().map(BytesMut::from)))
+            eprintln!("Moving on the wire: {:?}", SmtpString::from(&on_the_wire[..]));
+            let received = DataStream::new(stream::iter_ok(vec![on_the_wire].into_iter().map(BytesMut::from)).prependable())
                 .map_err(|()| ())
                 .concat2()
                 .wait()
@@ -415,12 +420,11 @@ mod tests {
             }
             received == input
         }
-        */
 
         fn all_leading_dots_are_escaped(v: Vec<Vec<u8>>) -> bool {
             let mut v = v;
             v.extend_from_slice(&[vec![b'\r', b'\n', b'.', b'\r', b'\n']]);
-            let r = DataStream::new(stream::iter_ok(v.into_iter().map(BytesMut::from)))
+            let r = DataStream::new(stream::iter_ok(v.into_iter().map(BytesMut::from)).prependable())
                 .map_err(|()| ())
                 .concat2()
                 .wait()

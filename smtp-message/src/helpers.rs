@@ -1,5 +1,6 @@
 use nom::{self, IResult, Needed};
 use std::{borrow::Cow, fmt, ops::Deref, slice};
+use tokio::prelude::*;
 
 use parse_helpers::*;
 
@@ -285,3 +286,43 @@ pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
         (&b""[..]).into()
     }
 }
+
+pub struct Prependable<S: Stream> {
+    stream: S,
+    prepended: Option<S::Item>,
+}
+
+impl<S: Stream> Prependable<S> {
+    pub fn prepend(&mut self, item: S::Item) -> Result<(), ()> {
+        if self.prepended.is_some() {
+            Err(())
+        } else {
+            self.prepended = Some(item);
+            Ok(())
+        }
+    }
+}
+
+impl<S: Stream> Stream for Prependable<S> {
+    type Item = S::Item;
+    type Error = S::Error;
+
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        if let Some(item) = self.prepended.take() {
+            Ok(Async::Ready(Some(item)))
+        } else {
+            self.stream.poll()
+        }
+    }
+}
+
+pub trait StreamExt: Stream {
+    fn prependable(self) -> Prependable<Self> where Self: Sized {
+        Prependable {
+            stream: self,
+            prepended: None,
+        }
+    }
+}
+
+impl<T: ?Sized> StreamExt for T where T: Stream {}

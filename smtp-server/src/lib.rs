@@ -58,7 +58,7 @@ pub fn interact<
             &ConnectionMetadata<UserProvidedMetadata>,
             DataStream<stream::MapErr<Reader, HandleReaderError>>,
         ) -> (
-            Option<stream::MapErr<Reader, HandleReaderError>>,
+            Option<Prependable<stream::MapErr<Reader, HandleReaderError>>>,
             Decision<()>,
         ),
 >(
@@ -80,7 +80,7 @@ pub fn interact<
             c.send_to(&mut v).unwrap(); // and this is ugly
             stream::iter_ok(v)
         });
-    CrlfLines::new(incoming.map_err(handle_reader_error))
+    CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
         .into_future()
         .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
         .and_then(move |x| {
@@ -104,9 +104,9 @@ fn handle_lines<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Option<Reader>, Decision<()>),
+            -> (Option<Prependable<Reader>>, Decision<()>),
 >(
-    (line, reader): (Option<BytesMut>, CrlfLines<Reader>),
+    (line, reader): (Option<BytesMut>, CrlfLines<Prependable<Reader>>),
     add_data: (
         Writer,
         ConnectionMetadata<U>,
@@ -156,9 +156,9 @@ fn handle_line<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Option<Reader>, Decision<()>),
+            -> (Option<Prependable<Reader>>, Decision<()>),
 >(
-    reader: Reader,
+    reader: Prependable<Reader>,
     (writer, conn_meta, mail_data): (
         Writer,
         ConnectionMetadata<U>,
@@ -170,7 +170,7 @@ fn handle_line<
     handler: &HandleMail,
 ) -> impl Future<
     Item = (
-        Option<Reader>,
+        Option<Prependable<Reader>>,
         (
             Writer,
             ConnectionMetadata<U>,
@@ -480,7 +480,7 @@ mod tests {
         _: &ConnectionMetadata<()>,
         mut reader: DataStream<R>,
         mails: &Cell<Vec<(Option<Email>, Vec<Email>, BytesMut)>>,
-    ) -> (Option<R>, Decision<()>) {
+    ) -> (Option<Prependable<R>>, Decision<()>) {
         // TODO: this API should be asynchronous!!!!!
         match reader.by_ref().concat2().wait() {
             Err(_) => (
