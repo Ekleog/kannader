@@ -40,11 +40,28 @@ enum DataStreamState {
     Finished,
 }
 
-// state is the state of the state machine at the BEGINNING of `buf`
+// Stream adapter that takes as input a stream that yields ByteMut elements,
+// and outputs data unescaped as per RFC5321.
+//
+// The input stream should start giving elements since just after DATA\r\n, and
+// will be consumed until the \r\n.\r\n sequence is found (or .\r\n if these
+// are the first three bytes). The DataStream will output the unescaped data
+// (ie. replacing \r\n. with \r\n when not in the \r\n.\r\n sequence) up to and
+// including the first \r\n in \r\n.\r\n.
+//
+// Once the \r\n.\r\n sequence will have been reached, this stream will be
+// terminated. At this point (and *not* before, as that would panic), please
+// call `into_inner` to recover the original stream, advanced until after the
+// \r\n.\r\n sequence.
+//
+// In order to handle the case of a packet received that doesn't end exactly
+// after the \r\n.\r\n, the received stream must be Prependable, so that the
+// additional data can be pushed back into it if need be.
 pub struct DataStream<S: Stream<Item = BytesMut>> {
     source: Prependable<S>,
-    state:  DataStreamState,
-    buf:    BytesMut,
+    // state is the state of the state machine at the BEGINNING of `buf`
+    state: DataStreamState,
+    buf:   BytesMut,
 }
 
 impl<S: Stream<Item = BytesMut>> DataStream<S> {
@@ -128,6 +145,9 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                             self.state = CrLfPassed;
                             split = BufSplit::Unknown(l - 1);
                         }
+
+                        // If there is a \r\n.
+                        (CrLfPassed, b'.', _) => split = BufSplit::Escape(l - 2),
 
                         // Move forward in the \r\n state machine
                         (_, b'\r', b'\n') => self.state = CrLfPassed,
@@ -345,6 +365,7 @@ mod tests {
             (&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n", b"foo"),
             (&[b".\r\n", b"MAIL FROM"], b"", b"MAIL FROM"),
             (&[b"..\r\n.\r\n"], b".\r\n", b""),
+            (&[b"foo\r\n. ", b"bar\r\n.\r\n"], b"foo\r\n bar\r\n", b""),
         ];
         for &(inp, out, rem) in tests {
             use helpers::SmtpString;
@@ -367,8 +388,8 @@ mod tests {
                 SmtpString::from(&output[..]),
                 SmtpString::from(&remaining[..])
             );
-            assert_eq!(output, out.to_vec());
-            assert_eq!(remaining, rem.to_vec());
+            assert_eq!(output, BytesMut::from(out));
+            assert_eq!(remaining, BytesMut::from(rem));
         }
     }
 
