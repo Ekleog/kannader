@@ -83,7 +83,7 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
         }
         loop {
             // Figure out what to send from the current buf
-            #[derive(Eq, PartialEq)]
+            #[derive(Debug, Eq, PartialEq)]
             enum BufSplit {
                 Nowhere,        // Should send the whole buffer as a result
                 Eof(usize),     // Should send [arg] bytes as a result, then skip .\r\n and EOF
@@ -168,7 +168,11 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                     self.state = Running;
                     if res.len() > 0 {
                         return Ok(Ready(Some(res)));
-                    } // Continue to read more data if nothing to send
+                    } else {
+                        // Continue to read more data if nothing is to be sent before the escape
+                        // point
+                        continue;
+                    }
                 }
                 BufSplit::Unknown(x) if x > 0 => return Ok(Ready(Some(self.buf.split_to(x)))),
                 BufSplit::Unknown(_) => (), // Continue to read more data if nothing to send
