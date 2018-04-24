@@ -54,30 +54,28 @@ fn filter_to(email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMeta
     }
 }
 
-fn handler<R: Stream<Item = u8>>(mail: MailMetadata, (): (), _: &ConnectionMetadata<()>, mut reader: DataStream<R>) -> (stream::Fuse<R>, Decision<()>) {
+fn handler<R: Stream<Item = u8, Error = ()>>(mail: MailMetadata, (): (), _: &ConnectionMetadata<()>, mut reader: DataStream<R>) -> (Option<R>, Decision<()>) {
     // TODO: should be async
-    // TODO: when an error arises in the stream, it can't be legitimately returned, and the API
-    // offers no way of indicating this
     if let Err(_) = reader.by_ref().fold((), |_, _| future::ok(())).wait() {
-        return (reader.into_inner(), Decision::Reject(Refusal {
+        return (None, Decision::Reject(Refusal {
             code: ReplyCode::SYNTAX_ERROR,
             msg: (&"plz no syntax error"[..]).into(),
         }))
     }
     if mail.to.len() > 3 {
-        (reader.into_inner(), Decision::Reject(Refusal {
+        (Some(reader.into_inner()), Decision::Reject(Refusal {
             code: ReplyCode::POLICY_REASON,
             msg: (&"Too many recipients!"[..]).into(),
         }))
     } else {
-        (reader.into_inner(), Decision::Accept(()))
+        (Some(reader.into_inner()), Decision::Accept(()))
     }
 }
 
 fuzz_target!(|data: &[u8]| {
     let stream = stream::iter_ok(data.iter().cloned());
     let mut sink = DiscardSink {};
-    interact(
+    let _ignore_errors = interact(
         stream,
         &mut sink,
         (),
@@ -86,5 +84,5 @@ fuzz_target!(|data: &[u8]| {
         &filter_from,
         &filter_to,
         &handler,
-    ).wait().unwrap();
+    ).wait();
 });

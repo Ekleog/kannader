@@ -42,12 +42,12 @@ enum DataStreamState {
 }
 
 pub struct DataStream<S: Stream<Item = u8>> {
-    source: stream::Fuse<S>,
+    source: S,
     state:  DataStreamState,
 }
 
 impl<S: Stream<Item = u8>> DataStream<S> {
-    pub fn new(source: stream::Fuse<S>) -> DataStream<S> {
+    pub fn new(source: S) -> DataStream<S> {
         DataStream {
             source,
             state: DataStreamState::CrLfPassed,
@@ -55,13 +55,14 @@ impl<S: Stream<Item = u8>> DataStream<S> {
     }
 
     // Beware: this will panic if it hasn't been fully consumed.
-    pub fn into_inner(self) -> stream::Fuse<S> {
-        assert!(self.source.is_done() || self.state == DataStreamState::Finished);
+    pub fn into_inner(self) -> S {
+        assert_eq!(self.state, DataStreamState::Finished);
         self.source
+
     }
 }
 
-impl<S: Stream<Item = u8>> Stream for DataStream<S> {
+impl<S: Stream<Item = u8, Error = ()>> Stream for DataStream<S> {
     type Item = u8;
     type Error = S::Error;
 
@@ -82,7 +83,7 @@ impl<S: Stream<Item = u8>> Stream for DataStream<S> {
             let res = self.source.poll()?;
             match res {
                 NotReady => return Ok(NotReady),
-                Ready(None) => return Ok(Ready(None)),
+                Ready(None) => return Err(()),
                 Ready(Some(c)) => match (self.state, c) {
                     // Then, we were waiting to send something
                     (WaitingToSendDot, b'\r') => {
@@ -284,8 +285,7 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem)
             );
-            let mut stream =
-                DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()).fuse());
+            let mut stream = DataStream::new(stream::iter_ok(inp.iter().cloned()).map_err(|()| ()));
             let output = stream.by_ref().collect().wait().unwrap();
             println!("Now computing remaining stuff");
             let remaining = stream.into_inner().collect().wait().unwrap();
@@ -344,7 +344,7 @@ mod tests {
                     .wait()
                     .unwrap();
             }
-            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter()).fuse())
+            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter()))
                 .map_err(|()| ())
                 .collect()
                 .wait()
@@ -356,7 +356,9 @@ mod tests {
         }
 
         fn all_leading_dots_are_escaped(v: Vec<u8>) -> bool {
-            let r = DataStream::new(stream::iter_ok(v.into_iter()).fuse())
+            let mut v = v;
+            v.extend_from_slice(&b"\r\n.\r\n"[..]);
+            let r = DataStream::new(stream::iter_ok(v.iter().cloned()))
                 .map_err(|()| ())
                 .collect()
                 .wait()

@@ -9,7 +9,7 @@ mod helpers;
 use itertools::Itertools;
 use smtp_message::*;
 use std::mem;
-use tokio::prelude::{stream::Fuse, *};
+use tokio::prelude::*;
 
 use helpers::*;
 
@@ -55,10 +55,7 @@ pub fn interact<
             State,
             &ConnectionMetadata<UserProvidedMetadata>,
             DataStream<stream::MapErr<Reader, HandleReaderError>>,
-        ) -> (
-            Fuse<stream::MapErr<Reader, HandleReaderError>>,
-            Decision<()>,
-        ),
+        ) -> (Option<stream::MapErr<Reader, HandleReaderError>>, Decision<()>),
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
@@ -78,7 +75,7 @@ pub fn interact<
             c.send_to(&mut v).unwrap(); // and this is ugly
             stream::iter_ok(v)
         });
-    CrlfLines::new(incoming.map_err(handle_reader_error).fuse())
+    CrlfLines::new(incoming.map_err(handle_reader_error))
         .into_future()
         .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
         .and_then(move |x| {
@@ -102,9 +99,9 @@ fn handle_lines<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Fuse<Reader>, Decision<()>),
+            -> (Option<Reader>, Decision<()>),
 >(
-    (line, reader): (Option<Vec<u8>>, CrlfLines<Fuse<Reader>>),
+    (line, reader): (Option<Vec<u8>>, CrlfLines<Reader>),
     add_data: (
         Writer,
         ConnectionMetadata<U>,
@@ -126,11 +123,14 @@ fn handle_lines<
                 filter_to,
                 handler,
             ).and_then(|(reader, add_data)| {
-                CrlfLines::new(reader)
-                    .into_future()
-                    .map_err(|((), _)| ()) // Discard the stream returned with errors
-                    .map(|read| (read, add_data))
+                future::result(reader.ok_or(()).map(|read| (read, add_data)))
             })
+                .and_then(|(read, add_data)| {
+                    CrlfLines::new(read)
+                        .into_future()
+                        .map_err(|((), _)| ()) // Discard the stream returned with errors
+                        .map(|read| (read, add_data))
+                })
                 .and_then(move |(read, add_data)| {
                     handle_lines(read, add_data, filter_from, filter_to, handler)
                 }),
@@ -151,9 +151,9 @@ fn handle_line<
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> (Fuse<Reader>, Decision<()>),
+            -> (Option<Reader>, Decision<()>),
 >(
-    reader: Fuse<Reader>,
+    reader: Reader,
     (writer, conn_meta, mail_data): (
         Writer,
         ConnectionMetadata<U>,
@@ -165,7 +165,7 @@ fn handle_line<
     handler: &HandleMail,
 ) -> impl Future<
     Item = (
-        Fuse<Reader>,
+        Option<Reader>,
         (
             Writer,
             ConnectionMetadata<U>,
@@ -186,7 +186,7 @@ fn handle_line<
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         (&b"Bad sequence of commands"[..]).into(),
-                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+                    ).and_then(|writer| future::ok((Some(reader), (writer, conn_meta, mail_data)))),
                 )
             } else {
                 match filter_from(m.from(), &conn_meta) {
@@ -198,7 +198,7 @@ fn handle_line<
                             send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
                                 |writer| {
                                     future::ok((
-                                        reader,
+                                        Some(reader),
                                         (
                                             writer,
                                             conn_meta,
@@ -211,7 +211,7 @@ fn handle_line<
                     }
                     Decision::Reject(r) => {
                         FutIn12::Fut3(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
-                            future::ok((reader, (writer, conn_meta, mail_data)))
+                            future::ok((Some(reader), (writer, conn_meta, mail_data)))
                         }))
                     }
                 }
@@ -228,7 +228,7 @@ fn handle_line<
                             send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
                                 |writer| {
                                     future::ok((
-                                        reader,
+                                        Some(reader),
                                         (
                                             writer,
                                             conn_meta,
@@ -241,7 +241,7 @@ fn handle_line<
                     }
                     Decision::Reject(r) => {
                         FutIn12::Fut5(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
-                            future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
+                            future::ok((Some(reader), (writer, conn_meta, Some((mail_meta, state)))))
                         }))
                     }
                 }
@@ -252,7 +252,7 @@ fn handle_line<
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         (&b"Bad sequence of commands"[..]).into(),
-                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+                    ).and_then(|writer| future::ok((Some(reader), (writer, conn_meta, mail_data)))),
                 )
             }
         }
@@ -281,7 +281,7 @@ fn handle_line<
                             ReplyCode::BAD_SEQUENCE,
                             (&b"Bad sequence of commands"[..]).into(),
                         ).and_then(|writer| {
-                            future::ok((reader, (writer, conn_meta, Some((mail_meta, state)))))
+                            future::ok((Some(reader), (writer, conn_meta, Some((mail_meta, state)))))
                         }),
                     )
                 }
@@ -291,7 +291,7 @@ fn handle_line<
                         writer,
                         ReplyCode::BAD_SEQUENCE,
                         (&b"Bad sequence of commands"[..]).into(),
-                    ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+                    ).and_then(|writer| future::ok((Some(reader), (writer, conn_meta, mail_data)))),
                 )
             }
         }
@@ -302,7 +302,7 @@ fn handle_line<
                 writer,
                 ReplyCode::COMMAND_UNIMPLEMENTED,
                 (&b"Command not implemented"[..]).into(),
-            ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+            ).and_then(|writer| future::ok((Some(reader), (writer, conn_meta, mail_data)))),
         ),
         Err(_) => FutIn12::Fut12(
             // TODO: make the message configurable
@@ -310,7 +310,7 @@ fn handle_line<
                 writer,
                 ReplyCode::COMMAND_UNRECOGNIZED,
                 (&b"Command not recognized"[..]).into(),
-            ).and_then(|writer| future::ok((reader, (writer, conn_meta, mail_data)))),
+            ).and_then(|writer| future::ok((Some(reader), (writer, conn_meta, mail_data)))),
         ),
     }
 }
@@ -456,28 +456,35 @@ mod tests {
         }
     }
 
-    fn handler<R: Stream<Item = u8>>(
+    fn handler<R: Stream<Item = u8, Error = ()>>(
         meta: MailMetadata<'static>,
         (): (),
         _: &ConnectionMetadata<()>,
         mut reader: DataStream<R>,
         mails: &Cell<Vec<(Option<Email>, Vec<Email>, Vec<u8>)>>,
-    ) -> (Fuse<R>, Decision<()>) {
+    ) -> (Option<R>, Decision<()>) {
         // TODO: this API should be asynchronous!!!!!
-        let mail_text = reader.by_ref().collect().wait().map_err(|_| ()).unwrap();
-        if mail_text.windows(5).position(|x| x == b"World").is_some() {
-            (
-                reader.into_inner(),
-                Decision::Reject(Refusal {
-                    code: ReplyCode::POLICY_REASON,
-                    msg:  "Don't you dare say 'World'!".to_owned(),
-                }),
-            )
-        } else {
-            let mut m = mails.take();
-            m.push((meta.from, meta.to, mail_text));
-            mails.set(m);
-            (reader.into_inner(), Decision::Accept(()))
+        match reader.by_ref().collect().wait() {
+            Err(_) => (None, Decision::Reject(Refusal {
+                code: ReplyCode::SYNTAX_ERROR,
+                msg: (&"Do not interrupt your stream too quickly, if you please"[..]).into(),
+            })),
+            Ok(mail_text) => {
+                if mail_text.windows(5).position(|x| x == b"World").is_some() {
+                    (
+                        Some(reader.into_inner()),
+                        Decision::Reject(Refusal {
+                            code: ReplyCode::POLICY_REASON,
+                            msg:  "Don't you dare say 'World'!".to_owned(),
+                        }),
+                    )
+                } else {
+                    let mut m = mails.take();
+                    m.push((meta.from, meta.to, mail_text));
+                    mails.set(m);
+                    (Some(reader.into_inner()), Decision::Accept(()))
+                }
+            }
         }
     }
 
@@ -595,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn fuzzing_found() {
+    fn interrupted_data() {
         let txt = b"MAIL FROM:foo\r\n\
                     RCPT TO:bar\r\n\
                     DATA\r\n\
@@ -604,7 +611,7 @@ mod tests {
         let mut resp = Vec::new();
         let resp_mail = Cell::new(Vec::new());
         let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
-        interact(
+        let res = interact(
             stream,
             &mut resp,
             (),
@@ -613,7 +620,7 @@ mod tests {
             &|_: &_, _: &_| Decision::Accept(()),
             &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
             &handler_closure,
-        ).wait()
-            .unwrap();
+        ).wait();
+        assert!(res.is_err());
     }
 }
