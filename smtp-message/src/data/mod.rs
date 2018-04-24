@@ -42,8 +42,8 @@ enum DataStreamState {
 // state is the state of the state machine at the BEGINNING of `buf`
 pub struct DataStream<S: Stream<Item = BytesMut>> {
     source: S,
-    state: DataStreamState,
-    buf: BytesMut,
+    state:  DataStreamState,
+    buf:    BytesMut,
 }
 
 impl<S: Stream<Item = BytesMut>> DataStream<S> {
@@ -73,19 +73,16 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
         use self::{Async::*, DataStreamState::*};
         // First, handle the case when we're done
-        println!("ENTERING poll():       buf = {:?}, state = {:?}", self.buf, self.state);
         if self.state == Finished {
             return Ok(Ready(None));
         }
         loop {
-            println!("  ENTERING poll() loop buf = {:?}, state = {:?}", self.buf, self.state);
-
             // Figure out what to send from the current buf
             #[derive(Eq, PartialEq)]
             enum BufSplit {
-                Nowhere, // Should send the whole buffer as a result
-                Eof(usize), // Should send [arg] bytes as a result, then skip .\r\n and EOF
-                Escape(usize), // Should send [arg] bytes as a result, then skip a dot
+                Nowhere,        // Should send the whole buffer as a result
+                Eof(usize),     // Should send [arg] bytes as a result, then skip .\r\n and EOF
+                Escape(usize),  // Should send [arg] bytes as a result, then skip a dot
                 Unknown(usize), // Should send [arg] bytes as a result, then wait for more data
             }
             let mut split = BufSplit::Nowhere;
@@ -175,7 +172,8 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
             // Didn't find anything to send, so let's just gather more data from the network
             match self.source.poll()? {
                 NotReady => return Ok(NotReady),
-                Ready(None) => {println!("EARLYEOF"); return Err(())}, // TODO: print warning and/or add metadata to the error
+                Ready(None) => return Err(()),
+                // TODO: print warning and/or add metadata to the error
                 Ready(Some(b)) => self.buf.unsplit(b),
             }
         }
@@ -325,11 +323,15 @@ mod tests {
     #[test]
     fn valid_data_stream() {
         let tests: &[(&[&[u8]], &[u8], &[u8])] = &[
-            (&[b"foo", b" bar", b"\r\n", b".\r", b"\n"], b"foo bar\r\n", b""),
+            (
+                &[b"foo", b" bar", b"\r\n", b".\r", b"\n"],
+                b"foo bar\r\n",
+                b"",
+            ),
             (&[b"\r\n.\r\n", b"\r\n"], b"\r\n", b"\r\n"),
             (&[b".baz\r\n", b".\r\n", b"foo"], b"baz\r\n", b"foo"),
             // See // TODO!!!!!: push back the remaining buffer at the beginning of the stream
-            //(&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n", b"foo"),
+            // (&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n", b"foo"),
             (&[b".\r\n", b"MAIL FROM"], b"", b"MAIL FROM"),
         ];
         for &(inp, out, rem) in tests {
@@ -340,7 +342,9 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem),
             );
-            let mut stream = DataStream::new(stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x))).map_err(|()| ()));
+            let mut stream = DataStream::new(
+                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x))).map_err(|()| ()),
+            );
             let output = stream.by_ref().concat2().wait().unwrap();
             println!("Now computing remaining stuff");
             let remaining = stream.into_inner().concat2().wait().unwrap();
