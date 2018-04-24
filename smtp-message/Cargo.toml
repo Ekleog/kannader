@@ -8,6 +8,7 @@ keywords = ["parser", "builder", "smtp", "email"]
 description = "Line-oriented parser and builder for SMTP protocol messages"
 
 [dependencies]
+bytes = "0.4.6"
 nom = "3.2"
 failure = "0.1.1"
 failure_derive = "0.1.1"

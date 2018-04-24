@@ -1,3 +1,4 @@
+extern crate bytes;
 #[macro_use]
 extern crate nom;
 extern crate failure;

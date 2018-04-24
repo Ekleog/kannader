@@ -73,6 +73,7 @@ fn handler<R: Stream<Item = u8, Error = ()>>(mail: MailMetadata, (): (), _: &Con
 }
 
 fuzz_target!(|data: &[u8]| {
+    // TODO: use a stream that actually chunks and doesn't deliver all at once
     let stream = stream::iter_ok(data.iter().cloned());
     let mut sink = DiscardSink {};
     let _ignore_errors = interact(
