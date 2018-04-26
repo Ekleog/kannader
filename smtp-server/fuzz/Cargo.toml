@@ -8,9 +8,6 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
-[profile.release]
-lto = true
-
 [dependencies]
 bytes = "0.4.6"
 tokio = "0.1.5"
@@ -20,10 +17,6 @@ path = "../../smtp-message"
 path = ".."
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
-
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
 
 [[bin]]
 name = "fuzz_interact"

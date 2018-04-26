@@ -1,5 +1,9 @@
 [workspace]
-members = [ "smtp-message", "smtp-server" ]
+members = [ "smtp-message", "smtp-message/fuzz",
+            "smtp-server", "smtp-server/fuzz" ]
+
+[profile.release]
+lto = true
 
 # TODO: setup clippy
 # TODO: setup cargo-bench
