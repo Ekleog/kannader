@@ -1,5 +1,5 @@
 use nom::{self, IResult, Needed};
-use std::{borrow::Cow, fmt, ops::Deref, slice};
+use std::{borrow::Cow, fmt, mem, ops::Deref, slice};
 use tokio::prelude::*;
 
 use parse_helpers::*;
@@ -334,7 +334,7 @@ where
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
         let mut s = self.stream
             .take()
-            .expect("attempted to poll ConcatAndRecover after result");
+            .expect("attempted to poll ConcatAndRecover after completion");
         loop {
             match s.poll() {
                 Ok(Async::Ready(Some(i))) => match self.extend {
@@ -350,6 +350,65 @@ where
                     return Ok(Async::NotReady);
                 }
                 Err(e) => return Err((e, s)),
+            }
+        }
+    }
+}
+
+enum NextStep<S: Stream, F: Future, Acc> {
+    Stream(S, Acc),
+    Future(F),
+    Completed,
+}
+
+pub struct FoldWithStream<S, Acc, Fun, Ret>
+where
+    S: Stream,
+    Fun: FnMut(Acc, S::Item, S) -> Ret,
+    Ret: Future<Item = (S, Acc), Error = S::Error>,
+{
+    next: NextStep<S, Ret, Acc>,
+    f: Fun,
+}
+
+impl<S, Acc, Fun, Ret> Future for FoldWithStream<S, Acc, Fun, Ret>
+where
+    S: Stream,
+    Fun: FnMut(Acc, S::Item, S) -> Ret,
+    Ret: Future<Item = (S, Acc), Error = S::Error>,
+{
+    type Item = Acc;
+    type Error = S::Error;
+
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        loop {
+            match mem::replace(&mut self.next, NextStep::Completed) {
+                NextStep::Stream(mut s, acc) => {
+                    match s.poll() {
+                        Ok(Async::Ready(Some(i))) => {
+                            self.next = NextStep::Future((self.f)(acc, i, s));
+                        }
+                        Ok(Async::Ready(None)) => return Ok(Async::Ready(acc)),
+                        Ok(Async::NotReady) => {
+                            self.next = NextStep::Stream(s, acc);
+                            return Ok(Async::NotReady);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                NextStep::Future(mut f) => {
+                    match f.poll() {
+                        Ok(Async::Ready((s, acc))) => {
+                            self.next = NextStep::Stream(s, acc);
+                        }
+                        Ok(Async::NotReady) => {
+                            self.next = NextStep::Future(f);
+                            return Ok(Async::NotReady);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                NextStep::Completed => panic!("attempted to poll FoldWithStream after completion"),
             }
         }
     }
@@ -374,6 +433,19 @@ pub trait StreamExt: Stream {
         ConcatAndRecover {
             stream: Some(self),
             extend: None,
+        }
+    }
+
+    fn fold_with_stream<Fun, Acc, Ret>(self, init: Acc, f: Fun)
+        -> FoldWithStream<Self, Acc, Fun, Ret>
+    where
+        Self: Sized,
+        Fun: FnMut(Acc, Self::Item, Self) -> Ret,
+        Ret: Future<Item = (Self, Acc), Error = Self::Error>,
+    {
+        FoldWithStream {
+            next: NextStep::Stream(self, init),
+            f
         }
     }
 }
