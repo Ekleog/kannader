@@ -49,13 +49,14 @@ pub fn interact<
     FilterTo: 'a
         + Fn(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
             -> Decision<()>,
-    HandleMailReturn: 'a + Future<
-        Item = (
-            Option<Prependable<stream::MapErr<Reader, HandleReaderError>>>,
-            Decision<()>,
-        ),
-        Error = (),
-    >,
+    HandleMailReturn: 'a
+        + Future<
+            Item = (
+                Option<Prependable<stream::MapErr<Reader, HandleReaderError>>>,
+                Decision<()>,
+            ),
+            Error = (),
+        >,
     HandleMail: 'a
         + Fn(
             MailMetadata<'static>,
@@ -74,16 +75,14 @@ pub fn interact<
     handler: &'a HandleMail,
 ) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
-    let writer = outgoing
-        .sink_map_err(handle_writer_error)
-        .with(|c: Reply| {
-            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-            c.send_to(&mut w).unwrap();
-            // By design of BytesMut::writer, this cannot fail so long as the buffer
-            // has sufficient capacity. As if this is not respected it is a clear programming
-            // error, there's no need to try and handle this cleanly.
-            future::ok(w.into_inner().freeze())
-        });
+    let writer = outgoing.sink_map_err(handle_writer_error).with(|c: Reply| {
+        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+        c.send_to(&mut w).unwrap();
+        // By design of BytesMut::writer, this cannot fail so long as the buffer
+        // has sufficient capacity. As if this is not respected it is a clear
+        // programming error, there's no need to try and handle this cleanly.
+        future::ok(w.into_inner().freeze())
+    });
     CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
         .into_future()
         .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
@@ -106,10 +105,7 @@ fn handle_lines<
     State: 'a,
     FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMailReturn: 'a + Future<
-        Item = (Option<Prependable<Reader>>, Decision<()>),
-        Error = (),
-    >,
+    HandleMailReturn: 'a + Future<Item = (Option<Prependable<Reader>>, Decision<()>), Error = ()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
             -> HandleMailReturn,
@@ -162,10 +158,7 @@ fn handle_line<
     State: 'a,
     FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
     FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMailReturn: 'a + Future<
-        Item = (Option<Prependable<Reader>>, Decision<()>),
-        Error = (),
-    >,
+    HandleMailReturn: 'a + Future<Item = (Option<Prependable<Reader>>, Decision<()>), Error = ()>,
     HandleMail: 'a
         + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
             -> HandleMailReturn,
@@ -284,25 +277,25 @@ fn handle_line<
             if let Some((mail_meta, state)) = mail_data {
                 if !mail_meta.to.is_empty() {
                     FutIn11::Fut7(
-                        handler(mail_meta, state, &conn_meta, DataStream::new(reader))
-                            .and_then(|(reader, decision)| match decision {
+                        handler(mail_meta, state, &conn_meta, DataStream::new(reader)).and_then(
+                            |(reader, decision)| match decision {
                                 Decision::Accept(()) => future::Either::A(
                                     send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into())
                                         .and_then(|writer| {
                                             future::ok((reader, (writer, conn_meta, None)))
-                                        })
-                                ),
-                                Decision::Reject(r) => future::Either::B(
-                                    send_reply(writer, r.code, r.msg.into())
-                                        .and_then(|writer| {
-                                            // Other mail systems (at least postfix, OpenSMTPD and
-                                            // gmail) appear to drop the state on an unsuccessful
-                                            // DATA command (eg. too long). Couldn't find the RFC
-                                            // reference anywhere, though.
-                                            future::ok((reader, (writer, conn_meta, None)))
                                         }),
                                 ),
-                            })
+                                Decision::Reject(r) => future::Either::B(
+                                    send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                                        // Other mail systems (at least postfix, OpenSMTPD and
+                                        // gmail) appear to drop the state on an unsuccessful
+                                        // DATA command (eg. too long). Couldn't find the RFC
+                                        // reference anywhere, though.
+                                        future::ok((reader, (writer, conn_meta, None)))
+                                    }),
+                                ),
+                            },
+                        ),
                     )
                 } else {
                     FutIn11::Fut8(
@@ -505,22 +498,25 @@ mod tests {
         reader: DataStream<R>,
         mails: &'a Cell<Vec<(Option<Email<'a>>, Vec<Email<'a>>, BytesMut)>>,
     ) -> impl Future<Item = (Option<Prependable<R>>, Decision<()>), Error = ()> + 'a {
-        reader.concat_and_recover().map_err(|_| ()).and_then(move |(mail_text, reader)| {
-            if mail_text.windows(5).position(|x| x == b"World").is_some() {
-                future::ok((
-                    Some(reader.into_inner()),
-                    Decision::Reject(Refusal {
-                        code: ReplyCode::POLICY_REASON,
-                        msg:  "Don't you dare say 'World'!".to_owned(),
-                    }),
-                ))
-            } else {
-                let mut m = mails.take();
-                m.push((meta.from, meta.to, mail_text));
-                mails.set(m);
-                future::ok((Some(reader.into_inner()), Decision::Accept(())))
-            }
-        })
+        reader
+            .concat_and_recover()
+            .map_err(|_| ())
+            .and_then(move |(mail_text, reader)| {
+                if mail_text.windows(5).position(|x| x == b"World").is_some() {
+                    future::ok((
+                        Some(reader.into_inner()),
+                        Decision::Reject(Refusal {
+                            code: ReplyCode::POLICY_REASON,
+                            msg:  "Don't you dare say 'World'!".to_owned(),
+                        }),
+                    ))
+                } else {
+                    let mut m = mails.take();
+                    m.push((meta.from, meta.to, mail_text));
+                    mails.set(m);
+                    future::ok((Some(reader.into_inner()), Decision::Accept(())))
+                }
+            })
     }
 
     #[test]
