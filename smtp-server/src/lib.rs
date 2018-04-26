@@ -19,6 +19,7 @@ pub struct ConnectionMetadata<U> {
 }
 
 // TODO: make pub fields private?
+// TODO: make this owned, it's a pain
 pub struct MailMetadata<'a> {
     pub from: Option<Email<'a>>,
     pub to:   Vec<Email<'a>>,
