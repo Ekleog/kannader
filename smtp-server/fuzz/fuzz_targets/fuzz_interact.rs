@@ -90,30 +90,11 @@ fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
         })
 }
 
-// TODO: take in Vec<Vec<u8>>
-fuzz_target!(|data: &[u8]| {
-    // Parse the input
-    if data.len() < 1 {
-        return;
-    }
-    let num_blocks = data[0] as usize;
-    if data.len() < 1 + num_blocks || num_blocks < 1 {
-        return;
-    }
-    let lengths = data[1..num_blocks]
-        .iter()
-        .map(|&x| x as usize)
-        .collect::<Vec<_>>();
-    let total_len = lengths.iter().sum::<usize>();
-    if data.len() < 256 + total_len {
-        return;
-    }
-    let raw_data = &data[256..(256 + total_len)];
-    let chunks = lengths.iter().scan(raw_data, |d, &l| {
-        let res = BytesMut::from(&d[..l]);
-        *d = &d[l..];
-        // println!("Sending chunk {:?}", res);
-        Some(res)
+fuzz_target!(|data: Vec<Vec<u8>>| {
+    let chunks = data.into_iter().map(|d| {
+        let res = BytesMut::from(d);
+        println!("Sending chunk {:?}", res);
+        res
     });
 
     // And send stuff in
