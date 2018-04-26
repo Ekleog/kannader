@@ -1,3 +1,5 @@
+#![type_length_limit="4194304"]
+
 // TODO: add in deadlines
 // TODO: refactor in multiple files
 extern crate bytes;
@@ -85,70 +87,20 @@ pub fn interact<
         future::ok(w.into_inner().freeze())
     });
     CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
-        .into_future()
-        .map_err(|((), _)| ()) // Ignore the stream returned on error by into_future
-        .and_then(move |x| {
-            handle_lines(
-                x,
-                (writer, conn_meta, None),
-                filter_from,
-                filter_to,
-                handler,
-            )
-        })
-}
-
-fn handle_lines<
-    'a,
-    U: 'a,
-    Writer: 'a + Sink<SinkItem = Reply<'a>, SinkError = ()>,
-    Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    State: 'a,
-    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
-    FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMailReturn: 'a + Future<Item = (Option<Prependable<Reader>>, Decision<()>), Error = ()>,
-    HandleMail: 'a
-        + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> HandleMailReturn,
->(
-    (line, reader): (Option<BytesMut>, CrlfLines<Reader>),
-    add_data: (
-        Writer,
-        ConnectionMetadata<U>,
-        Option<(MailMetadata<'static>, State)>,
-    ),
-    filter_from: &'a FilterFrom,
-    filter_to: &'a FilterTo,
-    handler: &'a HandleMail,
-) -> impl Future<Item = (), Error = ()> + 'a {
-    if let Some(line) = line {
-        // Cannot do without this allocation here, as the type of the thing inside the
-        // box depends on the returned type of handle_lines
-        Box::new(
+        .fold_with_stream((writer, conn_meta, None), move |acc, line, reader| {
             handle_line(
                 reader.into_inner(),
-                add_data,
+                acc,
                 line,
                 filter_from,
                 filter_to,
                 handler,
-            ).and_then(|(reader, add_data)| {
-                future::result(reader.ok_or(()).map(|read| (read, add_data)))
+            ).and_then(|(reader, acc)| {
+                future::result(reader.ok_or(()).map(|read| {
+                    (CrlfLines::new(read), acc)
+                }))
             })
-                .and_then(|(read, add_data)| {
-                    CrlfLines::new(read)
-                        .into_future()
-                        .map_err(|((), _)| ()) // Discard the stream returned with errors
-                        .map(|read| (read, add_data))
-                })
-                .and_then(move |(read, add_data)| {
-                    handle_lines(read, add_data, filter_from, filter_to, handler)
-                }),
-        ) as Box<Future<Item = (), Error = ()>>
-    } else {
-        // TODO: warn of unfinished commands?
-        Box::new(future::ok(()))
-    }
+        }).map(|_acc| ()) // TODO: warn of unfinished commands?
 }
 
 fn handle_line<
