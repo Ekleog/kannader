@@ -1,5 +1,7 @@
 #![no_main]
-#[macro_use] extern crate libfuzzer_sys;
+
+#[macro_use]
+extern crate libfuzzer_sys;
 
 extern crate bytes;
 extern crate smtp_message;
@@ -36,7 +38,7 @@ fn filter_from(addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision<()>
         } else {
             Decision::Reject(Refusal {
                 code: ReplyCode::POLICY_REASON,
-                msg: (&"forbidden user"[..]).into(),
+                msg:  (&"forbidden user"[..]).into(),
             })
         }
     } else {
@@ -44,7 +46,12 @@ fn filter_from(addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision<()>
     }
 }
 
-fn filter_to(email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMetadata) -> Decision<()> {
+fn filter_to(
+    email: &Email,
+    _: &mut (),
+    _: &ConnectionMetadata<()>,
+    _: &MailMetadata,
+) -> Decision<()> {
     let loc = email.localpart();
     let locb = loc.as_bytes();
     if locb.len() >= 2 && locb[0] > locb[1] {
@@ -52,7 +59,7 @@ fn filter_to(email: &Email, _: &mut (), _: &ConnectionMetadata<()>, _: &MailMeta
     } else {
         Decision::Reject(Refusal {
             code: ReplyCode::POLICY_REASON,
-            msg: (&"forbidden user"[..]).into(),
+            msg:  (&"forbidden user"[..]).into(),
         })
     }
 }
@@ -61,21 +68,29 @@ fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
     mail: MailMetadata<'static>,
     (): (),
     _: &ConnectionMetadata<()>,
-    reader: DataStream<R>
+    reader: DataStream<R>,
 ) -> impl Future<Item = (Option<Prependable<R>>, Decision<()>), Error = ()> + 'a {
-    reader.concat_and_recover().map_err(|_| ()).and_then(move |(_, reader)| {
-        if mail.to.len() > 3 {
-            // This is stupid, please use filter_to instead if you're not just willing to fuzz
-            future::ok((Some(reader.into_inner()), Decision::Reject(Refusal {
-                code: ReplyCode::POLICY_REASON,
-                msg: (&"Too many recipients!"[..]).into(),
-            })))
-        } else {
-            future::ok((Some(reader.into_inner()), Decision::Accept(())))
-        }
-    })
+    reader
+        .concat_and_recover()
+        .map_err(|_| ())
+        .and_then(move |(_, reader)| {
+            if mail.to.len() > 3 {
+                // This is stupid, please use filter_to instead if you're not just willing to
+                // fuzz
+                future::ok((
+                    Some(reader.into_inner()),
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::POLICY_REASON,
+                        msg:  (&"Too many recipients!"[..]).into(),
+                    }),
+                ))
+            } else {
+                future::ok((Some(reader.into_inner()), Decision::Accept(())))
+            }
+        })
 }
 
+// TODO: take in Vec<Vec<u8>>
 fuzz_target!(|data: &[u8]| {
     // Parse the input
     if data.len() < 1 {
@@ -85,7 +100,10 @@ fuzz_target!(|data: &[u8]| {
     if data.len() < 1 + num_blocks || num_blocks < 1 {
         return;
     }
-    let lengths = data[1..num_blocks].iter().map(|&x| x as usize).collect::<Vec<_>>();
+    let lengths = data[1..num_blocks]
+        .iter()
+        .map(|&x| x as usize)
+        .collect::<Vec<_>>();
     let total_len = lengths.iter().sum::<usize>();
     if data.len() < 256 + total_len {
         return;
@@ -94,7 +112,7 @@ fuzz_target!(|data: &[u8]| {
     let chunks = lengths.iter().scan(raw_data, |d, &l| {
         let res = BytesMut::from(&d[..l]);
         *d = &d[l..];
-        //println!("Sending chunk {:?}", res);
+        // println!("Sending chunk {:?}", res);
         Some(res)
     });
 

@@ -1,5 +1,7 @@
 #![no_main]
-#[macro_use] extern crate libfuzzer_sys;
+
+#[macro_use]
+extern crate libfuzzer_sys;
 
 extern crate bytes;
 extern crate smtp_message;
@@ -18,7 +20,10 @@ fuzz_target!(|data: &[u8]| {
     if data.len() < 1 + num_blocks || num_blocks < 1 {
         return;
     }
-    let lengths = data[1..num_blocks].iter().map(|&x| x as usize).collect::<Vec<_>>();
+    let lengths = data[1..num_blocks]
+        .iter()
+        .map(|&x| x as usize)
+        .collect::<Vec<_>>();
     let total_len = lengths.iter().sum::<usize>();
     if data.len() < 256 + total_len {
         return;
@@ -34,26 +39,32 @@ fuzz_target!(|data: &[u8]| {
             stream::iter_ok(lengths.iter().scan(raw_data, |d, &l| {
                 let res = BytesMut::from(&d[..l]);
                 *d = &d[l..];
-                //println!("Sending chunk {:?}", res);
+                // println!("Sending chunk {:?}", res);
                 Some(res)
             })).map_err(|()| ())
-                .prependable()
+                .prependable(),
         );
         let output = stream.by_ref().concat2().wait().ok();
         output.map(|out| (out, stream.into_inner().concat2().wait().unwrap()))
     };
 
     // Compute with a naive algorithm
-    let eof = (
-        if raw_data.get(..3) == Some(b".\r\n") {
-            Some((0, 3))
-        } else {
-            None
-        }
-    ).or_else(|| raw_data.windows(5).position(|x| x == b"\r\n.\r\n").map(|p| (p + 2, p + 5)));
+    let eof = (if raw_data.get(..3) == Some(b".\r\n") {
+        Some((0, 3))
+    } else {
+        None
+    }).or_else(|| {
+        raw_data
+            .windows(5)
+            .position(|x| x == b"\r\n.\r\n")
+            .map(|p| (p + 2, p + 5))
+    });
     let naive_result = eof.map(|(eof, rem)| {
         if eof < 2 {
-            (BytesMut::from(&raw_data[..eof]), BytesMut::from(&raw_data[rem..]))
+            (
+                BytesMut::from(&raw_data[..eof]),
+                BytesMut::from(&raw_data[rem..]),
+            )
         } else {
             let mut out = if raw_data[0] == b'.' {
                 raw_data[1..2].to_vec()
