@@ -1,4 +1,3 @@
-
 [package]
 name = "smtp-server-fuzz"
 version = "0.0.1"
@@ -21,3 +20,4 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 [[bin]]
 name = "fuzz_interact"
 path = "fuzz_targets/fuzz_interact.rs"
+test = false

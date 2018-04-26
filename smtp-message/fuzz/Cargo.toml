@@ -1,4 +1,3 @@
-
 [package]
 name = "smtp-message-fuzz"
 version = "0.0.1"
@@ -19,11 +18,14 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 [[bin]]
 name = "fuzz_command_parser"
 path = "fuzz_targets/fuzz_command_parser.rs"
+test = false
 
 [[bin]]
 name = "fuzz_reply_parser"
 path = "fuzz_targets/fuzz_reply_parser.rs"
+test = false
 
 [[bin]]
 name = "fuzz_data_parser"
 path = "fuzz_targets/fuzz_data_parser.rs"
+test = false
