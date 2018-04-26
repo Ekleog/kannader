@@ -119,6 +119,10 @@ impl<'a> Reply<'a> {
         }
     }
 
+    pub fn byte_len(&self) -> usize {
+        6 + self.line.byte_len()
+    }
+
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         let code = &[
             ((self.code.code() % 1000) / 100) as u8 + b'0',
