@@ -11,36 +11,17 @@ use bytes::BytesMut;
 use smtp_message::*;
 use tokio::prelude::*;
 
-fuzz_target!(|data: &[u8]| {
-    // Parse the input
-    if data.len() < 1 {
-        return;
-    }
-    let num_blocks = data[0] as usize;
-    if data.len() < 1 + num_blocks || num_blocks < 1 {
-        return;
-    }
-    let lengths = data[1..num_blocks]
-        .iter()
-        .map(|&x| x as usize)
-        .collect::<Vec<_>>();
-    let total_len = lengths.iter().sum::<usize>();
-    if data.len() < 256 + total_len {
-        return;
-    }
-    let raw_data = &data[256..(256 + total_len)];
-
+fuzz_target!(|data: Vec<Vec<u8>>| {
     // Compute what DataStream gives
     // `result` will hold:
     //  * None if the stream was not terminated
     //  * Some((output, remaining)) if the stream was terminated
     let result = {
         let mut stream = DataStream::new(
-            stream::iter_ok(lengths.iter().scan(raw_data, |d, &l| {
-                let res = BytesMut::from(&d[..l]);
-                *d = &d[l..];
+            stream::iter_ok(data.iter().map(|d| {
+                let res = BytesMut::from(&d[..]);
                 // println!("Sending chunk {:?}", res);
-                Some(res)
+                res
             })).map_err(|()| ())
                 .prependable(),
         );
@@ -49,6 +30,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Compute with a naive algorithm
+    let raw_data = data.into_iter().flat_map(|x| x.into_iter()).collect::<Vec<u8>>();
     let eof = (if raw_data.get(..3) == Some(b".\r\n") {
         Some((0, 3))
     } else {
