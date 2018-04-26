@@ -7,7 +7,7 @@ extern crate tokio;
 
 mod helpers;
 
-use bytes::BytesMut;
+use bytes::{BufMut, Bytes, BytesMut};
 use itertools::Itertools;
 use smtp_message::*;
 use tokio::prelude::*;
@@ -35,14 +35,12 @@ pub enum Decision<T> {
     Reject(Refusal),
 }
 
-// The streams will be read 1-by-1, so make sure they are buffered
-// TODO: Take Writer: Sink<SinkItem = Bytes, …>
 pub fn interact<
     'a,
     ReaderError,
     Reader: 'a + Stream<Item = BytesMut, Error = ReaderError>,
     WriterError,
-    Writer: Sink<SinkItem = u8, SinkError = WriterError>,
+    Writer: Sink<SinkItem = Bytes, SinkError = WriterError>,
     UserProvidedMetadata: 'a,
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
@@ -74,11 +72,13 @@ pub fn interact<
     let conn_meta = ConnectionMetadata { user: metadata };
     let writer = outgoing
         .sink_map_err(handle_writer_error)
-        .with_flat_map(|c: Reply| {
-            // TODO: actually make smtp-message's send_to work with sinks
-            let mut v = Vec::new();
-            c.send_to(&mut v).unwrap(); // and this is ugly
-            stream::iter_ok(v)
+        .with(|c: Reply| {
+            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+            c.send_to(&mut w).unwrap();
+            // By design of BytesMut::writer, this cannot fail so long as the buffer
+            // has sufficient capacity. As if this is not respected it is a clear programming
+            // error, there's no need to try and handle this cleanly.
+            future::ok(w.into_inner().freeze())
         });
     CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
         .into_future()
@@ -622,6 +622,7 @@ mod tests {
                 &handler_closure,
             ).wait()
                 .unwrap();
+            let resp = resp.into_iter().concat();
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
             assert_eq!(resp, out);
