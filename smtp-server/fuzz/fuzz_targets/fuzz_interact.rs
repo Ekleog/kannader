@@ -93,7 +93,7 @@ fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
 fuzz_target!(|data: Vec<Vec<u8>>| {
     let chunks = data.into_iter().map(|d| {
         let res = BytesMut::from(d);
-        println!("Sending chunk {:?}", res);
+        // println!("Sending chunk {:?}", res);
         res
     });
 

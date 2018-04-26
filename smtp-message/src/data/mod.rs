@@ -89,8 +89,6 @@ impl<S: Stream<Item = BytesMut>> DataStream<S> {
     }
 }
 
-// TODO: specifically fuzz DataStream, making sure it is equivalent to a
-// naively-written version or to the opposite of Sink
 impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
     type Item = BytesMut;
     type Error = S::Error;
