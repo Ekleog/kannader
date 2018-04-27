@@ -97,9 +97,11 @@ mod tests {
                 .concat2()
                 .wait()
                 .unwrap();
-            if !end_with_crlf && !input.is_empty() {
+            eprintln!("Recovered: {:?}", received);
+            if !end_with_crlf && !raw_input.is_empty() {
                 raw_input.extend_from_slice(b"\r\n");
             }
+            eprintln!("Expected: {:?}", Bytes::from(&raw_input[..]));
             received == raw_input
         }
     }
