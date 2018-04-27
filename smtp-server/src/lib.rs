@@ -1,4 +1,4 @@
-#![type_length_limit="4194304"]
+#![type_length_limit = "4194304"]
 
 // TODO: add in deadlines
 // TODO: refactor in multiple files
@@ -96,11 +96,10 @@ pub fn interact<
                 filter_to,
                 handler,
             ).and_then(|(reader, acc)| {
-                future::result(reader.ok_or(()).map(|read| {
-                    (CrlfLines::new(read), acc)
-                }))
+                future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
             })
-        }).map(|_acc| ()) // TODO: warn of unfinished commands?
+        })
+        .map(|_acc| ()) // TODO: warn of unfinished commands?
 }
 
 fn handle_line<
@@ -317,6 +316,9 @@ where
                 Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
             }
         });
+    // TODO: do not use send_all as it closes the writer, use start_send and
+    // poll_complete instead (or even refactor to move this logic into
+    // smtp_message::Reply?)
     writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
 }
 

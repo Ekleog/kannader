@@ -1,4 +1,4 @@
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use nom::crlf;
 use std::io;
 use tokio::prelude::*;
@@ -210,21 +210,20 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
     }
 }
 
+// TODO: factor DataStream and DataSink out in separate files
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum DataSinkState {
-    Start,
+    Running,
     CrPassed,
     CrLfPassed,
-    NeedsToSendDot,
 }
 
-pub struct DataSink<S: Sink<SinkItem = u8>> {
+pub struct DataSink<S: Sink<SinkItem = Bytes>> {
     sink:  S,
     state: DataSinkState,
 }
 
-// TODO: SinkItem = BytesMut
-impl<S: Sink<SinkItem = u8>> DataSink<S> {
+impl<S: Sink<SinkItem = Bytes>> DataSink<S> {
     pub fn new(sink: S) -> DataSink<S> {
         DataSink {
             sink,
@@ -232,98 +231,55 @@ impl<S: Sink<SinkItem = u8>> DataSink<S> {
         }
     }
 
-    pub fn into_inner(self) -> S {
-        self.sink
-    }
-
-    pub fn end(self) -> DataSinkFuture<S> {
+    pub fn end(self) -> impl Future<Item = S, Error = S::SinkError> {
         use self::DataSinkState::*;
-        match self.state {
-            Start => DataSinkFuture::new(self.into_inner(), b"\r\n.\r\n"),
-            CrPassed => DataSinkFuture::new(self.into_inner(), b"\r\n.\r\n"),
-            CrLfPassed => DataSinkFuture::new(self.into_inner(), b".\r\n"),
-            NeedsToSendDot => DataSinkFuture::new(self.into_inner(), b".\r\n.\r\n"),
-        }
+        let bytes = match self.state {
+            Running => Bytes::from_static(b"\r\n.\r\n"),
+            CrPassed => Bytes::from_static(b"\r\n.\r\n"),
+            CrLfPassed => Bytes::from_static(b".\r\n"),
+        };
+        self.sink.send(bytes)
     }
 }
 
-impl<S: Sink<SinkItem = u8>> Sink for DataSink<S> {
-    type SinkItem = u8;
+impl<S: Sink<SinkItem = Bytes>> Sink for DataSink<S> {
+    type SinkItem = Bytes;
     type SinkError = S::SinkError;
 
-    fn start_send(&mut self, item: u8) -> Result<AsyncSink<u8>, Self::SinkError> {
+    fn start_send(&mut self, mut item: Bytes) -> Result<AsyncSink<Bytes>, Self::SinkError> {
         use self::DataSinkState::*;
-        if self.state == NeedsToSendDot {
-            if self.sink.start_send(b'.')?.is_not_ready() {
-                return Ok(AsyncSink::NotReady(item));
+        loop {
+            let mut breakat = None;
+            for (pos, c) in item.iter().enumerate() {
+                match (self.state, c) {
+                    (_, b'\r') => self.state = CrPassed,
+                    (CrPassed, b'\n') => self.state = CrLfPassed,
+                    (CrLfPassed, b'.') => {
+                        self.state = Running;
+                        breakat = Some(pos);
+                        break;
+                    }
+                    (_, _) => self.state = Running,
+                }
             }
-            self.state = Start;
+            match breakat {
+                None => return self.sink.start_send(item),
+                Some(pos) => {
+                    // Send everything until and including the '.'
+                    if self.sink.start_send(item.slice_to(pos + 1))?.is_not_ready() {
+                        return Ok(AsyncSink::NotReady(item));
+                    }
+                    // Now send all the remaining stuff by going through the loop again
+                    // The escaping is done by the fact the '.' was already sent once, and yet left
+                    // in `item` to be sent again.
+                    item.advance(pos);
+                }
+            }
         }
-        if self.sink.start_send(item)?.is_not_ready() {
-            return Ok(AsyncSink::NotReady(item));
-        }
-        match (self.state, item) {
-            (_, b'\r') => {
-                self.state = CrPassed;
-            }
-            (CrPassed, b'\n') => {
-                self.state = CrLfPassed;
-            }
-            (CrLfPassed, b'.') => {
-                self.state = NeedsToSendDot;
-            }
-            (_, _) => {
-                self.state = Start;
-            }
-        }
-        Ok(AsyncSink::Ready)
     }
 
     fn poll_complete(&mut self) -> Result<Async<()>, Self::SinkError> {
-        if self.state == DataSinkState::NeedsToSendDot {
-            if self.sink.start_send(b'.')?.is_not_ready() {
-                return Ok(Async::NotReady);
-            }
-            self.state = DataSinkState::Start;
-        }
         self.sink.poll_complete()
-    }
-}
-
-pub struct DataSinkFuture<S: Sink<SinkItem = u8>> {
-    sink: Option<S>,
-    data: &'static [u8],
-}
-
-impl<S: Sink<SinkItem = u8>> DataSinkFuture<S> {
-    fn new(sink: S, data: &'static [u8]) -> DataSinkFuture<S> {
-        DataSinkFuture {
-            sink: Some(sink),
-            data,
-        }
-    }
-}
-
-impl<S: Sink<SinkItem = u8>> Future for DataSinkFuture<S> {
-    type Item = S;
-    type Error = S::SinkError;
-
-    fn poll(&mut self) -> Result<Async<S>, S::SinkError> {
-        use self::Async::*;
-        loop {
-            if self.data.is_empty() {
-                return Ok(Ready(self.sink.take().unwrap()));
-            }
-            let send_char = self.data[0];
-            if self.sink
-                .as_mut()
-                .map(|x| Ok(x.start_send(send_char)?.is_not_ready()))
-                .unwrap()?
-            {
-                return Ok(NotReady);
-            }
-            self.data = &self.data[1..];
-        }
     }
 }
 
@@ -393,18 +349,18 @@ mod tests {
 
     #[test]
     fn valid_data_sink() {
-        let tests: &[(&[u8], &[u8])] = &[
-            (b"foo bar", b"foo bar\r\n.\r\n"),
-            (b"", b".\r\n"),
-            (b".", b"..\r\n.\r\n"),
-            (b"foo\r", b"foo\r\r\n.\r\n"),
-            (b"foo bar\r\n", b"foo bar\r\n.\r\n"),
+        let tests: &[(&[&[u8]], &[u8])] = &[
+            (&[b"foo", b" bar"], b"foo bar\r\n.\r\n"),
+            (&[b""], b".\r\n"),
+            (&[b"."], b"..\r\n.\r\n"),
+            (&[b"foo\r"], b"foo\r\r\n.\r\n"),
+            (&[b"foo bar\r", b"\n"], b"foo bar\r\n.\r\n"),
         ];
         for &(inp, out) in tests {
             let mut v = Vec::new();
             {
                 let sink = DataSink::new(&mut v);
-                sink.send_all(stream::iter_ok(inp.iter().cloned()))
+                sink.send_all(stream::iter_ok(inp.iter().map(|x| Bytes::from(*x))))
                     .wait()
                     .unwrap()
                     .0
@@ -412,19 +368,29 @@ mod tests {
                     .wait()
                     .unwrap();
             }
-            assert_eq!(v, out.to_vec());
+            assert_eq!(
+                v.into_iter()
+                    .flat_map(|x| x.into_iter())
+                    .collect::<Vec<_>>(),
+                out.to_vec()
+            );
         }
     }
 
     quickcheck! {
-        fn data_stream_and_sink_are_compatible(end_with_crlf: bool, v: Vec<u8>) -> bool {
-            eprintln!("Got: ({:?}, {:?})", end_with_crlf, SmtpString::from(&v[..]));
-            let mut input = v;
-            if end_with_crlf && (input.len() < 2 || &input[(input.len() - 2)..] != b"\r\n") {
-                input.extend_from_slice(b"\r\n");
+        fn data_stream_and_sink_are_compatible(end_with_crlf: bool, v: Vec<Vec<u8>>) -> bool {
+            let mut input = v.into_iter().map(|x| Bytes::from(x)).collect::<Vec<_>>();
+            eprintln!("Got: ({:?}, {:?})", end_with_crlf, input);
+            let mut raw_input = input.iter().flat_map(|x| x.iter().cloned()).collect::<Vec<_>>();
+            if end_with_crlf && (raw_input.len() < 2 || &raw_input[(raw_input.len() - 2)..] != b"\r\n") {
+                raw_input.extend_from_slice(b"\r\n");
+                input.push(Bytes::from(&b"\r\n"[..]));
             }
-            if !end_with_crlf && input.len() >= 2 && &input[(input.len() - 2)..] == b"\r\n" {
-                input.pop();
+            if !end_with_crlf && raw_input.len() >= 2 && &raw_input[(raw_input.len() - 2)..] == b"\r\n" {
+                raw_input.pop();
+                let l = input.len();
+                let ll = input[l - 1].len();
+                input[l - 1].truncate(ll - 1);
             }
             let mut on_the_wire = Vec::new();
             {
@@ -437,16 +403,16 @@ mod tests {
                     .wait()
                     .unwrap();
             }
-            eprintln!("Moving on the wire: {:?}", SmtpString::from(&on_the_wire[..]));
-            let received = DataStream::new(stream::iter_ok(vec![on_the_wire].into_iter().map(BytesMut::from)).prependable())
+            eprintln!("Moving on the wire: {:?}", on_the_wire);
+            let received = DataStream::new(stream::iter_ok(on_the_wire.into_iter().map(BytesMut::from)).prependable())
                 .map_err(|()| ())
                 .concat2()
                 .wait()
                 .unwrap();
             if !end_with_crlf && !input.is_empty() {
-                input.extend_from_slice(b"\r\n");
+                raw_input.extend_from_slice(b"\r\n");
             }
-            received == input
+            received == raw_input
         }
 
         fn all_leading_dots_are_escaped(v: Vec<Vec<u8>>) -> bool {
