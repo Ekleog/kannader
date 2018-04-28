@@ -173,8 +173,15 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
             // Didn't find anything to send, so let's just gather more data from the network
             match self.source.poll()? {
                 NotReady => return Ok(NotReady),
-                Ready(None) => return Err(()),
+                // If the stream ends there, it means that we received a FIN during the stream of
+                // DATA. This is an error according to the specification, so returning an error.
+                // Now, the receive end of the pipe isn't necessarily closed, so it may be a good
+                // idea to send a message. However, RFC5321 doesn't appear to make this sort of
+                // things possible, and both OpenSMTPD and gmail appear to just answer with closing
+                // the stream in the other direction. So here we do, doing nothing in case of
+                // unexpected connection closing.
                 // TODO: print warning and/or add metadata to the error
+                Ready(None) => return Err(()),
                 Ready(Some(b)) => self.buf.unsplit(b),
             }
         }
