@@ -1,4 +1,117 @@
+use bytes::BytesMut;
+use itertools::Itertools;
 use tokio::prelude::*;
+
+use smtp_message::*;
+
+pub struct ConnectionMetadata<U> {
+    pub user: U,
+}
+
+// TODO: make pub fields private?
+// TODO: make this owned, it's a pain
+pub struct MailMetadata<'a> {
+    pub from: Option<Email<'a>>,
+    pub to:   Vec<Email<'a>>,
+}
+
+// TODO: make pub fields private?
+// TODO: merge into Decision<T>
+pub struct Refusal {
+    pub code: ReplyCode,
+    pub msg:  String, // TODO: drop in favor of SmtpString
+}
+
+pub enum Decision<T> {
+    Accept(T),
+    Reject(Refusal),
+}
+
+// Panics if `text` has a byte not in {9} \union [32; 126]
+pub fn send_reply<'a, W>(
+    writer: W,
+    code: ReplyCode,
+    text: SmtpString,
+) -> impl Future<Item = W, Error = W::SinkError> + 'a
+where
+    W: 'a + Sink<SinkItem = Reply<'a>>,
+    W::SinkError: 'a,
+{
+    // TODO: figure out a way using fewer copies
+    let replies = text.copy_chunks(Reply::MAX_LEN)
+        .into_iter()
+        .with_position()
+        .map(move |t| {
+            use itertools::Position::*;
+            match t {
+                First(t) | Middle(t) => Reply::build(code, IsLastLine::No, t).unwrap(),
+                Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
+            }
+        });
+    // TODO: do not use send_all as it closes the writer, use start_send and
+    // poll_complete instead (or even refactor to move this logic into
+    // smtp_message::Reply?)
+    writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
+}
+
+pub struct CrlfLines<S: Stream<Item = BytesMut>> {
+    source: Prependable<S>,
+    buf:    BytesMut,
+}
+
+impl<S: Stream<Item = BytesMut>> CrlfLines<S> {
+    pub fn new(s: Prependable<S>) -> CrlfLines<S> {
+        CrlfLines {
+            source: s,
+            buf:    BytesMut::new(),
+        }
+    }
+
+    pub fn into_inner(mut self) -> Prependable<S> {
+        if !self.buf.is_empty() {
+            // If this `unwrap` fails, this means that somehow:
+            //  1. The stream passed to `new` was already prepended
+            //  2. Somehow the buffer has been filled without ever pulling a single element
+            //     from the stream
+            // So, quite obviously, that'd be a programming error from here, so let's just
+            // unwrap
+            self.source.prepend(self.buf).unwrap();
+        }
+        self.source
+    }
+}
+
+impl<S: Stream<Item = BytesMut>> Stream for CrlfLines<S> {
+    type Item = BytesMut;
+    type Error = S::Error;
+
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        use self::Async::*;
+
+        // First, empty the current buffer
+        if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
+            return Ok(Ready(Some(self.buf.split_to(pos + 2))));
+        }
+
+        // Then ask for more until a complete line is found
+        loop {
+            match self.source.poll()? {
+                NotReady => return Ok(NotReady),
+                Ready(None) => return Ok(Ready(None)), // Drop self.buf
+                Ready(Some(b)) => {
+                    // TODO: implement line length limits
+                    // TODO: can do with much fewer allocations and searches through the buffer (by
+                    // not extending the buffers straightaway but storing them in a vec until the
+                    // CRLF is found, and then extending with the right size)
+                    self.buf.unsplit(b);
+                    if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
+                        return Ok(Ready(Some(self.buf.split_to(pos + 2))));
+                    }
+                }
+            }
+        }
+    }
+}
 
 pub enum FutIn11<T, E, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11>
 where
@@ -46,7 +159,7 @@ where
     type Error = E;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        use FutIn11::*;
+        use self::FutIn11::*;
         match *self {
             Fut1(ref mut f) => f.poll(),
             Fut2(ref mut f) => f.poll(),
@@ -60,5 +173,42 @@ where
             Fut10(ref mut f) => f.poll(),
             Fut11(ref mut f) => f.poll(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crlflines_looks_good() {
+        let stream = CrlfLines::new(
+            stream::iter_ok(
+                vec![
+                    &b"MAIL FROM:<foo@bar.example.org>\r\n"[..],
+                    b"RCPT TO:<baz@quux.example.org>\r\n",
+                    b"RCPT TO:<foo2@bar.example.org>\r\n",
+                    b"DATA\r\n",
+                    b"Hello World\r\n",
+                    b".\r\n",
+                    b"QUIT\r\n",
+                ].into_iter()
+                    .map(BytesMut::from),
+            ).map_err(|()| ())
+                .prependable(),
+        );
+
+        assert_eq!(
+            stream.collect().wait().unwrap(),
+            vec![
+                b"MAIL FROM:<foo@bar.example.org>\r\n".to_vec(),
+                b"RCPT TO:<baz@quux.example.org>\r\n".to_vec(),
+                b"RCPT TO:<foo2@bar.example.org>\r\n".to_vec(),
+                b"DATA\r\n".to_vec(),
+                b"Hello World\r\n".to_vec(),
+                b".\r\n".to_vec(),
+                b"QUIT\r\n".to_vec(),
+            ]
+        );
     }
 }
