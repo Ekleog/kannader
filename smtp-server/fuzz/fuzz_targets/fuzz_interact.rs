@@ -29,47 +29,11 @@ impl Sink for DiscardSink {
     }
 }
 
-fn filter_from(addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision<()> {
-    if let Some(ref addr) = addr {
-        let loc = addr.localpart();
-        let locb = loc.as_bytes();
-        if locb.len() >= 2 && locb[0] > locb[1] {
-            Decision::Accept(())
-        } else {
-            Decision::Reject(Refusal {
-                code: ReplyCode::POLICY_REASON,
-                msg:  (&"forbidden user"[..]).into(),
-            })
-        }
-    } else {
-        Decision::Accept(())
-    }
-}
-
-fn filter_to(
-    email: &Email,
-    _: &mut (),
-    _: &ConnectionMetadata<()>,
-    _: &MailMetadata,
-) -> Decision<()> {
-    let loc = email.localpart();
-    let locb = loc.as_bytes();
-    if locb.len() >= 2 && locb[0] > locb[1] {
-        Decision::Accept(())
-    } else {
-        Decision::Reject(Refusal {
-            code: ReplyCode::POLICY_REASON,
-            msg:  (&"forbidden user"[..]).into(),
-        })
-    }
-}
-
 fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
     mail: MailMetadata<'static>,
-    (): (),
     _: &ConnectionMetadata<()>,
     reader: DataStream<R>,
-) -> impl Future<Item = (Option<Prependable<R>>, Decision<()>), Error = ()> + 'a {
+) -> impl Future<Item = (Option<Prependable<R>>, Decision), Error = ()> + 'a {
     reader
         .concat_and_recover()
         .map_err(|_| ())
@@ -85,9 +49,48 @@ fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
                     }),
                 ))
             } else {
-                future::ok((Some(reader.into_inner()), Decision::Accept(())))
+                future::ok((Some(reader.into_inner()), Decision::Accept))
             }
         })
+}
+
+struct FuzzConfig {}
+
+impl smtp_server::Config<()> for FuzzConfig {
+    fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
+        if let Some(ref addr) = addr {
+            let loc = addr.localpart();
+            let locb = loc.as_bytes();
+            if locb.len() >= 2 && locb[0] > locb[1] {
+                Decision::Accept
+            } else {
+                Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg:  (&"forbidden user"[..]).into(),
+                })
+            }
+        } else {
+            Decision::Accept
+        }
+    }
+
+    fn filter_to(
+        &mut self,
+        email: &Email,
+        _: &ConnectionMetadata<()>,
+        _: &MailMetadata,
+    ) -> Decision {
+        let loc = email.localpart();
+        let locb = loc.as_bytes();
+        if locb.len() >= 2 && locb[0] > locb[1] {
+            Decision::Accept
+        } else {
+            Decision::Reject(Refusal {
+                code: ReplyCode::POLICY_REASON,
+                msg:  (&"forbidden user"[..]).into(),
+            })
+        }
+    }
 }
 
 fuzz_target!(|data: Vec<Vec<u8>>| {
@@ -100,14 +103,14 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
     // And send stuff in
     let stream = stream::iter_ok(chunks);
     let mut sink = DiscardSink {};
+    let mut cfg = FuzzConfig {};
     let _ignore_errors = interact(
         stream,
         &mut sink,
         (),
         |()| panic!(),
         |()| panic!(),
-        &filter_from,
-        &filter_to,
+        &mut cfg,
         &handler,
     ).wait();
 });

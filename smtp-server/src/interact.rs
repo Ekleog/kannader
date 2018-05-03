@@ -3,8 +3,12 @@ use tokio::prelude::*;
 
 use smtp_message::*;
 
+use config::Config;
 use helpers::*;
 
+// TODO: hoist handler to config.rs
+// TODO: remove Handle{Reader,Writer}Error that just make no sense (the user
+// could just as well map before passing us Reader and Writer)
 pub fn interact<
     'a,
     ReaderError,
@@ -14,23 +18,18 @@ pub fn interact<
     UserProvidedMetadata: 'a,
     HandleReaderError: 'a + FnMut(ReaderError) -> (),
     HandleWriterError: 'a + FnMut(WriterError) -> (),
-    State: 'a,
-    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<UserProvidedMetadata>) -> Decision<State>,
-    FilterTo: 'a
-        + Fn(&Email, &mut State, &ConnectionMetadata<UserProvidedMetadata>, &MailMetadata)
-            -> Decision<()>,
+    Cfg: 'a + Config<UserProvidedMetadata>,
     HandleMailReturn: 'a
         + Future<
             Item = (
                 Option<Prependable<stream::MapErr<Reader, HandleReaderError>>>,
-                Decision<()>,
+                Decision,
             ),
             Error = (),
         >,
     HandleMail: 'a
         + Fn(
             MailMetadata<'static>,
-            State,
             &ConnectionMetadata<UserProvidedMetadata>,
             DataStream<stream::MapErr<Reader, HandleReaderError>>,
         ) -> HandleMailReturn,
@@ -40,8 +39,7 @@ pub fn interact<
     metadata: UserProvidedMetadata,
     handle_reader_error: HandleReaderError,
     handle_writer_error: HandleWriterError,
-    filter_from: &'a FilterFrom,
-    filter_to: &'a FilterTo,
+    cfg: &'a mut Cfg,
     handler: &'a HandleMail,
 ) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
@@ -57,14 +55,7 @@ pub fn interact<
         });
     CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
         .fold_with_stream((writer, conn_meta, None), move |acc, line, reader| {
-            handle_line(
-                reader.into_inner(),
-                acc,
-                line,
-                filter_from,
-                filter_to,
-                handler,
-            ).and_then(|(reader, acc)| {
+            handle_line(reader.into_inner(), acc, line, cfg, handler).and_then(|(reader, acc)| {
                 future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
             })
         })
@@ -76,32 +67,19 @@ fn handle_line<
     U: 'a,
     Writer: 'a + Sink<SinkItem = ReplyLine<'a>, SinkError = ()>,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    State: 'a,
-    FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,
-    FilterTo: 'a + Fn(&Email, &mut State, &ConnectionMetadata<U>, &MailMetadata) -> Decision<()>,
-    HandleMailReturn: 'a + Future<Item = (Option<Prependable<Reader>>, Decision<()>), Error = ()>,
-    HandleMail: 'a
-        + Fn(MailMetadata<'static>, State, &ConnectionMetadata<U>, DataStream<Reader>)
-            -> HandleMailReturn,
+    Cfg: 'a + Config<U>,
+    HandleMailReturn: 'a + Future<Item = (Option<Prependable<Reader>>, Decision), Error = ()>,
+    HandleMail: 'a + Fn(MailMetadata<'static>, &ConnectionMetadata<U>, DataStream<Reader>) -> HandleMailReturn,
 >(
     reader: Prependable<Reader>,
-    (writer, conn_meta, mail_data): (
-        Writer,
-        ConnectionMetadata<U>,
-        Option<(MailMetadata<'static>, State)>,
-    ),
+    (writer, conn_meta, mail_data): (Writer, ConnectionMetadata<U>, Option<MailMetadata<'static>>),
     line: BytesMut,
-    filter_from: &FilterFrom,
-    filter_to: &FilterTo,
+    cfg: &mut Cfg,
     handler: &HandleMail,
 ) -> impl Future<
     Item = (
         Option<Prependable<Reader>>,
-        (
-            Writer,
-            ConnectionMetadata<U>,
-            Option<(MailMetadata<'static>, State)>,
-        ),
+        (Writer, ConnectionMetadata<U>, Option<MailMetadata<'static>>),
     ),
     Error = (),
 >
@@ -122,8 +100,8 @@ fn handle_line<
                     }),
                 )
             } else {
-                match filter_from(m.from(), &conn_meta) {
-                    Decision::Accept(state) => {
+                match cfg.filter_from(m.from(), &conn_meta) {
+                    Decision::Accept => {
                         let from = m.into_from();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
@@ -132,11 +110,7 @@ fn handle_line<
                                 |writer| {
                                     future::ok((
                                         Some(reader),
-                                        (
-                                            writer,
-                                            conn_meta,
-                                            Some((MailMetadata { from, to }, state)),
-                                        ),
+                                        (writer, conn_meta, Some(MailMetadata { from, to })),
                                     ))
                                 },
                             ),
@@ -151,9 +125,9 @@ fn handle_line<
             }
         }
         Ok(Command::Rcpt(r)) => {
-            if let Some((mail_meta, mut state)) = mail_data {
-                match filter_to(r.to(), &mut state, &conn_meta, &mail_meta) {
-                    Decision::Accept(()) => {
+            if let Some(mail_meta) = mail_data {
+                match cfg.filter_to(r.to(), &conn_meta, &mail_meta) {
+                    Decision::Accept => {
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(r.into_to());
                         // TODO: make this "Okay" configurable
@@ -162,11 +136,7 @@ fn handle_line<
                                 |writer| {
                                     future::ok((
                                         Some(reader),
-                                        (
-                                            writer,
-                                            conn_meta,
-                                            Some((MailMetadata { from, to }, state)),
-                                        ),
+                                        (writer, conn_meta, Some(MailMetadata { from, to })),
                                     ))
                                 },
                             ),
@@ -174,10 +144,7 @@ fn handle_line<
                     }
                     Decision::Reject(r) => {
                         FutIn11::Fut5(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
-                            future::ok((
-                                Some(reader),
-                                (writer, conn_meta, Some((mail_meta, state))),
-                            ))
+                            future::ok((Some(reader), (writer, conn_meta, Some(mail_meta))))
                         }))
                     }
                 }
@@ -195,12 +162,12 @@ fn handle_line<
             }
         }
         Ok(Command::Data(_)) => {
-            if let Some((mail_meta, state)) = mail_data {
+            if let Some(mail_meta) = mail_data {
                 if !mail_meta.to.is_empty() {
                     FutIn11::Fut7(
-                        handler(mail_meta, state, &conn_meta, DataStream::new(reader)).and_then(
+                        handler(mail_meta, &conn_meta, DataStream::new(reader)).and_then(
                             |(reader, decision)| match decision {
-                                Decision::Accept(()) => future::Either::A(
+                                Decision::Accept => future::Either::A(
                                     send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into())
                                         .and_then(|writer| {
                                             future::ok((reader, (writer, conn_meta, None)))
@@ -225,10 +192,7 @@ fn handle_line<
                             ReplyCode::BAD_SEQUENCE,
                             (&b"Bad sequence of commands"[..]).into(),
                         ).and_then(|writer| {
-                            future::ok((
-                                Some(reader),
-                                (writer, conn_meta, Some((mail_meta, state))),
-                            ))
+                            future::ok((Some(reader), (writer, conn_meta, Some(mail_meta))))
                         }),
                     )
                 }
@@ -272,40 +236,43 @@ mod tests {
 
     use itertools::Itertools;
 
-    fn filter_from(addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision<()> {
-        if opt_email_repr(addr) == (&b"bad@quux.example.org"[..]).into() {
-            Decision::Reject(Refusal {
-                code: ReplyCode::POLICY_REASON,
-                msg:  "User 'bad' banned".to_owned(),
-            })
-        } else {
-            Decision::Accept(())
-        }
-    }
+    struct TestConfig {}
 
-    fn filter_to(
-        email: &Email,
-        _: &mut (),
-        _: &ConnectionMetadata<()>,
-        _: &MailMetadata,
-    ) -> Decision<()> {
-        if email.localpart().as_bytes() == b"baz" {
-            Decision::Reject(Refusal {
-                code: ReplyCode::MAILBOX_UNAVAILABLE,
-                msg:  "No user 'baz'".to_owned(),
-            })
-        } else {
-            Decision::Accept(())
+    impl Config<()> for TestConfig {
+        fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
+            if opt_email_repr(addr) == (&b"bad@quux.example.org"[..]).into() {
+                Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg:  "User 'bad' banned".to_owned(),
+                })
+            } else {
+                Decision::Accept
+            }
+        }
+
+        fn filter_to(
+            &mut self,
+            email: &Email,
+            _: &ConnectionMetadata<()>,
+            _: &MailMetadata,
+        ) -> Decision {
+            if email.localpart().as_bytes() == b"baz" {
+                Decision::Reject(Refusal {
+                    code: ReplyCode::MAILBOX_UNAVAILABLE,
+                    msg:  "No user 'baz'".to_owned(),
+                })
+            } else {
+                Decision::Accept
+            }
         }
     }
 
     fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
         meta: MailMetadata<'static>,
-        (): (),
         _: &ConnectionMetadata<()>,
         reader: DataStream<R>,
         mails: &'a Cell<Vec<(Option<Email<'a>>, Vec<Email<'a>>, BytesMut)>>,
-    ) -> impl Future<Item = (Option<Prependable<R>>, Decision<()>), Error = ()> + 'a {
+    ) -> impl Future<Item = (Option<Prependable<R>>, Decision), Error = ()> + 'a {
         reader
             .concat_and_recover()
             .map_err(|_| ())
@@ -322,7 +289,7 @@ mod tests {
                     let mut m = mails.take();
                     m.push((meta.from, meta.to, mail_text));
                     mails.set(m);
-                    future::ok((Some(reader.into_inner()), Decision::Accept(())))
+                    future::ok((Some(reader.into_inner()), Decision::Accept))
                 }
             })
     }
@@ -420,17 +387,17 @@ mod tests {
                     .collect::<Vec<&str>>()
             );
             let stream = stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)));
+            let mut cfg = TestConfig {};
             let mut resp = Vec::new();
             let mut resp_mail = Cell::new(Vec::new());
-            let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
+            let handler_closure = |a, b: &_, c| handler(a, b, c, &resp_mail);
             interact(
                 stream,
                 &mut resp,
                 (),
                 |()| (),
                 |()| (),
-                &filter_from,
-                &filter_to,
+                &mut cfg,
                 &handler_closure,
             ).wait()
                 .unwrap();
@@ -468,17 +435,17 @@ mod tests {
                                 DATA\r\n\
                                 hello"];
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
+        let mut cfg = TestConfig {};
         let mut resp = Vec::new();
         let resp_mail = Cell::new(Vec::new());
-        let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
+        let handler_closure = |a, b: &_, c| handler(a, b, c, &resp_mail);
         let res = interact(
             stream,
             &mut resp,
             (),
             |()| (),
             |()| (),
-            &|_: &_, _: &_| Decision::Accept(()),
-            &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
+            &mut cfg,
             &handler_closure,
         ).wait();
         assert!(res.is_err());
@@ -542,16 +509,16 @@ mod tests {
         ];
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
         let mut resp = Vec::new();
+        let mut cfg = TestConfig {};
         let resp_mail = Cell::new(Vec::new());
-        let handler_closure = |a, b, c: &_, d| handler(a, b, c, d, &resp_mail);
+        let handler_closure = |a, b: &_, c| handler(a, b, c, &resp_mail);
         interact(
             stream,
             &mut resp,
             (),
             |()| (),
             |()| (),
-            &|_: &_, _: &_| Decision::Accept(()),
-            &|_: &_, _: &mut _, _: &_, _: &_| Decision::Accept(()),
+            &mut cfg,
             &handler_closure,
         ).wait()
             .unwrap();

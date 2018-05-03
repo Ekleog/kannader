@@ -22,8 +22,8 @@ pub struct Refusal {
     pub msg:  String, // TODO: drop in favor of SmtpString
 }
 
-pub enum Decision<T> {
-    Accept(T),
+pub enum Decision {
+    Accept,
     Reject(Refusal),
 }
 
