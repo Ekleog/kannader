@@ -4,8 +4,8 @@
 extern crate libfuzzer_sys;
 extern crate smtp_message;
 
-use smtp_message::Reply;
+use smtp_message::ReplyLine;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = Reply::parse(data);
+    let _ = ReplyLine::parse(data);
 });

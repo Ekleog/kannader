@@ -45,14 +45,16 @@ pub fn interact<
     handler: &'a HandleMail,
 ) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
-    let writer = outgoing.sink_map_err(handle_writer_error).with(|c: Reply| {
-        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-        c.send_to(&mut w).unwrap();
-        // By design of BytesMut::writer, this cannot fail so long as the buffer
-        // has sufficient capacity. As if this is not respected it is a clear
-        // programming error, there's no need to try and handle this cleanly.
-        future::ok(w.into_inner().freeze())
-    });
+    let writer = outgoing
+        .sink_map_err(handle_writer_error)
+        .with(|c: ReplyLine| {
+            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+            c.send_to(&mut w).unwrap();
+            // By design of BytesMut::writer, this cannot fail so long as the buffer
+            // has sufficient capacity. As if this is not respected it is a clear
+            // programming error, there's no need to try and handle this cleanly.
+            future::ok(w.into_inner().freeze())
+        });
     CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
         .fold_with_stream((writer, conn_meta, None), move |acc, line, reader| {
             handle_line(
@@ -72,7 +74,7 @@ pub fn interact<
 fn handle_line<
     'a,
     U: 'a,
-    Writer: 'a + Sink<SinkItem = Reply<'a>, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = ReplyLine<'a>, SinkError = ()>,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
     State: 'a,
     FilterFrom: 'a + Fn(&Option<Email>, &ConnectionMetadata<U>) -> Decision<State>,

@@ -54,22 +54,24 @@ pub enum IsLastLine {
     No,
 }
 
+// TODO: introduce a Reply helper for handling multi-line replies
+
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct Reply<'a> {
+pub struct ReplyLine<'a> {
     code:    ReplyCode,
     is_last: IsLastLine,
     line:    SmtpString<'a>,
 }
 
-impl<'a> Reply<'a> {
+impl<'a> ReplyLine<'a> {
     pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
 
     pub fn build(
         code: ReplyCode,
         is_last: IsLastLine,
         line: SmtpString,
-    ) -> Result<Reply, BuildError> {
+    ) -> Result<ReplyLine, BuildError> {
         if line.byte_len() > Self::MAX_LEN {
             Err(BuildError::LineTooLong {
                 length: line.byte_len(),
@@ -83,7 +85,7 @@ impl<'a> Reply<'a> {
                 pos: p,
             })
         } else {
-            Ok(Reply {
+            Ok(ReplyLine {
                 code,
                 is_last,
                 line,
@@ -91,19 +93,19 @@ impl<'a> Reply<'a> {
         }
     }
 
-    pub fn take_ownership<'b>(self) -> Reply<'b> {
-        Reply {
+    pub fn take_ownership<'b>(self) -> ReplyLine<'b> {
+        ReplyLine {
             code:    self.code,
             is_last: self.is_last,
             line:    self.line.take_ownership(),
         }
     }
 
-    pub fn borrow<'b>(&'b self) -> Reply<'b>
+    pub fn borrow<'b>(&'b self) -> ReplyLine<'b>
     where
         'a: 'b,
     {
-        Reply {
+        ReplyLine {
             code:    self.code,
             is_last: self.is_last,
             line:    self.line.borrow(),
@@ -111,7 +113,7 @@ impl<'a> Reply<'a> {
     }
 
     // Parse one line of SMTP reply
-    pub fn parse(arg: &[u8]) -> Result<(Reply, &[u8]), ParseError> {
+    pub fn parse(arg: &[u8]) -> Result<(ReplyLine, &[u8]), ParseError> {
         match reply(arg) {
             IResult::Done(rem, res) => Ok((res, rem)),
             IResult::Error(e) => Err(ParseError::ParseError(e)),
@@ -140,7 +142,7 @@ impl<'a> Reply<'a> {
     }
 }
 
-named!(pub reply(&[u8]) -> Reply, do_parse!(
+named!(pub reply(&[u8]) -> ReplyLine, do_parse!(
     code: map!(
         verify!(
             map_res!(
@@ -153,7 +155,7 @@ named!(pub reply(&[u8]) -> Reply, do_parse!(
     ) >>
     is_last: map!(alt!(tag!("-") | tag!(" ")), |b| if b == b" " { IsLastLine::Yes } else { IsLastLine::No }) >>
     line: take_until_and_consume!("\r\n") >>
-    (Reply { code, is_last, line: line.into() })
+    (ReplyLine { code, is_last, line: line.into() })
 ));
 
 #[cfg(test)]
@@ -162,14 +164,14 @@ mod tests {
 
     #[test]
     fn reply_not_last() {
-        let r = Reply::build(
+        let r = ReplyLine::build(
             ReplyCode::SERVICE_READY,
             IsLastLine::No,
             (&b"hello world!"[..]).into(),
         ).unwrap();
         assert_eq!(
             r,
-            Reply {
+            ReplyLine {
                 code:    ReplyCode { code: 220 },
                 is_last: IsLastLine::No,
                 line:    (&b"hello world!"[..]).into(),
@@ -183,14 +185,14 @@ mod tests {
 
     #[test]
     fn reply_last() {
-        let r = Reply::build(
+        let r = ReplyLine::build(
             ReplyCode::COMMAND_UNIMPLEMENTED,
             IsLastLine::Yes,
             (&b"test"[..]).into(),
         ).unwrap();
         assert_eq!(
             r,
-            Reply {
+            ReplyLine {
                 code:    ReplyCode { code: 502 },
                 is_last: IsLastLine::Yes,
                 line:    (&b"test"[..]).into(),
@@ -205,14 +207,14 @@ mod tests {
     #[test]
     fn refuse_build() {
         assert!(
-            Reply::build(
+            ReplyLine::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::Yes,
                 vec![b'a'; 1000].into(),
             ).is_err()
         );
         assert!(
-            Reply::build(
+            ReplyLine::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::No,
                 (&b"\r"[..]).into()
@@ -222,10 +224,10 @@ mod tests {
 
     #[test]
     fn parse_ok() {
-        let tests: &[(&[u8], Reply)] = &[
+        let tests: &[(&[u8], ReplyLine)] = &[
             (
                 b"250 All is well\r\n",
-                Reply {
+                ReplyLine {
                     code:    ReplyCode { code: 250 },
                     is_last: IsLastLine::Yes,
                     line:    (&b"All is well"[..]).into(),
@@ -233,7 +235,7 @@ mod tests {
             ),
             (
                 b"450-Temporary\r\n",
-                Reply {
+                ReplyLine {
                     code:    ReplyCode { code: 450 },
                     is_last: IsLastLine::No,
                     line:    (&b"Temporary"[..]).into(),
@@ -241,7 +243,7 @@ mod tests {
             ),
             (
                 b"354-Please do start input now\r\n",
-                Reply {
+                ReplyLine {
                     code:    ReplyCode { code: 354 },
                     is_last: IsLastLine::No,
                     line:    (&b"Please do start input now"[..]).into(),
@@ -249,7 +251,7 @@ mod tests {
             ),
             (
                 b"550 Something is really very wrong!\r\n",
-                Reply {
+                ReplyLine {
                     code:    ReplyCode { code: 550 },
                     is_last: IsLastLine::Yes,
                     line:    (&b"Something is really very wrong!"[..]).into(),

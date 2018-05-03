@@ -34,23 +34,23 @@ pub fn send_reply<'a, W>(
     text: SmtpString,
 ) -> impl Future<Item = W, Error = W::SinkError> + 'a
 where
-    W: 'a + Sink<SinkItem = Reply<'a>>,
+    W: 'a + Sink<SinkItem = ReplyLine<'a>>,
     W::SinkError: 'a,
 {
     // TODO: figure out a way using fewer copies
-    let replies = text.copy_chunks(Reply::MAX_LEN)
+    let replies = text.copy_chunks(ReplyLine::MAX_LEN)
         .into_iter()
         .with_position()
         .map(move |t| {
             use itertools::Position::*;
             match t {
-                First(t) | Middle(t) => Reply::build(code, IsLastLine::No, t).unwrap(),
-                Last(t) | Only(t) => Reply::build(code, IsLastLine::Yes, t).unwrap(),
+                First(t) | Middle(t) => ReplyLine::build(code, IsLastLine::No, t).unwrap(),
+                Last(t) | Only(t) => ReplyLine::build(code, IsLastLine::Yes, t).unwrap(),
             }
         });
     // TODO: do not use send_all as it closes the writer, use start_send and
     // poll_complete instead (or even refactor to move this logic into
-    // smtp_message::Reply?)
+    // smtp_message::ReplyLine?)
     writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
 }
 
