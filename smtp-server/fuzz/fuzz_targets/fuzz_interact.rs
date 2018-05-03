@@ -29,31 +29,6 @@ impl Sink for DiscardSink {
     }
 }
 
-fn handler<'a, R: 'a + Stream<Item = BytesMut, Error = ()>>(
-    mail: MailMetadata<'static>,
-    _: &ConnectionMetadata<()>,
-    reader: DataStream<R>,
-) -> impl Future<Item = (Option<Prependable<R>>, Decision), Error = ()> + 'a {
-    reader
-        .concat_and_recover()
-        .map_err(|_| ())
-        .and_then(move |(_, reader)| {
-            if mail.to.len() > 3 {
-                // This is stupid, please use filter_to instead if you're not just willing to
-                // fuzz
-                future::ok((
-                    Some(reader.into_inner()),
-                    Decision::Reject(Refusal {
-                        code: ReplyCode::POLICY_REASON,
-                        msg:  (&"Too many recipients!"[..]).into(),
-                    }),
-                ))
-            } else {
-                future::ok((Some(reader.into_inner()), Decision::Accept))
-            }
-        })
-}
-
 struct FuzzConfig {}
 
 impl smtp_server::Config<()> for FuzzConfig {
@@ -77,8 +52,8 @@ impl smtp_server::Config<()> for FuzzConfig {
     fn filter_to(
         &mut self,
         email: &Email,
-        _: &ConnectionMetadata<()>,
         _: &MailMetadata,
+        _: &ConnectionMetadata<()>,
     ) -> Decision {
         let loc = email.localpart();
         let locb = loc.as_bytes();
@@ -90,6 +65,35 @@ impl smtp_server::Config<()> for FuzzConfig {
                 msg:  (&"forbidden user"[..]).into(),
             })
         }
+    }
+
+    fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
+        &'a mut self,
+        reader: DataStream<S>,
+        mail: MailMetadata<'static>,
+        _: &ConnectionMetadata<()>,
+    ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>> {
+        Box::new(
+            reader
+                .concat_and_recover()
+                .map_err(|_| ())
+                .and_then(move |(_, reader)| {
+                    if mail.to.len() > 3 {
+                        // This is stupid, please use filter_to instead if you're not just willing
+                        // to fuzz
+                        future::ok((
+                            self,
+                            Some(reader.into_inner()),
+                            Decision::Reject(Refusal {
+                                code: ReplyCode::POLICY_REASON,
+                                msg:  (&"Too many recipients!"[..]).into(),
+                            }),
+                        ))
+                    } else {
+                        future::ok((self, Some(reader.into_inner()), Decision::Accept))
+                    }
+                }),
+        )
     }
 }
 
@@ -111,6 +115,5 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         |()| panic!(),
         |()| panic!(),
         &mut cfg,
-        &handler,
     ).wait();
 });
