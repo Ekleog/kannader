@@ -33,7 +33,7 @@ script: |
     cargo tarpaulin --out Xml
   elif [ -n "$CHECK_FORMAT" ]; then
     rustfmt --version
-    cargo +nightly fmt --all -- --write-mode=diff
+    cargo +nightly fmt --all -- --write-mode=check
   else
     cargo build --all --all-features
     cargo test --all --all-features
