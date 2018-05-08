@@ -1,15 +1,16 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct HelpCommand<'a> {
-    subject: SmtpString<'a>,
+pub struct HelpCommand {
+    subject: SmtpString,
 }
 
-impl<'a> HelpCommand<'a> {
+impl HelpCommand {
     pub fn new(subject: SmtpString) -> HelpCommand {
         HelpCommand { subject }
     }
@@ -20,29 +21,25 @@ impl<'a> HelpCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"HELP ")?;
-        w.write_all(self.subject.as_bytes())?;
+        w.write_all(&self.subject.bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> HelpCommand<'b> {
-        HelpCommand {
-            subject: self.subject.take_ownership(),
-        }
     }
 }
 
-named!(pub command_help_args(&[u8]) -> HelpCommand, do_parse!(
+named!(pub command_help_args(ByteSlice) -> HelpCommand, do_parse!(
     eat_spaces >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (HelpCommand {
-        subject: res.into(),
+        subject: res.promote().into(),
     })
 ));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bytes::Bytes;
     use nom::*;
 
     #[test]
@@ -68,7 +65,11 @@ mod tests {
             ),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_help_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_help_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

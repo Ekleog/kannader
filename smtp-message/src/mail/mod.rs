@@ -1,46 +1,27 @@
 use nom::crlf;
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct MailCommand<'a> {
-    from:   Option<Email<'a>>,
-    params: Option<SpParameters<'a>>,
+pub struct MailCommand {
+    pub from:   Option<Email>,
+    pub params: Option<SpParameters>,
 }
 
-impl<'a> MailCommand<'a> {
-    pub fn new<'b>(from: Option<Email<'b>>, params: Option<SpParameters<'b>>) -> MailCommand<'b> {
+impl MailCommand {
+    pub fn new(from: Option<Email>, params: Option<SpParameters>) -> MailCommand {
         MailCommand { from, params }
     }
 
-    pub fn from(&self) -> &Option<Email> {
-        &self.from
-    }
-
-    pub fn into_from(self) -> Option<Email<'a>> {
-        self.from
-    }
-
-    pub fn params(&self) -> &Option<SpParameters> {
-        &self.params
-    }
-
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
-        let address = self.from.as_ref().map(|x| x.as_smtp_string());
         w.write_all(b"MAIL FROM:<")?;
-        w.write_all(address.as_ref().map(|x| x.as_bytes()).unwrap_or(b""))?;
+        w.write_all(&opt_email_repr(&self.from).bytes()[..])?;
         w.write_all(b">\r\n")
         // TODO: also send parameters
-    }
-
-    pub fn take_ownership<'b>(self) -> MailCommand<'b> {
-        MailCommand {
-            from:   self.from.map(|x| x.take_ownership()),
-            params: self.params.map(|x| x.take_ownership()),
-        }
     }
 }
 
@@ -53,12 +34,12 @@ impl<'a> MailCommand<'a> {
 // So this is not in strict compliance with the RFC, but will likely turn out
 // to be better for interoperability. If you have a use case for strict
 // compliance with the RFC, please by all means submit an issue.
-named!(pub command_mail_args(&[u8]) -> MailCommand,
+named!(pub command_mail_args(ByteSlice) -> MailCommand,
     sep!(eat_spaces, do_parse!(
         tag_no_case!("FROM:") >>
         from: alt!(
             map!(tag!("<>"), |_| None) |
-            map!(address_in_maybe_bracketed_path, |x| Some(x.0))
+            map!(address_in_maybe_bracketed_path, |x| Some(x))
         ) >>
         sp: opt!(preceded!(tag!("SP"), sp_parameters)) >>
         crlf >>
@@ -73,6 +54,7 @@ named!(pub command_mail_args(&[u8]) -> MailCommand,
 mod tests {
     use super::*;
 
+    use bytes::Bytes;
     use nom::IResult;
 
     #[test]
@@ -81,22 +63,14 @@ mod tests {
             (
                 &b" FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
-                    from:   Some(
-                        Email::parse(&(&b"foo@bar.baz"[..]).into())
-                            .unwrap()
-                            .take_ownership(),
-                    ),
+                    from:   Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
                     params: None,
                 },
             ),
             (
                 &b"FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
-                    from:   Some(
-                        Email::parse(&(&b"quux@example.net"[..]).into())
-                            .unwrap()
-                            .take_ownership(),
-                    ),
+                    from:   Some(Email::parse_slice(b"quux@example.net").unwrap()),
                     params: None,
                 },
             ),
@@ -111,7 +85,7 @@ mod tests {
                 &b"FROM:<> SP hello=world SP foo\r\n"[..],
                 MailCommand {
                     from:   None,
-                    params: Some(SpParameters::new(
+                    params: Some(SpParameters(
                         vec![
                             ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
                             ((b"foo"[..]).into(), None),
@@ -122,31 +96,28 @@ mod tests {
             ),
         ];
         for (s, r) in tests.into_iter() {
-            let res = command_mail_args(s);
-            let exp = IResult::Done(&b""[..], r);
-            println!("Parsing {:?}: {:?}, expected {:?}", s, res, exp);
-            assert_eq!(res, exp);
+            let b = Bytes::from(s);
+            match command_mail_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn incomplete_args() {
-        assert!(command_mail_args(b" FROM:<foo@bar.com").is_incomplete());
-        assert!(command_mail_args(b" FROM:foo@bar.com").is_incomplete());
+        let b = Bytes::from(&b" FROM:<foo@bar.com"[..]);
+        assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
+        let b = Bytes::from(&b" FROM:foo@bar.com"[..]);
+        assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
     }
 
     // TODO: quickcheck parse = generate for all
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(
-            Some(
-                Email::parse(&(&b"foo@bar.baz"[..]).into())
-                    .unwrap()
-                    .take_ownership(),
-            ),
-            None,
-        ).send_to(&mut v)
+        MailCommand::new(Some(Email::parse_slice(b"foo@bar.baz").unwrap()), None)
+            .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 

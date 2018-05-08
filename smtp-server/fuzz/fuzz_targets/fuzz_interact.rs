@@ -35,7 +35,7 @@ impl smtp_server::Config<()> for FuzzConfig {
     fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
         if let Some(ref addr) = addr {
             let loc = addr.localpart();
-            let locb = loc.as_bytes();
+            let locb = loc.bytes();
             if locb.len() >= 2 && locb[0] > locb[1] {
                 Decision::Accept
             } else {
@@ -56,7 +56,7 @@ impl smtp_server::Config<()> for FuzzConfig {
         _: &ConnectionMetadata<()>,
     ) -> Decision {
         let loc = email.localpart();
-        let locb = loc.as_bytes();
+        let locb = loc.bytes();
         if locb.len() >= 2 && locb[0] > locb[1] {
             Decision::Accept
         } else {
@@ -70,7 +70,7 @@ impl smtp_server::Config<()> for FuzzConfig {
     fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
         &'a mut self,
         reader: DataStream<S>,
-        mail: MailMetadata<'static>,
+        mail: MailMetadata,
         _: &ConnectionMetadata<()>,
     ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>> {
         Box::new(

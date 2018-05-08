@@ -49,7 +49,7 @@ pub fn interact<
 fn handle_line<
     'a,
     U: 'a,
-    Writer: 'a + Sink<SinkItem = ReplyLine<'a>, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = ReplyLine, SinkError = ()>,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
     Cfg: 'a + Config<U>,
 >(
@@ -58,7 +58,7 @@ fn handle_line<
         &'a mut Cfg,
         Writer,
         ConnectionMetadata<U>,
-        Option<MailMetadata<'static>>,
+        Option<MailMetadata>,
     ),
     line: BytesMut,
 ) -> impl Future<
@@ -68,16 +68,18 @@ fn handle_line<
             &'a mut Cfg,
             Writer,
             ConnectionMetadata<U>,
-            Option<MailMetadata<'static>>,
+            Option<MailMetadata>,
         ),
     ),
     Error = (),
 >
          + 'a {
-    // TODO: is this take_ownership actually required?
-    let cmd = Command::parse(&line).map(|x| x.take_ownership());
+    let cmd = Command::parse(line.freeze());
     match cmd {
-        Ok(Command::Mail(m)) => {
+        Ok(Command::Mail(MailCommand {
+            from,
+            params: _params,
+        })) => {
             if mail_data.is_some() {
                 // TODO: make the message configurable
                 FutIn11::Fut1(
@@ -90,9 +92,8 @@ fn handle_line<
                     }),
                 )
             } else {
-                match cfg.filter_from(m.from(), &conn_meta) {
+                match cfg.filter_from(&from, &conn_meta) {
                     Decision::Accept => {
-                        let from = m.into_from();
                         let to = Vec::new();
                         // TODO: make this "Okay" configurable
                         FutIn11::Fut2(
@@ -114,12 +115,12 @@ fn handle_line<
                 }
             }
         }
-        Ok(Command::Rcpt(r)) => {
+        Ok(Command::Rcpt(RcptCommand { to: rcpt_to })) => {
             if let Some(mail_meta) = mail_data {
-                match cfg.filter_to(r.to(), &mail_meta, &conn_meta) {
+                match cfg.filter_to(&rcpt_to, &mail_meta, &conn_meta) {
                     Decision::Accept => {
                         let MailMetadata { from, mut to } = mail_meta;
-                        to.push(r.into_to());
+                        to.push(rcpt_to);
                         // TODO: make this "Okay" configurable
                         FutIn11::Fut4(
                             send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
@@ -133,7 +134,7 @@ fn handle_line<
                         )
                     }
                     Decision::Reject(r) => {
-                        FutIn11::Fut5(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                        FutIn11::Fut5(send_reply(writer, r.code, r.msg).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }))
                     }
@@ -225,16 +226,16 @@ mod tests {
 
     use itertools::Itertools;
 
-    struct TestConfig<'a> {
-        mails: Vec<(Option<Email<'a>>, Vec<Email<'a>>, BytesMut)>,
+    struct TestConfig {
+        mails: Vec<(Option<Email>, Vec<Email>, BytesMut)>,
     }
 
-    impl<'b> Config<()> for TestConfig<'b> {
+    impl Config<()> for TestConfig {
         fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
             if opt_email_repr(addr) == (&b"bad@quux.example.org"[..]).into() {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
-                    msg:  "User 'bad' banned".to_owned(),
+                    msg:  "User 'bad' banned".into(),
                 })
             } else {
                 Decision::Accept
@@ -247,10 +248,10 @@ mod tests {
             _: &MailMetadata,
             _: &ConnectionMetadata<()>,
         ) -> Decision {
-            if email.localpart().as_bytes() == b"baz" {
+            if email.localpart().bytes() == &b"baz"[..] {
                 Decision::Reject(Refusal {
                     code: ReplyCode::MAILBOX_UNAVAILABLE,
-                    msg:  "No user 'baz'".to_owned(),
+                    msg:  "No user 'baz'".into(),
                 })
             } else {
                 Decision::Accept
@@ -260,7 +261,7 @@ mod tests {
         fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
             &'a mut self,
             reader: DataStream<S>,
-            meta: MailMetadata<'static>,
+            meta: MailMetadata,
             _: &ConnectionMetadata<()>,
         ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>>
         where
@@ -275,7 +276,7 @@ mod tests {
                             Some(reader.into_inner()),
                             Decision::Reject(Refusal {
                                 code: ReplyCode::POLICY_REASON,
-                                msg:  "Don't you dare say 'World'!".to_owned(),
+                                msg:  "Don't you dare say 'World'!".into(),
                             }),
                         ))
                     } else {
@@ -395,13 +396,11 @@ mod tests {
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
                 println!("Mail\n---");
                 let fo = fo.map(SmtpString::from);
-                let fr = fr.map(|x| x.as_smtp_string());
+                let fr = fr.map(|x| x.as_string());
                 println!("From: expected {:?}, got {:?}", fo, fr);
                 assert_eq!(fo, fr);
                 let to_smtp = to.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>();
-                let tr_smtp = tr.into_iter()
-                    .map(|x| x.into_smtp_string())
-                    .collect::<Vec<_>>();
+                let tr_smtp = tr.into_iter().map(|x| x.as_string()).collect::<Vec<_>>();
                 println!("To: expected {:?}, got {:?}", to_smtp, tr_smtp);
                 assert_eq!(to_smtp, tr_smtp);
                 println!("Expected text\n--\n{}--", std::str::from_utf8(co).unwrap());

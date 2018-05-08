@@ -4,6 +4,7 @@ mod stream;
 use nom::crlf;
 use std::io;
 
+use byteslice::ByteSlice;
 use parse_helpers::*;
 
 pub use self::{sink::*, stream::*};
@@ -29,7 +30,7 @@ impl DataCommand {
     }
 }
 
-named!(pub command_data_args(&[u8]) -> DataCommand, do_parse!(
+named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
     eat_spaces >> crlf >>
     (DataCommand { _useless: () })
 ));
@@ -48,10 +49,11 @@ mod tests {
     fn valid_command_data_args() {
         let tests = vec![&b" \t  \t \r\n"[..], &b"\r\n"[..]];
         for test in tests.into_iter() {
-            assert_eq!(
-                command_data_args(test),
-                IResult::Done(&b""[..], DataCommand { _useless: () })
-            );
+            let b = Bytes::from(test);
+            match command_data_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, DataCommand { _useless: () }) if rem.len() == 0 => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

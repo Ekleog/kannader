@@ -1,15 +1,16 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct NoopCommand<'a> {
-    string: SmtpString<'a>,
+pub struct NoopCommand {
+    string: SmtpString,
 }
 
-impl<'a> NoopCommand<'a> {
+impl NoopCommand {
     pub fn new(string: SmtpString) -> NoopCommand {
         NoopCommand { string }
     }
@@ -20,29 +21,25 @@ impl<'a> NoopCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"NOOP ")?;
-        w.write_all(self.string.as_bytes())?;
+        w.write_all(&self.string.bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> NoopCommand<'b> {
-        NoopCommand {
-            string: self.string.take_ownership(),
-        }
     }
 }
 
-named!(pub command_noop_args(&[u8]) -> NoopCommand, do_parse!(
+named!(pub command_noop_args(ByteSlice) -> NoopCommand, do_parse!(
     eat_spaces >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (NoopCommand {
-        string: res.into(),
+        string: res.promote().into(),
     })
 ));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bytes::Bytes;
     use nom::*;
 
     #[test]
@@ -68,7 +65,11 @@ mod tests {
             ),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_noop_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_noop_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

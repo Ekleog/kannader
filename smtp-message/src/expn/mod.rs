@@ -1,14 +1,15 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct ExpnCommand<'a> {
-    name: SmtpString<'a>,
+pub struct ExpnCommand {
+    name: SmtpString,
 }
 
-impl<'a> ExpnCommand<'a> {
+impl ExpnCommand {
     pub fn new(name: SmtpString) -> ExpnCommand {
         ExpnCommand { name }
     }
@@ -19,28 +20,24 @@ impl<'a> ExpnCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"EXPN ")?;
-        w.write_all(self.name.as_bytes())?;
+        w.write_all(&self.name.bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> ExpnCommand<'b> {
-        ExpnCommand {
-            name: self.name.take_ownership(),
-        }
     }
 }
 
-named!(pub command_expn_args(&[u8]) -> ExpnCommand, do_parse!(
+named!(pub command_expn_args(ByteSlice) -> ExpnCommand, do_parse!(
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (ExpnCommand {
-        name: res.into(),
+        name: res.promote().into(),
     })
 ));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bytes::*;
     use nom::*;
 
     #[test]
@@ -52,7 +49,11 @@ mod tests {
             },
         )];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_expn_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_expn_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

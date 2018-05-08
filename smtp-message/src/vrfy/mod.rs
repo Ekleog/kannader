@@ -1,14 +1,15 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct VrfyCommand<'a> {
-    name: SmtpString<'a>,
+pub struct VrfyCommand {
+    name: SmtpString,
 }
 
-impl<'a> VrfyCommand<'a> {
+impl VrfyCommand {
     pub fn new(name: SmtpString) -> VrfyCommand {
         VrfyCommand { name }
     }
@@ -19,28 +20,24 @@ impl<'a> VrfyCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"VRFY ")?;
-        w.write_all(self.name.as_bytes())?;
+        w.write_all(&self.name.bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> VrfyCommand<'b> {
-        VrfyCommand {
-            name: self.name.take_ownership(),
-        }
     }
 }
 
-named!(pub command_vrfy_args(&[u8]) -> VrfyCommand, do_parse!(
+named!(pub command_vrfy_args(ByteSlice) -> VrfyCommand, do_parse!(
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (VrfyCommand {
-        name: res.into(),
+        name: res.promote().into(),
     })
 ));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bytes::Bytes;
     use nom::*;
 
     #[test]
@@ -52,7 +49,11 @@ mod tests {
             },
         )];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_vrfy_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_vrfy_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

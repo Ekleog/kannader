@@ -1,5 +1,7 @@
+use bytes::Bytes;
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 
 use data::*;
@@ -16,40 +18,23 @@ use vrfy::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub enum Command<'a> {
-    Data(DataCommand),     // DATA <CRLF>
-    Ehlo(EhloCommand<'a>), // EHLO <domain> <CRLF>
-    Expn(ExpnCommand<'a>), // EXPN <name> <CRLF>
-    Helo(HeloCommand<'a>), // HELO <domain> <CRLF>
-    Help(HelpCommand<'a>), // HELP [<subject>] <CRLF>
-    Mail(MailCommand<'a>), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
-    Noop(NoopCommand<'a>), // NOOP [<string>] <CRLF>
-    Quit(QuitCommand),     // QUIT <CRLF>
-    Rcpt(RcptCommand<'a>), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
-    Rset(RsetCommand),     // RSET <CRLF>
-    Vrfy(VrfyCommand<'a>), // VRFY <name> <CRLF>
+pub enum Command {
+    Data(DataCommand), // DATA <CRLF>
+    Ehlo(EhloCommand), // EHLO <domain> <CRLF>
+    Expn(ExpnCommand), // EXPN <name> <CRLF>
+    Helo(HeloCommand), // HELO <domain> <CRLF>
+    Help(HelpCommand), // HELP [<subject>] <CRLF>
+    Mail(MailCommand), // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
+    Noop(NoopCommand), // NOOP [<string>] <CRLF>
+    Quit(QuitCommand), // QUIT <CRLF>
+    Rcpt(RcptCommand), // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rset(RsetCommand), // RSET <CRLF>
+    Vrfy(VrfyCommand), // VRFY <name> <CRLF>
 }
 
-impl<'a> Command<'a> {
-    pub fn parse(arg: &[u8]) -> Result<Command, ParseError> {
-        nom_to_result(command(arg))
-    }
-
-    pub fn take_ownership<'b>(self) -> Command<'b> {
-        use Command::*;
-        match self {
-            Data(c) => Data(c.take_ownership()),
-            Ehlo(c) => Ehlo(c.take_ownership()),
-            Expn(c) => Expn(c.take_ownership()),
-            Helo(c) => Helo(c.take_ownership()),
-            Help(c) => Help(c.take_ownership()),
-            Mail(c) => Mail(c.take_ownership()),
-            Noop(c) => Noop(c.take_ownership()),
-            Quit(c) => Quit(c.take_ownership()),
-            Rcpt(c) => Rcpt(c.take_ownership()),
-            Rset(c) => Rset(c.take_ownership()),
-            Vrfy(c) => Vrfy(c.take_ownership()),
-        }
+impl Command {
+    pub fn parse(arg: Bytes) -> Result<Command, ParseError> {
+        nom_to_result(command(ByteSlice::from(&arg)))
     }
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
@@ -69,7 +54,7 @@ impl<'a> Command<'a> {
     }
 }
 
-named!(pub command(&[u8]) -> Command, alt!(
+named!(command(ByteSlice) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
     map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |
@@ -164,10 +149,10 @@ mod tests {
                 &b"MAIL FROM:<hello@world.example>\r\n"[..],
                 Box::new(|x| {
                     if let Command::Mail(r) = x {
-                        r.from()
-                            == &Some(Email::new(
+                        r.from
+                            == Some(Email::new(
                                 (&b"hello"[..]).into(),
-                                Some(Domain::new((&b"world.example"[..]).into()).unwrap()),
+                                Some(Domain::parse_slice(&b"world.example"[..]).unwrap()),
                             ))
                     } else {
                         false
@@ -198,9 +183,8 @@ mod tests {
                 &b"rCpT To: foo@bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
-                        r.to().raw_localpart().as_bytes() == b"foo"
-                            && r.to().hostname()
-                                == &Some(Domain::new((&b"bar.baz"[..]).into()).unwrap())
+                        r.to.raw_localpart().bytes() == &b"foo"[..]
+                            && r.to.hostname() == &Some(Domain::parse_slice(b"bar.baz").unwrap())
                     } else {
                         false
                     }
@@ -210,9 +194,8 @@ mod tests {
                 &b"RCPT to:<@foo.bar,@bar.baz:baz@quux.foo>\r\n"[..],
                 Box::new(|x| {
                     if let Command::Rcpt(r) = x {
-                        r.to().raw_localpart().as_bytes() == b"baz"
-                            && r.to().hostname()
-                                == &Some(Domain::new((&b"quux.foo"[..]).into()).unwrap())
+                        r.to.raw_localpart().bytes() == &b"baz"[..]
+                            && r.to.hostname() == &Some(Domain::parse_slice(b"quux.foo").unwrap())
                     } else {
                         false
                     }
@@ -250,7 +233,8 @@ mod tests {
             ),
         ];
         for (s, r) in tests.into_iter() {
-            assert!(r(command(s).unwrap().1));
+            let b = Bytes::from(s);
+            assert!(r(command(ByteSlice::from(&b)).unwrap().1));
         }
     }
 

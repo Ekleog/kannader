@@ -10,6 +10,7 @@ extern crate tokio;
 #[macro_use]
 extern crate quickcheck;
 
+mod byteslice;
 mod helpers;
 mod parse_helpers;
 
@@ -28,6 +29,7 @@ mod vrfy;
 mod command;
 mod reply;
 
+pub use byteslice::ByteSlice;
 pub use command::Command;
 pub use helpers::{opt_email_repr, Email, ParseError, Prependable, SmtpString, StreamExt};
 pub use reply::{IsLastLine, ReplyCode, ReplyLine};

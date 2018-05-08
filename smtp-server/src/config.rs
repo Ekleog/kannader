@@ -20,7 +20,7 @@ pub trait Config<U> {
     fn handle_mail<'a, S>(
         &'a mut self,
         stream: DataStream<S>,
-        meta: MailMetadata<'static>,
+        meta: MailMetadata,
         conn_meta: &ConnectionMetadata<U>,
     ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>>
     where

@@ -1,16 +1,17 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct EhloCommand<'a> {
-    domain: Domain<'a>,
+pub struct EhloCommand {
+    domain: Domain,
 }
 
-impl<'a> EhloCommand<'a> {
-    pub fn new<'b>(domain: Domain<'b>) -> EhloCommand<'b> {
+impl EhloCommand {
+    pub fn new(domain: Domain) -> EhloCommand {
         EhloCommand { domain }
     }
 
@@ -20,18 +21,12 @@ impl<'a> EhloCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"EHLO ")?;
-        w.write_all(self.domain.as_bytes())?;
+        w.write_all(&self.domain.as_string().bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> EhloCommand<'b> {
-        EhloCommand {
-            domain: self.domain.take_ownership(),
-        }
     }
 }
 
-named!(pub command_ehlo_args(&[u8]) -> EhloCommand,
+named!(pub command_ehlo_args(ByteSlice) -> EhloCommand,
     sep!(eat_spaces, do_parse!(
         domain: hostname >>
         tag!("\r\n") >>
@@ -45,39 +40,42 @@ named!(pub command_ehlo_args(&[u8]) -> EhloCommand,
 mod tests {
     use super::*;
 
+    use bytes::Bytes;
     use nom::IResult;
 
     #[test]
     fn valid_command_ehlo_args() {
         let tests = vec![
-            (
-                &b" \t hello.world \t \r\n"[..],
-                EhloCommand {
-                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
-                },
-            ),
-            (
-                &b"hello.world\r\n"[..],
-                EhloCommand {
-                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
-                },
-            ),
+            (&b" \t hello.world \t \r\n"[..], b"hello.world"),
+            (&b"hello.world\r\n"[..], b"hello.world"),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_ehlo_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_ehlo_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, EhloCommand { ref domain })
+                    if rem.len() == 0 && domain.as_string().bytes() == &Bytes::from(&r[..]) =>
+                {
+                    ()
+                }
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn valid_builds() {
         let mut v = Vec::new();
-        EhloCommand::new(Domain::new((&b"test.foo.bar"[..]).into()).unwrap())
+        let b = Bytes::from(&b"test.foo.bar"[..]);
+        EhloCommand::new(Domain::new(ByteSlice::from(&b)).unwrap())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"EHLO test.foo.bar\r\n");
 
-        assert!(Domain::new((&b"test."[..]).into()).is_err());
-        assert!(Domain::new((&b"test.foo.bar "[..]).into()).is_err());
-        assert!(Domain::new((&b"-test.foo.bar"[..]).into()).is_err());
+        let b = Bytes::from(&b"test."[..]);
+        assert!(Domain::new((&b).into()).is_err());
+        let b = Bytes::from(&b"test.foo.bar "[..]);
+        assert!(Domain::new((&b).into()).is_err());
+        let b = Bytes::from(&b"-test.foo.bar"[..]);
+        assert!(Domain::new((&b).into()).is_err());
     }
 }

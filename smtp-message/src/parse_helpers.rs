@@ -1,6 +1,7 @@
-use std::collections::HashMap;
-
+use byteslice::ByteSlice;
 use helpers::*;
+
+// TODO: This file should not exist. Every function should find a better home.
 
 macro_rules! alpha_lower {
     () => {
@@ -43,51 +44,51 @@ macro_rules! graph_except_equ {
     };
 }
 
-named!(pub hostname(&[u8]) -> Domain,
-    map!(alt!(
-        recognize!(preceded!(tag!("["), take_until_and_consume!("]"))) |
-        recognize!(separated_nonempty_list_complete!(tag!("."),
-                       preceded!(one_of!(alnum!()),
-                                 opt!(is_a!(concat!(alnum!(), "-"))))))
-    ), |x| new_domain_exclusively_for_parse_helpers_do_not_use(x.into()))
+named!(pub hostname(ByteSlice) -> Domain,
+    alt!(
+        map!(recognize!(preceded!(tag!("["), take_until_and_consume!("]"))),
+             |x| new_domain_unchecked(SmtpString::from(x.promote()))) |
+        map!(recognize!(
+                separated_nonempty_list_complete!(tag!("."),
+                    preceded!(one_of!(alnum!()),
+                              opt!(is_a!(concat!(alnum!(), "-")))))),
+             |x| new_domain_unchecked(SmtpString::from(x.promote())))
+    )
 );
 
-named!(dot_string(&[u8]) -> &[u8], recognize!(
+named!(dot_string(ByteSlice) -> ByteSlice, recognize!(
     separated_nonempty_list_complete!(tag!("."), is_a!(atext!()))
 ));
 
 // See RFC 5321 § 4.1.2
-named!(quoted_string(&[u8]) -> &[u8], recognize!(do_parse!(
+named!(quoted_string(ByteSlice) -> ByteSlice, recognize!(do_parse!(
     tag!("\"") >>
     many0!(alt!(
-        preceded!(tag!("\\"), verify!(take!(1), |x: &[u8]| 32 <= x[0] && x[0] <= 126)) |
-        verify!(take!(1), |x: &[u8]| 32 <= x[0] && x[0] != 34 && x[0] != 92 && x[0] <= 126)
+        preceded!(tag!("\\"), verify!(take!(1), |x: ByteSlice| 32 <= x[0] && x[0] <= 126)) |
+        verify!(take!(1), |x: ByteSlice| 32 <= x[0] && x[0] != 34 && x[0] != 92 && x[0] <= 126)
     )) >>
     tag!("\"") >>
     ()
 )));
 
-named!(localpart(&[u8]) -> &[u8], alt!(quoted_string | dot_string));
+named!(localpart(ByteSlice) -> ByteSlice, alt!(quoted_string | dot_string));
 
-named!(pub email(&[u8]) -> Email, do_parse!(
+named!(pub email(ByteSlice) -> Email, do_parse!(
     local: localpart >>
     host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
-    (Email::new(local.into(), host))
+    (Email::new(local.promote().into(), host))
 ));
 
-named!(address_in_path(&[u8]) -> (Email, &[u8]), do_parse!(
+named!(address_in_path(ByteSlice) -> Email, preceded!(
     opt!(do_parse!(
         separated_list!(tag!(","), do_parse!(tag!("@") >> hostname >> ())) >>
         tag!(":") >>
         ()
-    )) >>
-    res: peek!(email) >>
-    s: recognize!(email) >>
-    (res, s)
+    )),
+    email
 ));
 
-// TODO: return only Email? (and above too)
-named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
+named!(pub address_in_maybe_bracketed_path(ByteSlice) -> Email,
     alt!(
         do_parse!(
             tag!("<") >>
@@ -99,28 +100,9 @@ named!(pub address_in_maybe_bracketed_path(&[u8]) -> (Email, &[u8]),
     )
 );
 
-named!(pub eat_spaces, eat_separator!(" \t"));
+named!(pub eat_spaces(ByteSlice) -> ByteSlice, eat_separator!(" \t"));
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
-pub struct SpParameters<'a>(HashMap<SmtpString<'a>, Option<SmtpString<'a>>>);
-
-impl<'a> SpParameters<'a> {
-    pub fn new<'b>(v: HashMap<SmtpString<'b>, Option<SmtpString<'b>>>) -> SpParameters<'b> {
-        SpParameters(v)
-    }
-
-    pub fn take_ownership<'b>(self) -> SpParameters<'b> {
-        SpParameters(
-            self.0
-                .into_iter()
-                .map(|(k, v)| (k.take_ownership(), v.map(|x| x.take_ownership())))
-                .collect(),
-        )
-    }
-}
-
-named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
+named!(pub sp_parameters(ByteSlice) -> SpParameters, do_parse!(
     params: separated_nonempty_list_complete!(
         do_parse!(
             many1!(one_of!(" \t")) >>
@@ -132,7 +114,7 @@ named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
             eat_spaces >>
             key: recognize!(preceded!(one_of!(alnum!()), opt!(is_a!(alnumdash!())))) >>
             value: opt!(complete!(preceded!(tag!("="), is_a!(graph_except_equ!())))) >>
-            (key.into(), value.map(SmtpString::from))
+            (key.promote().into(), value.map(|x| x.promote().into()))
         )
     ) >>
     (SpParameters(params.into_iter().collect()))
@@ -140,8 +122,11 @@ named!(pub sp_parameters(&[u8]) -> SpParameters, do_parse!(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use bytes::Bytes;
     use nom::*;
-    use parse_helpers::*;
+    use std::collections::HashMap;
 
     #[test]
     fn valid_hostnames() {
@@ -153,20 +138,24 @@ mod tests {
             &b"[IPv6:0::ffff:8.7.6.5]"[..],
         ];
         for test in tests {
-            assert_eq!(
-                hostname(test).map(|x| x.into_bytes()),
-                IResult::Done(&b""[..], test.to_vec())
-            );
+            let b = Bytes::from(*test);
+            let parsed = hostname(ByteSlice::from(&b)).map(|x| x.as_string().bytes().clone());
+            println!("Test: {:?}, parse result: {:?}", b, parsed);
+            match parsed {
+                IResult::Done(rem, bb) => assert!(rem.len() == 0 && *bb == b),
+                x => panic!("Unexpected hostname result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn partial_hostnames() {
         let tests: &[(&[u8], &[u8])] = &[(b"foo.-bar.baz", b"foo"), (b"foo.bar.-baz", b"foo.bar")];
-        for test in tests {
+        for (from, to) in tests {
+            let b = Bytes::from(*from);
             assert_eq!(
-                hostname(test.0).unwrap().1,
-                new_domain_exclusively_for_parse_helpers_do_not_use(test.1.into())
+                hostname(ByteSlice::from(&b)).unwrap().1,
+                new_domain_unchecked((*to).into())
             );
         }
     }
@@ -175,20 +164,22 @@ mod tests {
     fn invalid_hostnames() {
         let tests: &[&[u8]] = &[b"-foo.bar"];
         for test in tests {
-            println!("{:?}", hostname(test));
-            assert!(hostname(test).is_err());
+            let b = Bytes::from(*test);
+            let r = hostname(ByteSlice::from(&b));
+            println!("{:?}", r);
+            assert!(r.is_err());
         }
     }
 
     #[test]
     fn valid_dot_strings() {
-        let tests: &[&[u8]] = &[
-            // Adding an '@' so that tests do not return Incomplete
-            b"helloooo",
-            b"test.ing",
-        ];
+        let tests: &[&[u8]] = &[b"helloooo", b"test.ing"];
         for test in tests {
-            assert_eq!(dot_string(test), IResult::Done(&b""[..], &test[..]));
+            let b = Bytes::from(*test);
+            match dot_string(ByteSlice::from(&b)) {
+                IResult::Done(rem, res) if rem.len() == 0 && res.promote() == b => (),
+                x => panic!("Unexpected dot_string result: {:?}", x),
+            }
         }
     }
 
@@ -200,32 +191,38 @@ mod tests {
             br#""\"escapes\", useless like h\ere, except for quotes and \\backslashes""#,
         ];
         for test in tests {
-            assert_eq!(quoted_string(test), IResult::Done(&b""[..], *test));
+            let b = Bytes::from(*test);
+            match quoted_string(ByteSlice::from(&b)) {
+                IResult::Done(rem, res) if rem.len() == 0 && res.promote() == b => (),
+                x => panic!("Unexpected quoted_string result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn valid_emails() {
-        let tests: Vec<(&[u8], Email)> = vec![
+        let tests: Vec<(&[u8], (&[u8], Option<&[u8]>))> = vec![
             (
                 b"t+e-s.t_i+n-g@foo.bar.baz",
-                Email::new(
-                    (&b"t+e-s.t_i+n-g"[..]).into(),
-                    Some(Domain::new((&b"foo.bar.baz"[..]).into()).unwrap()),
-                ),
+                (b"t+e-s.t_i+n-g", Some(b"foo.bar.baz")),
             ),
             (
                 br#""quoted\"example"@example.org"#,
-                Email::new(
-                    (&br#""quoted\"example""#[..]).into(),
-                    Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
-                ),
+                (br#""quoted\"example""#, Some(b"example.org")),
             ),
-            (b"postmaster", Email::new((&b"postmaster"[..]).into(), None)),
-            (b"test", Email::new((&b"test"[..]).into(), None)),
+            (b"postmaster", (b"postmaster", None)),
+            (b"test", (b"test", None)),
         ];
-        for (s, r) in tests.into_iter() {
-            assert_eq!(email(s), IResult::Done(&b""[..], r));
+        for (s, (l, h)) in tests.into_iter() {
+            let b = Bytes::from(s);
+            let r = Email::new(
+                SmtpString::from(l),
+                h.map(|x| new_domain_unchecked(SmtpString::from(x))),
+            );
+            match email(ByteSlice::from(&b)) {
+                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                x => panic!("Unexpected quoted_string result: {:?}", x),
+            }
         }
     }
 
@@ -240,96 +237,66 @@ mod tests {
             ),
         ];
         for (s, r) in tests {
-            assert_eq!(email(s).unwrap().1.localpart().as_bytes(), r);
+            let b = Bytes::from(s);
+            assert_eq!(email(ByteSlice::from(&b)).unwrap().1.localpart().bytes(), r);
         }
     }
 
     #[test]
     fn invalid_localpart() {
-        assert!(email(b"@foo.bar").is_err());
+        let b = Bytes::from_static(b"@foo.bar");
+        assert!(email(ByteSlice::from(&b)).is_err());
     }
 
     #[test]
     fn valid_addresses_in_paths() {
-        let tests: Vec<(&[u8], (Email, &[u8]))> = vec![
+        let tests: Vec<(&[u8], (&[u8], &[u8]))> = vec![
             (
                 b"@foo.bar,@baz.quux:test@example.org",
-                (
-                    Email::new(
-                        (&b"test"[..]).into(),
-                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
-                    ),
-                    b"test@example.org",
-                ),
+                (b"test", b"example.org"),
             ),
-            (
-                b"foo.bar@baz.quux",
-                (
-                    Email::new(
-                        (&b"foo.bar"[..]).into(),
-                        Some(Domain::new((&b"baz.quux"[..]).into()).unwrap()),
-                    ),
-                    b"foo.bar@baz.quux",
-                ),
-            ),
+            (b"foo.bar@baz.quux", (b"foo.bar", b"baz.quux")),
         ];
-        for (inp, out) in tests.into_iter() {
-            assert_eq!(address_in_path(inp), IResult::Done(&b""[..], out));
+        for (inp, (local, host)) in tests.into_iter() {
+            let b = Bytes::from(inp);
+            match address_in_path(ByteSlice::from(&b)) {
+                IResult::Done(rem, res) => assert!(
+                    rem.len() == 0 && res.raw_localpart().bytes() == local
+                        && res.hostname().clone().unwrap().as_string().bytes().clone() == host
+                ),
+                x => panic!("Unexpected address_in_path result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
-        let tests: &[(&[u8], (Email, &[u8]))] = &[
+        let tests: &[(&[u8], (&[u8], Option<&[u8]>))] = &[
             (
                 b"@foo.bar,@baz.quux:test@example.org",
-                (
-                    Email::new(
-                        (&b"test"[..]).into(),
-                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
-                    ),
-                    b"test@example.org",
-                ),
+                (b"test", Some(b"example.org")),
             ),
             (
                 b"<@foo.bar,@baz.quux:test@example.org>",
-                (
-                    Email::new(
-                        (&b"test"[..]).into(),
-                        Some(Domain::new((&b"example.org"[..]).into()).unwrap()),
-                    ),
-                    b"test@example.org",
-                ),
+                (b"test", Some(b"example.org")),
             ),
-            (
-                b"<foo@bar.baz>",
-                (
-                    Email::new(
-                        (&b"foo"[..]).into(),
-                        Some(Domain::new((&b"bar.baz"[..]).into()).unwrap()),
-                    ),
-                    b"foo@bar.baz",
-                ),
-            ),
-            (
-                b"foo@bar.baz",
-                (
-                    Email::new(
-                        (&b"foo"[..]).into(),
-                        Some(Domain::new((&b"bar.baz"[..]).into()).unwrap()),
-                    ),
-                    b"foo@bar.baz",
-                ),
-            ),
-            (
-                b"foobar",
-                (Email::new((&b"foobar"[..]).into(), None), b"foobar"),
-            ),
+            (b"<foo@bar.baz>", (b"foo", Some(b"bar.baz"))),
+            (b"foo@bar.baz", (b"foo", Some(b"bar.baz"))),
+            (b"foobar", (b"foobar", None)),
         ];
-        for (inp, out) in tests {
+        for (inp, (local, host)) in tests {
+            let b = Bytes::from(*inp);
+            let res = match address_in_maybe_bracketed_path(ByteSlice::from(&b)) {
+                IResult::Done(rem, res) => {
+                    assert!(rem.len() == 0);
+                    res
+                }
+                x => panic!("Didn't parse address_in_maybe_bracketed_path: {:?}", x),
+            };
+            assert_eq!(res.raw_localpart().bytes(), local);
             assert_eq!(
-                address_in_maybe_bracketed_path(inp),
-                IResult::Done(&b""[..], (out.0.borrow(), out.1))
+                res.hostname().clone().map(|h| h.clone()),
+                host.map(|x| new_domain_unchecked(SmtpString::from(Bytes::from(x))))
             );
         }
     }
@@ -356,12 +323,12 @@ mod tests {
                 &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))],
             ),
         ];
-        for test in tests {
-            let res = sp_parameters(test.0);
+        for (inp, out) in tests {
+            let b = Bytes::from(*inp);
+            let res = sp_parameters(ByteSlice::from(&b));
             let (rem, res) = res.unwrap();
-            assert_eq!(rem, b"");
-            let res_reference = test.1
-                .iter()
+            assert_eq!(&rem[..], b"");
+            let res_reference = out.iter()
                 .map(|(a, b)| ((*a).into(), b.map(|x| x.into())))
                 .collect::<HashMap<_, _>>();
             assert_eq!(res.0, res_reference);

@@ -1,16 +1,17 @@
 use std::io;
 
+use byteslice::ByteSlice;
 use helpers::*;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
-pub struct HeloCommand<'a> {
-    domain: Domain<'a>,
+pub struct HeloCommand {
+    domain: Domain,
 }
 
-impl<'a> HeloCommand<'a> {
-    pub fn new<'b>(domain: Domain<'b>) -> HeloCommand<'b> {
+impl HeloCommand {
+    pub fn new(domain: Domain) -> HeloCommand {
         HeloCommand { domain }
     }
 
@@ -20,18 +21,12 @@ impl<'a> HeloCommand<'a> {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"HELO ")?;
-        w.write_all(self.domain.as_bytes())?;
+        w.write_all(&self.domain.as_string().bytes()[..])?;
         w.write_all(b"\r\n")
-    }
-
-    pub fn take_ownership<'b>(self) -> HeloCommand<'b> {
-        HeloCommand {
-            domain: self.domain.take_ownership(),
-        }
     }
 }
 
-named!(pub command_helo_args(&[u8]) -> HeloCommand,
+named!(pub command_helo_args(ByteSlice) -> HeloCommand,
     sep!(eat_spaces, do_parse!(
         domain: hostname >>
         tag!("\r\n") >>
@@ -45,37 +40,40 @@ named!(pub command_helo_args(&[u8]) -> HeloCommand,
 mod tests {
     use super::*;
 
+    use bytes::Bytes;
     use nom::IResult;
+
+    // TODO: merge implementation and tests for EHLO/HELO, NOOP/VRFY, etc.
 
     #[test]
     fn valid_command_helo_args() {
         let tests = vec![
-            (
-                &b" \t hello.world \t \r\n"[..],
-                HeloCommand {
-                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
-                },
-            ),
-            (
-                &b"hello.world\r\n"[..],
-                HeloCommand {
-                    domain: Domain::new((&b"hello.world"[..]).into()).unwrap(),
-                },
-            ),
+            (&b" \t hello.world \t \r\n"[..], &b"hello.world"[..]),
+            (&b"hello.world\r\n"[..], &b"hello.world"[..]),
         ];
         for (s, r) in tests.into_iter() {
-            assert_eq!(command_helo_args(s), IResult::Done(&b""[..], r));
+            let b = Bytes::from(s);
+            match command_helo_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, HeloCommand { ref domain })
+                    if rem.len() == 0 && domain.as_string().bytes() == &Bytes::from(&r[..]) =>
+                {
+                    ()
+                }
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        HeloCommand::new(Domain::new(SmtpString::from(&b"test.example.org"[..])).unwrap())
+        let b = Bytes::from(&b"test.example.org"[..]);
+        HeloCommand::new(Domain::new(ByteSlice::from(&b)).unwrap())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"HELO test.example.org\r\n");
 
-        assert!(Domain::new((&b"test."[..]).into()).is_err());
+        let b = Bytes::from(&b"test."[..]);
+        assert!(Domain::new((&b).into()).is_err());
     }
 }

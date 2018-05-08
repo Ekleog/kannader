@@ -1,8 +1,13 @@
+use bytes::Bytes;
 use nom::{self, IResult, Needed};
-use std::{borrow::Cow, fmt, mem, ops::Deref, slice};
+use std::{cmp::min, collections::HashMap, fmt, mem, ops::Deref, slice};
 use tokio::prelude::*;
 
+// TODO: grep for '::*' and try to rationalize imports
+use byteslice::ByteSlice;
 use parse_helpers::*;
+
+// TODO: This file should not exist. Every function should find a better home.
 
 #[derive(Fail, Debug, Clone)]
 pub enum ParseError {
@@ -11,10 +16,13 @@ pub enum ParseError {
     IncompleteString(Needed),
 }
 
-pub fn nom_to_result<'a, T>(d: nom::IResult<&'a [u8], T>) -> Result<T, ParseError> {
+pub fn nom_to_result<T>(d: nom::IResult<ByteSlice, T>) -> Result<T, ParseError> {
     match d {
-        IResult::Done(b"", res) => Ok(res),
-        IResult::Done(rem, _) => Err(ParseError::DidNotConsumeEverything(rem.len())),
+        IResult::Done(rem, res) => if rem.len() == 0 {
+            Ok(res)
+        } else {
+            Err(ParseError::DidNotConsumeEverything(rem.len()))
+        },
         IResult::Error(e) => Err(ParseError::ParseError(e)),
         IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
     }
@@ -58,45 +66,30 @@ impl fmt::Display for BuildError {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
-pub struct SmtpString<'a>(Cow<'a, [u8]>);
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SmtpString(Bytes);
 
-impl<'a> From<&'a [u8]> for SmtpString<'a> {
-    fn from(t: &'a [u8]) -> SmtpString<'a> {
-        SmtpString(Cow::from(t))
+impl From<Bytes> for SmtpString {
+    fn from(b: Bytes) -> SmtpString {
+        SmtpString(b)
     }
 }
 
-impl<'a> From<Vec<u8>> for SmtpString<'a> {
-    fn from(t: Vec<u8>) -> SmtpString<'a> {
-        SmtpString(Cow::from(t))
+// TODO: specialize for 'static or remove?
+impl<'a> From<&'a [u8]> for SmtpString {
+    fn from(b: &'a [u8]) -> SmtpString {
+        SmtpString(Bytes::from(b))
     }
 }
 
-impl<'a> From<&'a str> for SmtpString<'a> {
-    fn from(s: &'a str) -> SmtpString<'a> {
-        SmtpString(Cow::from(s.as_bytes()))
+// TODO: specialize for 'static or remove?
+impl<'a> From<&'a str> for SmtpString {
+    fn from(s: &'a str) -> SmtpString {
+        SmtpString(Bytes::from(s.as_bytes()))
     }
 }
 
-impl<'a> From<String> for SmtpString<'a> {
-    fn from(s: String) -> SmtpString<'a> {
-        SmtpString(Cow::from(s.into_bytes()))
-    }
-}
-
-impl<'a> SmtpString<'a> {
-    pub fn take_ownership<'b>(self) -> SmtpString<'b> {
-        SmtpString(Cow::from(self.0.into_owned()))
-    }
-
-    pub fn borrow<'b>(&'b self) -> SmtpString<'b>
-    where
-        'a: 'b,
-    {
-        SmtpString(Cow::from(&*self.0))
-    }
-
+impl SmtpString {
     pub fn iter_bytes(&self) -> slice::Iter<u8> {
         self.0.iter()
     }
@@ -109,109 +102,74 @@ impl<'a> SmtpString<'a> {
         self.0[pos]
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &Bytes {
         &self.0
     }
 
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.0.into_owned()
-    }
-
-    pub fn copy_chunks<'b>(&self, bytes: usize) -> Vec<SmtpString<'b>> {
-        let mut res = Vec::with_capacity((self.byte_len() + bytes - 1) / bytes);
-        let mut it = self.0.iter().cloned();
-        for _ in 0..((self.byte_len() + bytes - 1) / bytes) {
-            res.push(it.by_ref().take(bytes).collect::<Vec<_>>().into());
-        }
-        res
+    pub fn byte_chunks(&self, bytes: usize) -> impl Iterator<Item = SmtpString> {
+        let copy = self.0.clone();
+        (0..(self.byte_len() + bytes - 1) / bytes)
+            .map(move |i| SmtpString(copy.slice(i * bytes, min(copy.len(), (i + 1) * bytes))))
     }
 }
 
-impl<'a> fmt::Debug for SmtpString<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "b\"{}\"",
-            self.0
-                .iter()
-                .flat_map(|x| char::from(*x).escape_default())
-                .collect::<String>()
-        )
-    }
-}
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct SpParameters(pub HashMap<SmtpString, Option<SmtpString>>);
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
-pub struct Domain<'a>(SmtpString<'a>); // TODO: split between IP and DNS
+#[derive(Clone, Debug)]
+pub struct Domain(SmtpString); // TODO: split between IP and DNS
 
-impl<'a> Domain<'a> {
-    pub fn new(domain: SmtpString) -> Result<Domain, ParseError> {
-        nom_to_result(hostname(domain.as_bytes()))?;
-        Ok(Domain(domain))
+impl Domain {
+    pub fn new(domain: ByteSlice) -> Result<Domain, ParseError> {
+        nom_to_result(hostname(domain))
     }
 
-    pub fn take_ownership<'b>(self) -> Domain<'b> {
-        Domain(self.0.take_ownership())
+    pub fn parse_slice(b: &[u8]) -> Result<Domain, ParseError> {
+        let b = Bytes::from(b);
+        nom_to_result(hostname(ByteSlice::from(&b)))
     }
 
-    pub fn borrow<'b>(&'b self) -> Domain<'b>
-    where
-        'a: 'b,
-    {
-        Domain(self.0.borrow())
-    }
-
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.0.into_bytes()
-    }
-}
-
-pub fn new_domain_exclusively_for_parse_helpers_do_not_use(domain: SmtpString) -> Domain {
-    Domain(domain)
-}
-
-impl<'a> Deref for Domain<'a> {
-    type Target = SmtpString<'a>;
-
-    fn deref(&self) -> &SmtpString<'a> {
+    pub fn as_string(&self) -> &SmtpString {
         &self.0
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
-pub struct Email<'a> {
-    localpart: SmtpString<'a>,
-    hostname:  Option<Domain<'a>>, // TODO: use Domain here
+impl Deref for Domain {
+    type Target = SmtpString;
+
+    fn deref(&self) -> &SmtpString {
+        &self.0
+    }
 }
 
-impl<'a> Email<'a> {
-    pub fn new<'b>(localpart: SmtpString<'b>, hostname: Option<Domain<'b>>) -> Email<'b> {
+pub fn new_domain_unchecked(s: SmtpString) -> Domain {
+    Domain(s)
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub struct Email {
+    localpart: SmtpString,
+    hostname:  Option<Domain>,
+}
+
+impl Email {
+    pub fn new(localpart: SmtpString, hostname: Option<Domain>) -> Email {
         Email {
             localpart,
             hostname,
         }
     }
 
-    pub fn parse<'b>(s: &'b SmtpString<'b>) -> Result<Email<'b>, ParseError> {
-        nom_to_result(email(s.as_bytes()))
+    pub fn parse(b: ByteSlice) -> Result<Email, ParseError> {
+        nom_to_result(email(b))
     }
 
-    pub fn take_ownership<'b>(self) -> Email<'b> {
-        Email {
-            localpart: self.localpart.take_ownership(),
-            hostname:  self.hostname.map(|x| x.take_ownership()),
-        }
-    }
-
-    pub fn borrow<'b>(&'b self) -> Email<'b>
-    where
-        'a: 'b,
-    {
-        Email {
-            localpart: self.localpart.borrow(),
-            hostname:  self.hostname.as_ref().map(|x| x.borrow()),
-        }
+    pub fn parse_slice(b: &[u8]) -> Result<Email, ParseError> {
+        let b = Bytes::from(b);
+        nom_to_result(email(ByteSlice::from(&b)))
     }
 
     pub fn raw_localpart(&self) -> &SmtpString {
@@ -224,7 +182,7 @@ impl<'a> Email<'a> {
     // designed to be sent over the wire as it is no longer correctly quoted
     pub fn localpart(&self) -> SmtpString {
         if self.localpart.byte(0) != b'"' {
-            self.localpart.borrow()
+            self.localpart.clone()
         } else {
             #[derive(Copy, Clone)]
             enum State {
@@ -252,7 +210,7 @@ impl<'a> Email<'a> {
                 .filter_map(|x| x)
                 .collect::<Vec<u8>>();
             assert_eq!(res.pop().unwrap(), b'"');
-            res.into()
+            SmtpString::from(Bytes::from(res))
         }
     }
 
@@ -260,28 +218,21 @@ impl<'a> Email<'a> {
         &self.hostname
     }
 
-    pub fn into_smtp_string<'b>(self) -> SmtpString<'b> {
-        let mut res = self.localpart.into_bytes();
-        if let Some(host) = self.hostname {
-            res.push(b'@');
-            res.extend_from_slice(host.as_bytes());
-        }
-        res.into()
-    }
-
-    pub fn as_smtp_string<'b>(&self) -> SmtpString<'b> {
-        let mut res = self.localpart.borrow().into_bytes();
-        if let Some(host) = self.hostname.as_ref().map(|x| x.borrow()) {
-            res.push(b'@');
-            res.extend_from_slice(host.as_bytes());
+    // TODO: actually store just the overall string and a pointer to the @, not two
+    // separate fields
+    pub fn as_string(&self) -> SmtpString {
+        let mut res = self.localpart.bytes().clone();
+        if let Some(ref host) = self.hostname {
+            res.extend_from_slice(b"@");
+            res.extend_from_slice(&host.as_string().bytes()[..]);
         }
         res.into()
     }
 }
 
-pub fn opt_email_repr<'a>(e: &Option<Email>) -> SmtpString<'a> {
+pub fn opt_email_repr(e: &Option<Email>) -> SmtpString {
     if let &Some(ref e) = e {
-        e.as_smtp_string()
+        e.as_string()
     } else {
         (&b""[..]).into()
     }

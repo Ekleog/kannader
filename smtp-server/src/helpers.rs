@@ -4,28 +4,31 @@ use tokio::prelude::*;
 
 use smtp_message::*;
 
+// TODO: find a better home for all this stuff
+
 pub struct ConnectionMetadata<U> {
     pub user: U,
 }
 
 // TODO: make pub fields private?
-// TODO: make this owned, it's a pain
-pub struct MailMetadata<'a> {
-    pub from: Option<Email<'a>>,
-    pub to:   Vec<Email<'a>>,
+pub struct MailMetadata {
+    pub from: Option<Email>,
+    pub to:   Vec<Email>,
 }
 
 // TODO: make pub fields private?
 // TODO: merge into Decision<T>
 pub struct Refusal {
     pub code: ReplyCode,
-    pub msg:  String, // TODO: drop in favor of SmtpString
+    pub msg:  SmtpString,
 }
 
 pub enum Decision {
     Accept,
     Reject(Refusal),
 }
+
+// TODO: try removing as much lifetimes as possible from the whole mess
 
 // Panics if `text` has a byte not in {9} \union [32; 126]
 pub fn send_reply<'a, W>(
@@ -34,12 +37,10 @@ pub fn send_reply<'a, W>(
     text: SmtpString,
 ) -> impl Future<Item = W, Error = W::SinkError> + 'a
 where
-    W: 'a + Sink<SinkItem = ReplyLine<'a>>,
+    W: 'a + Sink<SinkItem = ReplyLine>,
     W::SinkError: 'a,
 {
-    // TODO: figure out a way using fewer copies
-    let replies = text.copy_chunks(ReplyLine::MAX_LEN)
-        .into_iter()
+    let replies = text.byte_chunks(ReplyLine::MAX_LEN)
         .with_position()
         .map(move |t| {
             use itertools::Position::*;

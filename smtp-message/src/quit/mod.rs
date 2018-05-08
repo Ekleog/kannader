@@ -1,7 +1,7 @@
+use nom::crlf;
 use std::io;
 
-use nom::crlf;
-
+use byteslice::ByteSlice;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -24,7 +24,7 @@ impl QuitCommand {
     }
 }
 
-named!(pub command_quit_args(&[u8]) -> QuitCommand,
+named!(pub command_quit_args(ByteSlice) -> QuitCommand,
     do_parse!(
         eat_spaces >> crlf >>
         (QuitCommand {
@@ -36,16 +36,19 @@ named!(pub command_quit_args(&[u8]) -> QuitCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use bytes::Bytes;
     use nom::*;
 
     #[test]
     fn valid_command_quit_args() {
         let tests = vec![&b" \t  \t \r\n"[..], &b"\r\n"[..]];
         for test in tests.into_iter() {
-            assert_eq!(
-                command_quit_args(test),
-                IResult::Done(&b""[..], QuitCommand { _useless: () })
-            );
+            let b = Bytes::from(test);
+            match command_quit_args(ByteSlice::from(&b)) {
+                IResult::Done(rem, QuitCommand { _useless: () }) if rem.len() == 0 => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
         }
     }
 

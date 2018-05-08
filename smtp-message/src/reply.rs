@@ -57,14 +57,14 @@ pub enum IsLastLine {
 // TODO: introduce a Reply helper for handling multi-line replies
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
-pub struct ReplyLine<'a> {
+#[derive(Clone, Debug)]
+pub struct ReplyLine {
     code:    ReplyCode,
     is_last: IsLastLine,
-    line:    SmtpString<'a>,
+    line:    SmtpString,
 }
 
-impl<'a> ReplyLine<'a> {
+impl ReplyLine {
     pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
 
     pub fn build(
@@ -93,25 +93,6 @@ impl<'a> ReplyLine<'a> {
         }
     }
 
-    pub fn take_ownership<'b>(self) -> ReplyLine<'b> {
-        ReplyLine {
-            code:    self.code,
-            is_last: self.is_last,
-            line:    self.line.take_ownership(),
-        }
-    }
-
-    pub fn borrow<'b>(&'b self) -> ReplyLine<'b>
-    where
-        'a: 'b,
-    {
-        ReplyLine {
-            code:    self.code,
-            is_last: self.is_last,
-            line:    self.line.borrow(),
-        }
-    }
-
     // Parse one line of SMTP reply
     pub fn parse(arg: &[u8]) -> Result<(ReplyLine, &[u8]), ParseError> {
         match reply(arg) {
@@ -137,7 +118,7 @@ impl<'a> ReplyLine<'a> {
         } else {
             b"-"
         })?;
-        w.write_all(self.line.as_bytes())?;
+        w.write_all(&self.line.bytes()[..])?;
         w.write_all(b"\r\n")
     }
 }
@@ -210,7 +191,7 @@ mod tests {
             ReplyLine::build(
                 ReplyCode::EXCEEDED_STORAGE,
                 IsLastLine::Yes,
-                vec![b'a'; 1000].into(),
+                (&vec![b'a'; 1000][..]).into(),
             ).is_err()
         );
         assert!(
@@ -258,8 +239,8 @@ mod tests {
                 },
             ),
         ];
-        for (inp, out) in tests {
-            assert_eq!(reply(inp), IResult::Done(&b""[..], out.borrow()));
+        for (inp, out) in tests.iter().cloned() {
+            assert_eq!(reply(inp), IResult::Done(&b""[..], out));
         }
     }
 }
