@@ -1,58 +1,6 @@
 use bytes::BytesMut;
-use itertools::Itertools;
+use smtp_message::Prependable;
 use tokio::prelude::*;
-
-use smtp_message::*;
-
-// TODO: find a better home for all this stuff
-
-pub struct ConnectionMetadata<U> {
-    pub user: U,
-}
-
-// TODO(low): make pub fields private?
-pub struct MailMetadata {
-    pub from: Option<Email>,
-    pub to:   Vec<Email>,
-}
-
-// TODO(low): make pub fields private?
-// TODO(low): merge into Decision<T> once Reply is a thing
-pub struct Refusal {
-    pub code: ReplyCode,
-    pub msg:  SmtpString,
-}
-
-pub enum Decision {
-    Accept,
-    Reject(Refusal),
-}
-
-// TODO: try removing as much lifetimes as possible from the whole mess
-
-// Panics if `text` has a byte not in {9} \union [32; 126]
-pub fn send_reply<'a, W>(
-    writer: W,
-    (code, text): (ReplyCode, SmtpString),
-) -> impl Future<Item = W, Error = W::SinkError> + 'a
-where
-    W: 'a + Sink<SinkItem = ReplyLine>,
-    W::SinkError: 'a,
-{
-    let replies = text.byte_chunks(ReplyLine::MAX_LEN)
-        .with_position()
-        .map(move |t| {
-            use itertools::Position::*;
-            match t {
-                First(t) | Middle(t) => ReplyLine::build(code, IsLastLine::No, t).unwrap(),
-                Last(t) | Only(t) => ReplyLine::build(code, IsLastLine::Yes, t).unwrap(),
-            }
-        });
-    // TODO: do not use send_all as it closes the writer, use start_send and
-    // poll_complete instead (or even refactor to move this logic into
-    // smtp_message::ReplyLine?)
-    writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
-}
 
 pub struct CrlfLines<S: Stream<Item = BytesMut>> {
     source: Prependable<S>,
@@ -113,72 +61,10 @@ impl<S: Stream<Item = BytesMut>> Stream for CrlfLines<S> {
     }
 }
 
-pub enum FutIn11<T, E, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11>
-where
-    F1: Future<Item = T, Error = E>,
-    F2: Future<Item = T, Error = E>,
-    F3: Future<Item = T, Error = E>,
-    F4: Future<Item = T, Error = E>,
-    F5: Future<Item = T, Error = E>,
-    F6: Future<Item = T, Error = E>,
-    F7: Future<Item = T, Error = E>,
-    F8: Future<Item = T, Error = E>,
-    F9: Future<Item = T, Error = E>,
-    F10: Future<Item = T, Error = E>,
-    F11: Future<Item = T, Error = E>,
-{
-    Fut1(F1),
-    Fut2(F2),
-    Fut3(F3),
-    Fut4(F4),
-    Fut5(F5),
-    Fut6(F6),
-    Fut7(F7),
-    Fut8(F8),
-    Fut9(F9),
-    Fut10(F10),
-    Fut11(F11),
-}
-
-impl<T, E, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11> Future
-    for FutIn11<T, E, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11>
-where
-    F1: Future<Item = T, Error = E>,
-    F2: Future<Item = T, Error = E>,
-    F3: Future<Item = T, Error = E>,
-    F4: Future<Item = T, Error = E>,
-    F5: Future<Item = T, Error = E>,
-    F6: Future<Item = T, Error = E>,
-    F7: Future<Item = T, Error = E>,
-    F8: Future<Item = T, Error = E>,
-    F9: Future<Item = T, Error = E>,
-    F10: Future<Item = T, Error = E>,
-    F11: Future<Item = T, Error = E>,
-{
-    type Item = T;
-    type Error = E;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        use self::FutIn11::*;
-        match *self {
-            Fut1(ref mut f) => f.poll(),
-            Fut2(ref mut f) => f.poll(),
-            Fut3(ref mut f) => f.poll(),
-            Fut4(ref mut f) => f.poll(),
-            Fut5(ref mut f) => f.poll(),
-            Fut6(ref mut f) => f.poll(),
-            Fut7(ref mut f) => f.poll(),
-            Fut8(ref mut f) => f.poll(),
-            Fut9(ref mut f) => f.poll(),
-            Fut10(ref mut f) => f.poll(),
-            Fut11(ref mut f) => f.poll(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smtp_message::StreamExt;
 
     #[test]
     fn crlflines_looks_good() {

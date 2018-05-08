@@ -1,10 +1,15 @@
 use bytes::{BufMut, Bytes, BytesMut};
+use smtp_message::{RcptCommand, MailCommand, StreamExt, Prependable, ReplyLine, DataStream, Command};
 use tokio::prelude::*;
 
-use smtp_message::*;
-
+use crlflines::CrlfLines;
 use config::Config;
-use helpers::*;
+use decision::Decision;
+use metadata::{MailMetadata, ConnectionMetadata};
+use sendreply::send_reply;
+use stupidfut::FutIn11;
+
+// TODO: try removing as much lifetimes as possible from the whole mess
 
 // TODO: remove Handle{Reader,Writer}Error that just make no sense (the user
 // could just as well map before passing us Reader and Writer)
@@ -209,10 +214,11 @@ fn handle_line<
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use itertools::Itertools;
+    use smtp_message::{ReplyCode, SmtpString, Email, opt_email_repr};
     use std;
 
-    use itertools::Itertools;
+    use decision::Refusal;
 
     struct TestConfig {
         mails: Vec<(Option<Email>, Vec<Email>, BytesMut)>,

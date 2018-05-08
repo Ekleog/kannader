@@ -1,9 +1,9 @@
 use bytes::BytesMut;
+use smtp_message::{ReplyCode, SmtpString, Prependable, DataStream, Email};
 use tokio::prelude::*;
 
-use smtp_message::*;
-
-use helpers::*;
+use decision::Decision;
+use metadata::{MailMetadata, ConnectionMetadata};
 
 // TODO: add new_mail called before filter_from
 pub trait Config<U> {
