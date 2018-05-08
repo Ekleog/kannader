@@ -43,7 +43,7 @@ pub fn interact<
                 future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
             })
         })
-        .map(|_acc| ()) // TODO: warn of unfinished commands?
+        .map(|_acc| ()) // TODO(low): warn of unfinished commands?
 }
 
 fn handle_line<
@@ -198,7 +198,7 @@ fn handle_line<
                 )
             }
         }
-        // TODO: this case should just no longer be needed
+        // TODO(low): this case should just no longer be needed
         Ok(_) => FutIn11::Fut10(
             // TODO: make the message configurable
             send_reply(

@@ -31,7 +31,7 @@ pub fn nom_to_result<T>(d: nom::IResult<ByteSlice, T>) -> Result<T, ParseError> 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ParseError::*;
-        // TODO: make error display nicer with nom
+        // TODO(low): make error display nicer with nom
         match self {
             &DidNotConsumeEverything(rem) => {
                 write!(f, "Input contains {} trailing characters", rem)
@@ -75,14 +75,14 @@ impl From<Bytes> for SmtpString {
     }
 }
 
-// TODO: specialize for 'static or remove?
+// TODO(low): specialize for 'static or remove?
 impl<'a> From<&'a [u8]> for SmtpString {
     fn from(b: &'a [u8]) -> SmtpString {
         SmtpString(Bytes::from(b))
     }
 }
 
-// TODO: specialize for 'static or remove?
+// TODO(low): specialize for 'static or remove?
 impl<'a> From<&'a str> for SmtpString {
     fn from(s: &'a str) -> SmtpString {
         SmtpString(Bytes::from(s.as_bytes()))

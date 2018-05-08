@@ -54,7 +54,7 @@ pub enum IsLastLine {
     No,
 }
 
-// TODO: introduce a Reply helper for handling multi-line replies
+// TODO(low): introduce a Reply helper for handling multi-line replies
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug)]

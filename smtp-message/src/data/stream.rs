@@ -180,7 +180,7 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                 // things possible, and both OpenSMTPD and gmail appear to just answer with closing
                 // the stream in the other direction. So here we do, doing nothing in case of
                 // unexpected connection closing.
-                // TODO: print warning and/or add metadata to the error
+                // TODO(low): print warning and/or add metadata to the error
                 Ready(None) => return Err(()),
                 Ready(Some(b)) => self.buf.unsplit(b),
             }

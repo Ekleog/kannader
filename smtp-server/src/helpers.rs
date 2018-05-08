@@ -10,14 +10,14 @@ pub struct ConnectionMetadata<U> {
     pub user: U,
 }
 
-// TODO: make pub fields private?
+// TODO(low): make pub fields private?
 pub struct MailMetadata {
     pub from: Option<Email>,
     pub to:   Vec<Email>,
 }
 
-// TODO: make pub fields private?
-// TODO: merge into Decision<T>
+// TODO(low): make pub fields private?
+// TODO(low): merge into Decision<T> once Reply is a thing
 pub struct Refusal {
     pub code: ReplyCode,
     pub msg:  SmtpString,
@@ -100,10 +100,10 @@ impl<S: Stream<Item = BytesMut>> Stream for CrlfLines<S> {
                 NotReady => return Ok(NotReady),
                 Ready(None) => return Ok(Ready(None)), // Drop self.buf
                 Ready(Some(b)) => {
-                    // TODO: implement line length limits
-                    // TODO: can do with much fewer allocations and searches through the buffer (by
-                    // not extending the buffers straightaway but storing them in a vec until the
-                    // CRLF is found, and then extending with the right size)
+                    // TODO(low): implement line length limits
+                    // TODO(low): can do with much fewer allocations and searches through the
+                    // buffer (by not extending the buffers straightaway but storing them in a vec
+                    // until the CRLF is found, and then extending with the right size)
                     self.buf.unsplit(b);
                     if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
                         return Ok(Ready(Some(self.buf.split_to(pos + 2))));

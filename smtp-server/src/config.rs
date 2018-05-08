@@ -16,7 +16,7 @@ pub trait Config<U> {
         conn_meta: &ConnectionMetadata<U>,
     ) -> Decision;
 
-    // TODO: When Rust allows it, replace this Box by impl Trait syntax
+    // TODO(low): When Rust allows it, replace this Box by impl Trait syntax
     fn handle_mail<'a, S>(
         &'a mut self,
         stream: DataStream<S>,
