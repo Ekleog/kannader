@@ -4,8 +4,9 @@ mod prependable;
 
 use tokio::prelude::*;
 
-pub use self::{concatandrecover::ConcatAndRecover, foldwithstream::FoldWithStream,
-               prependable::Prependable};
+pub use self::{
+    concatandrecover::ConcatAndRecover, foldwithstream::FoldWithStream, prependable::Prependable,
+};
 
 pub trait StreamExt: Stream {
     fn prependable(self) -> Prependable<Self>

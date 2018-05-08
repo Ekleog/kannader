@@ -1,6 +1,7 @@
 use nom::IResult;
-use std::{io,
-          str::{self, FromStr}};
+use std::{
+    io, str::{self, FromStr},
+};
 
 use builderror::BuildError;
 use parseresult::ParseError;

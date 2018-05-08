@@ -1,6 +1,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use smtp_message::{Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine,
-                   StreamExt};
+use smtp_message::{
+    Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine, StreamExt,
+};
 use tokio::prelude::*;
 
 use config::Config;

@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use nom::{Compare, CompareResult, FindSubstring, InputIter, InputLength, Slice};
-use std::{cmp::PartialEq,
-          iter::{Enumerate, Iterator, Map},
-          ops::{Deref, Range, RangeFrom, RangeFull, RangeTo},
-          slice};
+use std::{
+    cmp::PartialEq, iter::{Enumerate, Iterator, Map},
+    ops::{Deref, Range, RangeFrom, RangeFull, RangeTo}, slice,
+};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
