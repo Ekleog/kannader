@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 use tokio::prelude::*;
 
-use helpers::*;
+use streamext::Prependable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DataStreamState {
@@ -192,6 +192,8 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
 mod tests {
     use super::*;
 
+    use streamext::StreamExt;
+
     #[test]
     fn valid_data_stream() {
         let tests: &[(&[&[u8]], &[u8], &[u8])] = &[
@@ -208,7 +210,7 @@ mod tests {
             (&[b"foo\r\n. ", b"bar\r\n.\r\n"], b"foo\r\n bar\r\n", b""),
         ];
         for &(inp, out, rem) in tests {
-            use helpers::SmtpString;
+            use smtpstring::SmtpString;
             println!(
                 "\nTrying to parse {:?} into {:?} with {:?} remaining",
                 inp.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>(),

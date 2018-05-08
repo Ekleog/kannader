@@ -2,7 +2,8 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use helpers::*;
+use email::{Email, opt_email_repr};
+use spparameters::SpParameters;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]

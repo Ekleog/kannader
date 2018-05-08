@@ -38,12 +38,11 @@ named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::*;
-
     use bytes::{Bytes, BytesMut};
+    use nom::*;
     use tokio::{self, prelude::*};
 
-    use helpers::*;
+    use streamext::StreamExt;
 
     #[test]
     fn valid_command_data_args() {

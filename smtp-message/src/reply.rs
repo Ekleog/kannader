@@ -2,7 +2,9 @@ use nom::IResult;
 use std::{io,
           str::{self, FromStr}};
 
-use helpers::*;
+use builderror::BuildError;
+use smtpstring::SmtpString;
+use parseresult::ParseError;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone, Copy)]
@@ -94,6 +96,7 @@ impl ReplyLine {
     }
 
     // Parse one line of SMTP reply
+    // TODO: this is nom_to_result?
     pub fn parse(arg: &[u8]) -> Result<(ReplyLine, &[u8]), ParseError> {
         match reply(arg) {
             IResult::Done(rem, res) => Ok((res, rem)),

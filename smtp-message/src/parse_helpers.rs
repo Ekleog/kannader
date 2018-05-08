@@ -1,5 +1,8 @@
 use byteslice::ByteSlice;
-use helpers::*;
+use domain::{Domain, new_domain_unchecked};
+use email::Email;
+use smtpstring::SmtpString;
+use spparameters::SpParameters;
 
 // TODO: This file should not exist. Every function should find a better home.
 

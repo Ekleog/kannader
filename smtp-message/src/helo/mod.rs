@@ -1,7 +1,7 @@
 use std::io;
 
 use byteslice::ByteSlice;
-use helpers::*;
+use domain::Domain;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]

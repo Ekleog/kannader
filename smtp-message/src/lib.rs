@@ -10,8 +10,15 @@ extern crate tokio;
 #[macro_use]
 extern crate quickcheck;
 
+mod builderror;
 mod byteslice;
-mod helpers;
+mod domain;
+mod email;
+mod parseresult;
+mod smtpstring;
+mod spparameters;
+mod streamext;
+
 mod parse_helpers;
 
 mod data;
@@ -30,8 +37,12 @@ mod command;
 mod reply;
 
 pub use byteslice::ByteSlice;
+pub use parseresult::ParseError;
+pub use email::{Email, opt_email_repr}; // TODO(low): opt_email_repr has nothing to do here
+pub use streamext::{StreamExt, Prependable};
+pub use smtpstring::SmtpString;
+
 pub use command::Command;
-pub use helpers::{opt_email_repr, Email, ParseError, Prependable, SmtpString, StreamExt};
 pub use reply::{IsLastLine, ReplyCode, ReplyLine};
 
 pub use data::{DataCommand, DataSink, DataStream};
@@ -45,3 +56,5 @@ pub use quit::QuitCommand;
 pub use rcpt::RcptCommand;
 pub use rset::RsetCommand;
 pub use vrfy::VrfyCommand;
+
+// TODO: grep for '::*' and try to rationalize imports

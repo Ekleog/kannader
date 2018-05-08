@@ -2,7 +2,7 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use helpers::*;
+use email::Email;
 use parse_helpers::*;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -41,8 +41,9 @@ named!(pub command_rcpt_args(ByteSlice) -> RcptCommand,
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use bytes::Bytes;
+
+    use domain::Domain;
 
     #[test]
     fn valid_command_rcpt_args() {
