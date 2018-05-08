@@ -90,6 +90,10 @@ impl<'a> From<&'a str> for SmtpString {
 }
 
 impl SmtpString {
+    pub fn from_static(b: &'static [u8]) -> SmtpString {
+        SmtpString(Bytes::from_static(b))
+    }
+
     pub fn iter_bytes(&self) -> slice::Iter<u8> {
         self.0.iter()
     }
