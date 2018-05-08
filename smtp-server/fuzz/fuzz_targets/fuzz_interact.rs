@@ -8,11 +8,11 @@ extern crate smtp_message;
 extern crate smtp_server;
 extern crate tokio;
 
-use bytes::*;
+use bytes::{Bytes, BytesMut};
 use tokio::prelude::*;
 
-use smtp_message::*;
-use smtp_server::*;
+use smtp_message::{DataStream, Email, Prependable, ReplyCode, StreamExt};
+use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata, Refusal};
 
 struct DiscardSink {}
 

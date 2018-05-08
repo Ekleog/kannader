@@ -4,17 +4,17 @@ use std::io;
 use byteslice::ByteSlice;
 use parseresult::{nom_to_result, ParseError};
 
-use data::*;
-use ehlo::*;
-use expn::*;
-use helo::*;
-use help::*;
-use mail::*;
-use noop::*;
-use quit::*;
-use rcpt::*;
-use rset::*;
-use vrfy::*;
+use data::{command_data_args, DataCommand};
+use ehlo::{command_ehlo_args, EhloCommand};
+use expn::{command_expn_args, ExpnCommand};
+use helo::{command_helo_args, HeloCommand};
+use help::{command_help_args, HelpCommand};
+use mail::{command_mail_args, MailCommand};
+use noop::{command_noop_args, NoopCommand};
+use quit::{command_quit_args, QuitCommand};
+use rcpt::{command_rcpt_args, RcptCommand};
+use rset::{command_rset_args, RsetCommand};
+use vrfy::{command_vrfy_args, VrfyCommand};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

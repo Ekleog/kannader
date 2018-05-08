@@ -38,7 +38,7 @@ mod tests {
     use super::*;
 
     use bytes::Bytes;
-    use nom::*;
+    use nom::IResult;
 
     #[test]
     fn valid_command_vrfy_args() {

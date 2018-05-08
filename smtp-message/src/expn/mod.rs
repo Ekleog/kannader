@@ -37,8 +37,8 @@ named!(pub command_expn_args(ByteSlice) -> ExpnCommand, do_parse!(
 mod tests {
     use super::*;
 
-    use bytes::*;
-    use nom::*;
+    use bytes::Bytes;
+    use nom::IResult;
 
     #[test]
     fn valid_command_expn_args() {

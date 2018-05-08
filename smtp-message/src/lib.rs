@@ -57,5 +57,3 @@ pub use quit::QuitCommand;
 pub use rcpt::RcptCommand;
 pub use rset::RsetCommand;
 pub use vrfy::VrfyCommand;
-
-// TODO: grep for '::*' and try to rationalize imports

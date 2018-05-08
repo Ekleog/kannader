@@ -8,8 +8,9 @@ extern crate smtp_message;
 extern crate tokio;
 
 use bytes::BytesMut;
-use smtp_message::*;
 use tokio::prelude::*;
+
+use smtp_message::{DataStream, StreamExt};
 
 fuzz_target!(|data: Vec<Vec<u8>>| {
     // Compute what DataStream gives

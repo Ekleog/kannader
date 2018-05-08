@@ -7,7 +7,7 @@ use std::io;
 use byteslice::ByteSlice;
 use stupidparsers::eat_spaces;
 
-pub use self::{sink::*, stream::*};
+pub use self::{sink::DataSink, stream::DataStream};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -39,7 +39,7 @@ named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
 mod tests {
     use super::*;
     use bytes::{Bytes, BytesMut};
-    use nom::*;
+    use nom::IResult;
     use tokio::{self, prelude::*};
 
     use streamext::StreamExt;
