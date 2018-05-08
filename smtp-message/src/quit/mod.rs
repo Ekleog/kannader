@@ -2,7 +2,7 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use parse_helpers::*;
+use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

@@ -10,6 +10,9 @@ extern crate tokio;
 #[macro_use]
 extern crate quickcheck;
 
+#[macro_use]
+mod stupidparsers;
+
 mod builderror;
 mod byteslice;
 mod domain;
@@ -18,8 +21,6 @@ mod parseresult;
 mod smtpstring;
 mod spparameters;
 mod streamext;
-
-mod parse_helpers;
 
 mod data;
 mod ehlo;

@@ -1,8 +1,8 @@
 use std::io;
 
 use byteslice::ByteSlice;
-use domain::Domain;
-use parse_helpers::*;
+use domain::{hostname, Domain};
+use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

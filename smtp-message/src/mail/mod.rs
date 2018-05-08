@@ -2,9 +2,9 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use email::{opt_email_repr, Email};
-use parse_helpers::*;
-use spparameters::SpParameters;
+use email::{address_in_maybe_bracketed_path, opt_email_repr, Email};
+use spparameters::{sp_parameters, SpParameters};
+use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

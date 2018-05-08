@@ -5,7 +5,7 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use parse_helpers::*;
+use stupidparsers::eat_spaces;
 
 pub use self::{sink::*, stream::*};
 

@@ -2,8 +2,8 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use email::Email;
-use parse_helpers::*;
+use email::{address_in_maybe_bracketed_path, Email};
+use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
