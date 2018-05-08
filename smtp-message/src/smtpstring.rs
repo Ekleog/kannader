@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::{slice, cmp::min};
+use std::{cmp::min, slice};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SmtpString(Bytes);

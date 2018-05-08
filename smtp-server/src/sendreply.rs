@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use smtp_message::{ReplyCode, ReplyLine, SmtpString, IsLastLine};
+use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString};
 use tokio::prelude::*;
 
 // TODO(low): move to smtp_message::Reply builder

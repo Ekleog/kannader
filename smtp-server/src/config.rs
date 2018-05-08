@@ -1,9 +1,9 @@
 use bytes::BytesMut;
-use smtp_message::{ReplyCode, SmtpString, Prependable, DataStream, Email};
+use smtp_message::{DataStream, Email, Prependable, ReplyCode, SmtpString};
 use tokio::prelude::*;
 
 use decision::Decision;
-use metadata::{MailMetadata, ConnectionMetadata};
+use metadata::{ConnectionMetadata, MailMetadata};
 
 // TODO: add new_mail called before filter_from
 pub trait Config<U> {
@@ -45,7 +45,10 @@ pub trait Config<U> {
     }
 
     fn bad_sequence(&self) -> (ReplyCode, SmtpString) {
-        (ReplyCode::BAD_SEQUENCE, SmtpString::from_static(b"Bad sequence of commands"))
+        (
+            ReplyCode::BAD_SEQUENCE,
+            SmtpString::from_static(b"Bad sequence of commands"),
+        )
     }
 
     fn already_in_mail(&self) -> (ReplyCode, SmtpString) {
@@ -65,10 +68,16 @@ pub trait Config<U> {
     }
 
     fn command_unimplemented(&self) -> (ReplyCode, SmtpString) {
-        (ReplyCode::COMMAND_UNIMPLEMENTED, SmtpString::from_static(b"Command not implemented"))
+        (
+            ReplyCode::COMMAND_UNIMPLEMENTED,
+            SmtpString::from_static(b"Command not implemented"),
+        )
     }
 
     fn command_unrecognized(&self) -> (ReplyCode, SmtpString) {
-        (ReplyCode::COMMAND_UNRECOGNIZED, SmtpString::from_static(b"Command not recognized"))
+        (
+            ReplyCode::COMMAND_UNRECOGNIZED,
+            SmtpString::from_static(b"Command not recognized"),
+        )
     }
 }

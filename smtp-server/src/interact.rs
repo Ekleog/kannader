@@ -1,11 +1,12 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use smtp_message::{RcptCommand, MailCommand, StreamExt, Prependable, ReplyLine, DataStream, Command};
+use smtp_message::{Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine,
+                   StreamExt};
 use tokio::prelude::*;
 
-use crlflines::CrlfLines;
 use config::Config;
+use crlflines::CrlfLines;
 use decision::Decision;
-use metadata::{MailMetadata, ConnectionMetadata};
+use metadata::{ConnectionMetadata, MailMetadata};
 use sendreply::send_reply;
 use stupidfut::FutIn11;
 
@@ -87,10 +88,7 @@ fn handle_line<
         })) => {
             if mail_data.is_some() {
                 FutIn11::Fut1(
-                    send_reply(
-                        writer,
-                        cfg.already_in_mail()
-                    ).and_then(|writer| {
+                    send_reply(writer, cfg.already_in_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
                 )
@@ -98,22 +96,18 @@ fn handle_line<
                 match cfg.filter_from(&from, &conn_meta) {
                     Decision::Accept => {
                         let to = Vec::new();
-                        FutIn11::Fut2(
-                            send_reply(writer, cfg.mail_okay()).and_then(
-                                |writer| {
-                                    future::ok((
-                                        Some(reader),
-                                        (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                                    ))
-                                },
-                            ),
-                        )
-                    }
-                    Decision::Reject(r) => {
-                        FutIn11::Fut3(send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                            future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
+                        FutIn11::Fut2(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
+                            future::ok((
+                                Some(reader),
+                                (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
+                            ))
                         }))
                     }
+                    Decision::Reject(r) => FutIn11::Fut3(
+                        send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
+                            future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
+                        }),
+                    ),
                 }
             }
         }
@@ -123,16 +117,12 @@ fn handle_line<
                     Decision::Accept => {
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(rcpt_to);
-                        FutIn11::Fut4(
-                            send_reply(writer, cfg.rcpt_okay()).and_then(
-                                |writer| {
-                                    future::ok((
-                                        Some(reader),
-                                        (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                                    ))
-                                },
-                            ),
-                        )
+                        FutIn11::Fut4(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
+                            future::ok((
+                                Some(reader),
+                                (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
+                            ))
+                        }))
                     }
                     Decision::Reject(r) => {
                         FutIn11::Fut5(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
@@ -142,10 +132,7 @@ fn handle_line<
                 }
             } else {
                 FutIn11::Fut6(
-                    send_reply(
-                        writer,
-                        cfg.rcpt_before_mail()
-                    ).and_then(|writer| {
+                    send_reply(writer, cfg.rcpt_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
                 )
@@ -158,10 +145,9 @@ fn handle_line<
                         cfg.handle_mail(DataStream::new(reader), mail_meta, &conn_meta)
                             .and_then(|(cfg, reader, decision)| match decision {
                                 Decision::Accept => future::Either::A(
-                                    send_reply(writer, cfg.mail_accepted())
-                                        .and_then(|writer| {
-                                            future::ok((reader, (cfg, writer, conn_meta, None)))
-                                        }),
+                                    send_reply(writer, cfg.mail_accepted()).and_then(|writer| {
+                                        future::ok((reader, (cfg, writer, conn_meta, None)))
+                                    }),
                                 ),
                                 Decision::Reject(r) => future::Either::B(
                                     send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
@@ -176,20 +162,14 @@ fn handle_line<
                     )
                 } else {
                     FutIn11::Fut8(
-                        send_reply(
-                            writer,
-                            cfg.data_before_rcpt(),
-                        ).and_then(|writer| {
+                        send_reply(writer, cfg.data_before_rcpt()).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }),
                     )
                 }
             } else {
                 FutIn11::Fut9(
-                    send_reply(
-                        writer,
-                        cfg.data_before_mail()
-                    ).and_then(|writer| {
+                    send_reply(writer, cfg.data_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
                 )
@@ -197,16 +177,12 @@ fn handle_line<
         }
         // TODO(low): this case should just no longer be needed
         Ok(_) => FutIn11::Fut10(
-            send_reply(
-                writer,
-                cfg.command_unimplemented()
-            ).and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
+            send_reply(writer, cfg.command_unimplemented())
+                .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
         Err(_) => FutIn11::Fut11(
-            send_reply(
-                writer,
-                cfg.command_unrecognized()
-            ).and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
+            send_reply(writer, cfg.command_unrecognized())
+                .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
     }
 }
@@ -215,7 +191,7 @@ fn handle_line<
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use smtp_message::{ReplyCode, SmtpString, Email, opt_email_repr};
+    use smtp_message::{opt_email_repr, Email, ReplyCode, SmtpString};
     use std;
 
     use decision::Refusal;

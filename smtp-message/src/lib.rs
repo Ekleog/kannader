@@ -37,10 +37,10 @@ mod command;
 mod reply;
 
 pub use byteslice::ByteSlice;
+pub use email::{opt_email_repr, Email}; // TODO(low): opt_email_repr has nothing to do here
 pub use parseresult::ParseError;
-pub use email::{Email, opt_email_repr}; // TODO(low): opt_email_repr has nothing to do here
-pub use streamext::{StreamExt, Prependable};
 pub use smtpstring::SmtpString;
+pub use streamext::{Prependable, StreamExt};
 
 pub use command::Command;
 pub use reply::{IsLastLine, ReplyCode, ReplyLine};

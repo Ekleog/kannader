@@ -1,5 +1,5 @@
 use byteslice::ByteSlice;
-use domain::{Domain, new_domain_unchecked};
+use domain::{new_domain_unchecked, Domain};
 use email::Email;
 use smtpstring::SmtpString;
 use spparameters::SpParameters;

@@ -8,7 +8,7 @@ pub struct Prependable<S: Stream> {
 impl<S: Stream> Prependable<S> {
     pub fn new(s: S) -> Prependable<S> {
         Prependable {
-            stream: s,
+            stream:    s,
             prepended: None,
         }
     }

@@ -1,8 +1,8 @@
 use std::io;
 
 use byteslice::ByteSlice;
-use smtpstring::SmtpString;
 use parse_helpers::*;
+use smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

@@ -3,8 +3,8 @@ use std::{io,
           str::{self, FromStr}};
 
 use builderror::BuildError;
-use smtpstring::SmtpString;
 use parseresult::ParseError;
+use smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone, Copy)]

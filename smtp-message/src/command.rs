@@ -2,7 +2,7 @@ use bytes::Bytes;
 use std::io;
 
 use byteslice::ByteSlice;
-use parseresult::{ParseError, nom_to_result};
+use parseresult::{nom_to_result, ParseError};
 
 use data::*;
 use ehlo::*;
@@ -72,9 +72,9 @@ named!(command(ByteSlice) -> Command, alt!(
 mod tests {
     use super::*;
 
-    use smtpstring::SmtpString;
-    use email::Email;
     use domain::Domain;
+    use email::Email;
+    use smtpstring::SmtpString;
 
     #[test]
     fn valid_command() {

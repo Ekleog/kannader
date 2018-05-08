@@ -11,4 +11,3 @@ pub enum Decision {
     Accept,
     Reject(Refusal),
 }
-
