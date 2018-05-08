@@ -33,8 +33,7 @@ pub enum Decision {
 // Panics if `text` has a byte not in {9} \union [32; 126]
 pub fn send_reply<'a, W>(
     writer: W,
-    code: ReplyCode,
-    text: SmtpString,
+    (code, text): (ReplyCode, SmtpString),
 ) -> impl Future<Item = W, Error = W::SinkError> + 'a
 where
     W: 'a + Sink<SinkItem = ReplyLine>,

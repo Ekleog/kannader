@@ -26,4 +26,49 @@ pub trait Config<U> {
     where
         Self: 'a,
         S: 'a + Stream<Item = BytesMut, Error = ()>;
+
+    // TODO(low): return Reply when it is a thing (and same for everywhere below)
+    fn okay(&self) -> (ReplyCode, SmtpString) {
+        (ReplyCode::OKAY, SmtpString::from_static(b"Okay"))
+    }
+
+    fn mail_okay(&self) -> (ReplyCode, SmtpString) {
+        self.okay()
+    }
+
+    fn rcpt_okay(&self) -> (ReplyCode, SmtpString) {
+        self.okay()
+    }
+
+    fn mail_accepted(&self) -> (ReplyCode, SmtpString) {
+        self.okay()
+    }
+
+    fn bad_sequence(&self) -> (ReplyCode, SmtpString) {
+        (ReplyCode::BAD_SEQUENCE, SmtpString::from_static(b"Bad sequence of commands"))
+    }
+
+    fn already_in_mail(&self) -> (ReplyCode, SmtpString) {
+        self.bad_sequence()
+    }
+
+    fn rcpt_before_mail(&self) -> (ReplyCode, SmtpString) {
+        self.bad_sequence()
+    }
+
+    fn data_before_rcpt(&self) -> (ReplyCode, SmtpString) {
+        self.bad_sequence()
+    }
+
+    fn data_before_mail(&self) -> (ReplyCode, SmtpString) {
+        self.bad_sequence()
+    }
+
+    fn command_unimplemented(&self) -> (ReplyCode, SmtpString) {
+        (ReplyCode::COMMAND_UNIMPLEMENTED, SmtpString::from_static(b"Command not implemented"))
+    }
+
+    fn command_unrecognized(&self) -> (ReplyCode, SmtpString) {
+        (ReplyCode::COMMAND_UNRECOGNIZED, SmtpString::from_static(b"Command not recognized"))
+    }
 }

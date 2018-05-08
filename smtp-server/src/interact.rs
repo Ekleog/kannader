@@ -81,12 +81,10 @@ fn handle_line<
             params: _params,
         })) => {
             if mail_data.is_some() {
-                // TODO: make the message configurable
                 FutIn11::Fut1(
                     send_reply(
                         writer,
-                        ReplyCode::BAD_SEQUENCE,
-                        (&b"Bad sequence of commands"[..]).into(),
+                        cfg.already_in_mail()
                     ).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -95,9 +93,8 @@ fn handle_line<
                 match cfg.filter_from(&from, &conn_meta) {
                     Decision::Accept => {
                         let to = Vec::new();
-                        // TODO: make this "Okay" configurable
                         FutIn11::Fut2(
-                            send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
+                            send_reply(writer, cfg.mail_okay()).and_then(
                                 |writer| {
                                     future::ok((
                                         Some(reader),
@@ -108,7 +105,7 @@ fn handle_line<
                         )
                     }
                     Decision::Reject(r) => {
-                        FutIn11::Fut3(send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                        FutIn11::Fut3(send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                         }))
                     }
@@ -121,9 +118,8 @@ fn handle_line<
                     Decision::Accept => {
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(rcpt_to);
-                        // TODO: make this "Okay" configurable
                         FutIn11::Fut4(
-                            send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into()).and_then(
+                            send_reply(writer, cfg.rcpt_okay()).and_then(
                                 |writer| {
                                     future::ok((
                                         Some(reader),
@@ -134,18 +130,16 @@ fn handle_line<
                         )
                     }
                     Decision::Reject(r) => {
-                        FutIn11::Fut5(send_reply(writer, r.code, r.msg).and_then(|writer| {
+                        FutIn11::Fut5(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }))
                     }
                 }
             } else {
-                // TODO: make the message configurable
                 FutIn11::Fut6(
                     send_reply(
                         writer,
-                        ReplyCode::BAD_SEQUENCE,
-                        (&b"Bad sequence of commands"[..]).into(),
+                        cfg.rcpt_before_mail()
                     ).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -159,13 +153,13 @@ fn handle_line<
                         cfg.handle_mail(DataStream::new(reader), mail_meta, &conn_meta)
                             .and_then(|(cfg, reader, decision)| match decision {
                                 Decision::Accept => future::Either::A(
-                                    send_reply(writer, ReplyCode::OKAY, (&b"Okay"[..]).into())
+                                    send_reply(writer, cfg.mail_accepted())
                                         .and_then(|writer| {
                                             future::ok((reader, (cfg, writer, conn_meta, None)))
                                         }),
                                 ),
                                 Decision::Reject(r) => future::Either::B(
-                                    send_reply(writer, r.code, r.msg.into()).and_then(|writer| {
+                                    send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
                                         // Other mail systems (at least postfix, OpenSMTPD and
                                         // gmail) appear to drop the state on an unsuccessful
                                         // DATA command (eg. too long). Couldn't find the RFC
@@ -179,8 +173,7 @@ fn handle_line<
                     FutIn11::Fut8(
                         send_reply(
                             writer,
-                            ReplyCode::BAD_SEQUENCE,
-                            (&b"Bad sequence of commands"[..]).into(),
+                            cfg.data_before_rcpt(),
                         ).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }),
@@ -190,8 +183,7 @@ fn handle_line<
                 FutIn11::Fut9(
                     send_reply(
                         writer,
-                        ReplyCode::BAD_SEQUENCE,
-                        (&b"Bad sequence of commands"[..]).into(),
+                        cfg.data_before_mail()
                     ).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -200,19 +192,15 @@ fn handle_line<
         }
         // TODO(low): this case should just no longer be needed
         Ok(_) => FutIn11::Fut10(
-            // TODO: make the message configurable
             send_reply(
                 writer,
-                ReplyCode::COMMAND_UNIMPLEMENTED,
-                (&b"Command not implemented"[..]).into(),
+                cfg.command_unimplemented()
             ).and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
         Err(_) => FutIn11::Fut11(
-            // TODO: make the message configurable
             send_reply(
                 writer,
-                ReplyCode::COMMAND_UNRECOGNIZED,
-                (&b"Command not recognized"[..]).into(),
+                cfg.command_unrecognized()
             ).and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
     }
