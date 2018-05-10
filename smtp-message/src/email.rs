@@ -75,8 +75,7 @@ impl Email {
         &self.hostname
     }
 
-    // TODO: actually store just the overall string and a pointer to the @, not two
-    // separate fields
+    // TODO: (B) only store the overall string and a pointer to the @
     pub fn as_string(&self) -> SmtpString {
         let mut res = self.localpart.bytes().clone();
         if let Some(ref host) = self.hostname {

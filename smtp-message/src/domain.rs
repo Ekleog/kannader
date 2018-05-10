@@ -7,7 +7,7 @@ use smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug)]
-pub struct Domain(SmtpString); // TODO: split between IP and DNS
+pub struct Domain(SmtpString); // TODO: (A) split between IP and DNS
 
 impl Domain {
     pub fn new(domain: ByteSlice) -> Result<Domain, ParseError> {

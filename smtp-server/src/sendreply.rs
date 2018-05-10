@@ -2,7 +2,7 @@ use itertools::Itertools;
 use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString};
 use tokio::prelude::*;
 
-// TODO(low): move to smtp_message::Reply builder
+// TODO: (B) move to smtp_message's Reply builder id:tcHW
 // Panics if `text` has a byte not in {9} \union [32; 126]
 pub fn send_reply<'a, W>(
     writer: W,
@@ -21,8 +21,8 @@ where
                 Last(t) | Only(t) => ReplyLine::build(code, IsLastLine::Yes, t).unwrap(),
             }
         });
-    // TODO: do not use send_all as it closes the writer, use start_send and
-    // poll_complete instead (or even refactor to move this logic into
-    // smtp_message::ReplyLine?)
+    // TODO: (A) do not use send_all as it closes the writer
+    // Use start_send and poll_complete instead (or even refactor
+    // to move this logic into smtp_message::ReplyLine?)
     writer.send_all(stream::iter_ok(replies)).map(|(w, _)| w)
 }

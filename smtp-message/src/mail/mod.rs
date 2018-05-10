@@ -22,7 +22,7 @@ impl MailCommand {
         w.write_all(b"MAIL FROM:<")?;
         w.write_all(&opt_email_repr(&self.from).bytes()[..])?;
         w.write_all(b">\r\n")
-        // TODO: also send parameters
+        // TODO: (A) also send parameters
     }
 }
 
@@ -113,7 +113,7 @@ mod tests {
         assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
     }
 
-    // TODO(low): quickcheck parse = generate for all
+    // TODO: (B) quickcheck parse = generate for all
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();

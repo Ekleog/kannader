@@ -43,7 +43,7 @@ mod tests {
     use bytes::Bytes;
     use nom::IResult;
 
-    // TODO: merge implementation and tests for EHLO/HELO, NOOP/VRFY, etc.
+    // TODO: (B) merge implementation and tests for EHLO/HELO, NOOP/VRFY, etc.
 
     #[test]
     fn valid_command_helo_args() {

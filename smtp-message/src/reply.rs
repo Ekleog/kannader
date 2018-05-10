@@ -57,7 +57,7 @@ pub enum IsLastLine {
     No,
 }
 
-// TODO(low): introduce a Reply helper for handling multi-line replies
+// TODO: (B) add a Reply helper for multi-line replies p:tcHW p:E4tJ p:J6HX
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug)]
@@ -97,7 +97,7 @@ impl ReplyLine {
     }
 
     // Parse one line of SMTP reply
-    // TODO: this is nom_to_result?
+    // TODO: (A) use nom_to_result @easy
     pub fn parse(arg: &[u8]) -> Result<(ReplyLine, &[u8]), ParseError> {
         match reply(arg) {
             IResult::Done(rem, res) => Ok((res, rem)),

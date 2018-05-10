@@ -1,7 +1,6 @@
 use smtp_message::{ReplyCode, SmtpString};
 
-// TODO(low): make pub fields private?
-// TODO(low): merge into Decision<T> once Reply is a thing
+// TODO: (B) merge into Decision<T> id:J6HX
 pub struct Refusal {
     pub code: ReplyCode,
     pub msg:  SmtpString,

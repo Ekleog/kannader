@@ -47,10 +47,12 @@ impl<S: Stream<Item = BytesMut>> Stream for CrlfLines<S> {
                 NotReady => return Ok(NotReady),
                 Ready(None) => return Ok(Ready(None)), // Drop self.buf
                 Ready(Some(b)) => {
-                    // TODO(low): implement line length limits
-                    // TODO(low): can do with much fewer allocations and searches through the
-                    // buffer (by not extending the buffers straightaway but storing them in a vec
-                    // until the CRLF is found, and then extending with the right size)
+                    // TODO: (B) implement line length limits id:line-length-limit
+                    // TODO: (B) optimize searching for crlf p:line-length-limit
+                    // This can be done with much fewer allocations and searches through the buffer
+                    // Technique : do not extending the buffers straightaway but store them in a
+                    // vec until the CRLF is found, and then extending with the right size)
+                    // Other idea: just extend at line length limit
                     self.buf.unsplit(b);
                     if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
                         return Ok(Ready(Some(self.buf.split_to(pos + 2))));

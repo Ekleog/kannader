@@ -1,6 +1,6 @@
 #![type_length_limit = "4194304"]
 
-// TODO(low): add in deadlines
+// TODO: (B) add deadlines
 extern crate bytes;
 extern crate itertools;
 extern crate smtp_message;

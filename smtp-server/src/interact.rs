@@ -11,10 +11,10 @@ use metadata::{ConnectionMetadata, MailMetadata};
 use sendreply::send_reply;
 use stupidfut::FutIn11;
 
-// TODO: try removing as much lifetimes as possible from the whole mess
+// TODO: (A) try removing as much lifetimes as possible from the whole mess
 
-// TODO: remove Handle{Reader,Writer}Error that just make no sense (the user
-// could just as well map before passing us Reader and Writer)
+// TODO: (A) remove Handle{Reader,Writer}Error that just make no sense
+// The user could just as well map before passing us Reader and Writer)
 pub fn interact<
     'a,
     ReaderError,
@@ -50,7 +50,7 @@ pub fn interact<
                 future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
             })
         })
-        .map(|_acc| ()) // TODO(low): warn of unfinished commands?
+        .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
 }
 
 fn handle_line<
@@ -176,7 +176,7 @@ fn handle_line<
                 )
             }
         }
-        // TODO(low): this case should just no longer be needed
+        // TODO: (B) implement all the parsed commands and remove this case
         Ok(_) => FutIn11::Fut10(
             send_reply(writer, cfg.command_unimplemented())
                 .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
@@ -262,8 +262,8 @@ mod tests {
     #[test]
     fn interacts_ok() {
         let tests: &[(&[&[u8]], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
-            // TODO: send banner before EHLO
-            // TODO: send please go on after DATA
+            // TODO: (A) send banner before EHLO
+            // TODO: (A) send please go on after DATA
             (
                 &[b"MAIL FROM:<>\r\n\
                     RCPT TO:<baz@quux.example.org>\r\n\

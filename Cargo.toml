@@ -5,5 +5,5 @@ members = [ "smtp-message", "smtp-message/fuzz",
 [profile.release]
 lto = true
 
-# TODO(low): setup clippy
-# TODO(low): setup cargo-bench
+# TODO: (C) setup clippy
+# TODO: (C) setup cargo-bench

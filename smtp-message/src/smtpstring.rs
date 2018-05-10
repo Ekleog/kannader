@@ -10,14 +10,14 @@ impl From<Bytes> for SmtpString {
     }
 }
 
-// TODO(low): specialize for 'static or remove?
+// TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a [u8]> for SmtpString {
     fn from(b: &'a [u8]) -> SmtpString {
         SmtpString(Bytes::from(b))
     }
 }
 
-// TODO(low): specialize for 'static or remove?
+// TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a str> for SmtpString {
     fn from(s: &'a str) -> SmtpString {
         SmtpString(Bytes::from(s.as_bytes()))

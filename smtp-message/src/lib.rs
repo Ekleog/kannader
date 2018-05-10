@@ -38,7 +38,7 @@ mod command;
 mod reply;
 
 pub use byteslice::ByteSlice;
-pub use email::{opt_email_repr, Email}; // TODO(low): opt_email_repr has nothing to do here
+pub use email::{opt_email_repr, Email}; // TODO: (B) opt_email_repr has nothing to do here
 pub use parseresult::ParseError;
 pub use smtpstring::SmtpString;
 pub use streamext::{Prependable, StreamExt};
