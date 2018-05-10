@@ -16,7 +16,7 @@ pub trait Config<U> {
         conn_meta: &ConnectionMetadata<U>,
     ) -> Decision;
 
-    // TODO: (B) replace this Box by impl Trait syntax blocked:impl-trait-in-trait
+    // TODO: (B) replace this Box by impl Trait syntax hide:impl-trait-in-trait
     fn handle_mail<'a, S>(
         &'a mut self,
         stream: DataStream<S>,
