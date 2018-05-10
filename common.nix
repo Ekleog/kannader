@@ -26,4 +26,8 @@ rec {
     date = "2018-04-20";
     channel = "beta";
   };
+  rustStableChannel = pkgs.rustChannelOf {
+    date = "2018-05-10";
+    channel = "stable";
+  };
 }

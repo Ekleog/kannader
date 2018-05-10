@@ -5,9 +5,8 @@ sudo: required
 os: [ linux ]
 
 rust:
-  # TODO: (C) reenable testing on stable hide:rust-1.26.0-release
-  #- 1.25.0
-  #- stable
+  - 1.26.0
+  - stable
   - beta
   - nightly
 
