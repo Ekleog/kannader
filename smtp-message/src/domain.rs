@@ -1,16 +1,21 @@
 use bytes::Bytes;
-use std::ops::Deref;
+use std::{
+    io, net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr}, str::{self, FromStr},
+};
 
 use byteslice::ByteSlice;
 use parseresult::{nom_to_result, ParseError};
+use sendable::Sendable;
 use smtpstring::SmtpString;
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
-pub struct Domain(SmtpString); // TODO: (A) split between IP and DNS
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Domain {
+    Host(SmtpString),
+    Addr(IpAddr),
+}
 
 impl Domain {
-    pub fn new(domain: ByteSlice) -> Result<Domain, ParseError> {
+    pub fn parse(domain: ByteSlice) -> Result<Domain, ParseError> {
         nom_to_result(hostname(domain))
     }
 
@@ -18,33 +23,40 @@ impl Domain {
         let b = Bytes::from(b);
         nom_to_result(hostname(ByteSlice::from(&b)))
     }
+}
 
-    pub fn as_string(&self) -> &SmtpString {
-        &self.0
+impl Sendable for Domain {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        use self::{Domain::*, IpAddr::*};
+        match self {
+            Host(s) => w.write_all(&s.bytes()[..]),
+            Addr(V4(a)) => write!(w, "[{}]", a),
+            Addr(V6(a)) => write!(w, "[IPv6:{}]", a),
+        }
     }
 }
 
-impl Deref for Domain {
-    type Target = SmtpString;
-
-    fn deref(&self) -> &SmtpString {
-        &self.0
-    }
-}
-
-pub fn new_domain_unchecked(s: SmtpString) -> Domain {
-    Domain(s)
+fn str_from_utf8_byteslice<'a>(b: ByteSlice<'a>) -> Result<&'a str, str::Utf8Error> {
+    str::from_utf8(b.demote())
 }
 
 named!(pub hostname(ByteSlice) -> Domain,
     alt!(
-        map!(recognize!(preceded!(tag!("["), take_until_and_consume!("]"))),
-             |x| new_domain_unchecked(SmtpString::from(x.promote()))) |
         map!(recognize!(
                 separated_nonempty_list_complete!(tag!("."),
                     preceded!(one_of!(alnum!()),
                               opt!(is_a!(concat!(alnum!(), "-")))))),
-             |x| new_domain_unchecked(SmtpString::from(x.promote())))
+             |x| Domain::Host(SmtpString::from(x.promote()))) |
+        map_res!(map_res!(preceded!(tag!("[IPv6:"), take_until_and_consume!("]")),
+                          str_from_utf8_byteslice),
+                 |x| -> Result<Domain, AddrParseError> {
+                     Ok(Domain::Addr(Ipv6Addr::from_str(x)?.into()))
+                 }) |
+        map_res!(map_res!(preceded!(tag!("["), take_until_and_consume!("]")),
+                          str_from_utf8_byteslice),
+                 |x| -> Result<Domain, AddrParseError> {
+                     Ok(Domain::Addr(Ipv4Addr::from_str(x)?.into()))
+                 })
     )
 );
 
@@ -55,19 +67,37 @@ mod tests {
 
     #[test]
     fn valid_hostnames() {
-        let tests = &[
-            &b"foo--bar"[..],
-            &b"foo.bar.baz"[..],
-            &b"1.2.3.4"[..],
-            &b"[123.255.37.2]"[..],
-            &b"[IPv6:0::ffff:8.7.6.5]"[..],
+        let tests: &[(&[u8], Domain)] = &[
+            (
+                b"foo--bar",
+                Domain::Host(SmtpString::from_static(b"foo--bar")),
+            ),
+            (
+                b"foo.bar.baz",
+                Domain::Host(SmtpString::from_static(b"foo.bar.baz")),
+            ),
+            (
+                b"1.2.3.4",
+                Domain::Host(SmtpString::from_static(b"1.2.3.4")),
+            ),
+            (
+                b"[123.255.37.2]",
+                Domain::Addr(IpAddr::from_str("123.255.37.2").unwrap()),
+            ),
+            (
+                b"[IPv6:0::ffff:8.7.6.5]",
+                Domain::Addr(IpAddr::from_str("0::ffff:8.7.6.5").unwrap()),
+            ),
         ];
-        for test in tests {
-            let b = Bytes::from(*test);
-            let parsed = hostname(ByteSlice::from(&b)).map(|x| x.as_string().bytes().clone());
-            println!("Test: {:?}, parse result: {:?}", b, parsed);
+        for (inp, out) in tests {
+            let b = Bytes::from(*inp);
+            let parsed = hostname(ByteSlice::from(&b));
+            println!(
+                "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
+                b, parsed, out
+            );
             match parsed {
-                IResult::Done(rem, bb) => assert!(rem.len() == 0 && *bb == b),
+                IResult::Done(rem, bb) => assert!(rem.len() == 0 && &bb == out),
                 x => panic!("Unexpected hostname result: {:?}", x),
             }
         }
@@ -80,7 +110,7 @@ mod tests {
             let b = Bytes::from(*from);
             assert_eq!(
                 hostname(ByteSlice::from(&b)).unwrap().1,
-                new_domain_unchecked((*to).into())
+                Domain::Host((*to).into())
             );
         }
     }

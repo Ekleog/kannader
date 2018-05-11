@@ -192,7 +192,7 @@ fn handle_line<
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use smtp_message::{opt_email_repr, Email, ReplyCode, SmtpString};
+    use smtp_message::{Email, ReplyCode, SmtpString};
     use std;
 
     use decision::Refusal;
@@ -203,7 +203,7 @@ mod tests {
 
     impl Config<()> for TestConfig {
         fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
-            if opt_email_repr(addr) == (&b"bad@quux.example.org"[..]).into() {
+            if addr == &Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
                     msg:  "User 'bad' banned".into(),
@@ -367,11 +367,13 @@ mod tests {
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
                 println!("Mail\n---");
                 let fo = fo.map(SmtpString::from);
-                let fr = fr.map(|x| x.as_string());
+                let fr = fr.map(|x| SmtpString::from_sendable(&x).unwrap());
                 println!("From: expected {:?}, got {:?}", fo, fr);
                 assert_eq!(fo, fr);
                 let to_smtp = to.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>();
-                let tr_smtp = tr.into_iter().map(|x| x.as_string()).collect::<Vec<_>>();
+                let tr_smtp = tr.into_iter()
+                    .map(|x| SmtpString::from_sendable(&x).unwrap())
+                    .collect::<Vec<_>>();
                 println!("To: expected {:?}, got {:?}", to_smtp, tr_smtp);
                 assert_eq!(to_smtp, tr_smtp);
                 println!("Expected text\n--\n{}--", std::str::from_utf8(co).unwrap());

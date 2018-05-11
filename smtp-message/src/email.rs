@@ -1,12 +1,14 @@
 use bytes::Bytes;
+use std::io;
 
 use byteslice::ByteSlice;
 use domain::{hostname, Domain};
 use parseresult::{nom_to_result, ParseError};
+use sendable::Sendable;
 use smtpstring::SmtpString;
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
+// TODO: (C) Make equivalent emails (modulo escaping) be equal?
+#[derive(Debug, Eq, PartialEq)]
 pub struct Email {
     localpart: SmtpString,
     hostname:  Option<Domain>,
@@ -74,23 +76,27 @@ impl Email {
     pub fn hostname(&self) -> &Option<Domain> {
         &self.hostname
     }
+}
 
+impl Sendable for Email {
     // TODO: (B) only store the overall string and a pointer to the @
-    pub fn as_string(&self) -> SmtpString {
-        let mut res = self.localpart.bytes().clone();
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(&self.localpart.bytes()[..])?;
         if let Some(ref host) = self.hostname {
-            res.extend_from_slice(b"@");
-            res.extend_from_slice(&host.as_string().bytes()[..]);
+            w.write_all(b"@")?;
+            host.send_to(w)?;
         }
-        res.into()
+        Ok(())
     }
 }
 
-pub fn opt_email_repr(e: &Option<Email>) -> SmtpString {
-    if let &Some(ref e) = e {
-        e.as_string()
-    } else {
-        (&b""[..]).into()
+impl Sendable for Option<Email> {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        if let Some(e) = self {
+            e.send_to(w)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -222,19 +228,19 @@ mod tests {
 
     #[test]
     fn valid_addresses_in_paths() {
-        let tests: Vec<(&[u8], (&[u8], &[u8]))> = vec![
+        let tests: Vec<(&[u8], (&[u8], Option<&[u8]>))> = vec![
             (
                 b"@foo.bar,@baz.quux:test@example.org",
-                (b"test", b"example.org"),
+                (b"test", Some(b"example.org")),
             ),
-            (b"foo.bar@baz.quux", (b"foo.bar", b"baz.quux")),
+            (b"foo.bar@baz.quux", (b"foo.bar", Some(b"baz.quux"))),
         ];
         for (inp, (local, host)) in tests.into_iter() {
             let b = Bytes::from(inp);
             match address_in_path(ByteSlice::from(&b)) {
                 IResult::Done(rem, res) => assert!(
                     rem.len() == 0 && res.raw_localpart().bytes() == local
-                        && res.hostname().clone().unwrap().as_string().bytes().clone() == host
+                        && res.hostname() == &host.map(|h| Domain::parse_slice(h).unwrap())
                 ),
                 x => panic!("Unexpected address_in_path result: {:?}", x),
             }

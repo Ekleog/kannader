@@ -93,7 +93,8 @@ mod tests {
                 &b"EHLO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Ehlo(r) = x {
-                        &**r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
+                        SmtpString::from_sendable(r.domain()).unwrap()
+                            == SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }
@@ -113,7 +114,8 @@ mod tests {
                 &b"HELO foo.bar.baz\r\n"[..],
                 Box::new(|x| {
                     if let Command::Helo(r) = x {
-                        &**r.domain() == &SmtpString::from(&b"foo.bar.baz"[..])
+                        SmtpString::from_sendable(r.domain()).unwrap()
+                            == SmtpString::from(&b"foo.bar.baz"[..])
                     } else {
                         false
                     }

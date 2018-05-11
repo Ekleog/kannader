@@ -2,6 +2,7 @@ use std::io;
 
 use byteslice::ByteSlice;
 use domain::{hostname, Domain};
+use sendable::Sendable;
 use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -21,7 +22,7 @@ impl EhloCommand {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"EHLO ")?;
-        w.write_all(&self.domain.as_string().bytes()[..])?;
+        self.domain.send_to(w)?;
         w.write_all(b"\r\n")
     }
 }
@@ -42,6 +43,7 @@ mod tests {
 
     use bytes::Bytes;
     use nom::IResult;
+    use smtpstring::SmtpString;
 
     #[test]
     fn valid_command_ehlo_args() {
@@ -53,7 +55,9 @@ mod tests {
             let b = Bytes::from(s);
             match command_ehlo_args(ByteSlice::from(&b)) {
                 IResult::Done(rem, EhloCommand { ref domain })
-                    if rem.len() == 0 && domain.as_string().bytes() == &Bytes::from(&r[..]) =>
+                    if rem.len() == 0
+                        && SmtpString::from_sendable(domain).unwrap().bytes()
+                            == &Bytes::from(&r[..]) =>
                 {
                     ()
                 }
@@ -66,16 +70,16 @@ mod tests {
     fn valid_builds() {
         let mut v = Vec::new();
         let b = Bytes::from(&b"test.foo.bar"[..]);
-        EhloCommand::new(Domain::new(ByteSlice::from(&b)).unwrap())
+        EhloCommand::new(Domain::parse_slice(&b).unwrap())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"EHLO test.foo.bar\r\n");
 
         let b = Bytes::from(&b"test."[..]);
-        assert!(Domain::new((&b).into()).is_err());
+        assert!(Domain::parse((&b).into()).is_err());
         let b = Bytes::from(&b"test.foo.bar "[..]);
-        assert!(Domain::new((&b).into()).is_err());
+        assert!(Domain::parse((&b).into()).is_err());
         let b = Bytes::from(&b"-test.foo.bar"[..]);
-        assert!(Domain::new((&b).into()).is_err());
+        assert!(Domain::parse((&b).into()).is_err());
     }
 }

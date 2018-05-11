@@ -18,6 +18,7 @@ mod byteslice;
 mod domain;
 mod email;
 mod parseresult;
+mod sendable;
 mod smtpstring;
 mod spparameters;
 mod streamext;
@@ -38,8 +39,9 @@ mod command;
 mod reply;
 
 pub use byteslice::ByteSlice;
-pub use email::{opt_email_repr, Email}; // TODO: (B) opt_email_repr has nothing to do here
+pub use email::Email;
 pub use parseresult::ParseError;
+pub use sendable::Sendable;
 pub use smtpstring::SmtpString;
 pub use streamext::{Prependable, StreamExt};
 

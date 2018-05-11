@@ -2,7 +2,8 @@ use nom::crlf;
 use std::io;
 
 use byteslice::ByteSlice;
-use email::{address_in_maybe_bracketed_path, opt_email_repr, Email};
+use email::{address_in_maybe_bracketed_path, Email};
+use sendable::Sendable;
 use spparameters::{sp_parameters, SpParameters};
 use stupidparsers::eat_spaces;
 
@@ -20,7 +21,7 @@ impl MailCommand {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"MAIL FROM:<")?;
-        w.write_all(&opt_email_repr(&self.from).bytes()[..])?;
+        self.from.send_to(w)?;
         w.write_all(b">\r\n")
         // TODO: (A) also send parameters
     }

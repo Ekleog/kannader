@@ -2,6 +2,7 @@ use std::io;
 
 use byteslice::ByteSlice;
 use domain::{hostname, Domain};
+use sendable::Sendable;
 use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -21,7 +22,7 @@ impl HeloCommand {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"HELO ")?;
-        w.write_all(&self.domain.as_string().bytes()[..])?;
+        self.domain.send_to(w)?;
         w.write_all(b"\r\n")
     }
 }
@@ -42,6 +43,7 @@ mod tests {
 
     use bytes::Bytes;
     use nom::IResult;
+    use smtpstring::SmtpString;
 
     // TODO: (B) merge implementation and tests for EHLO/HELO, NOOP/VRFY, etc.
 
@@ -55,7 +57,9 @@ mod tests {
             let b = Bytes::from(s);
             match command_helo_args(ByteSlice::from(&b)) {
                 IResult::Done(rem, HeloCommand { ref domain })
-                    if rem.len() == 0 && domain.as_string().bytes() == &Bytes::from(&r[..]) =>
+                    if rem.len() == 0
+                        && SmtpString::from_sendable(domain).unwrap().bytes()
+                            == &Bytes::from(&r[..]) =>
                 {
                     ()
                 }
@@ -67,13 +71,12 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        let b = Bytes::from(&b"test.example.org"[..]);
-        HeloCommand::new(Domain::new(ByteSlice::from(&b)).unwrap())
+        HeloCommand::new(Domain::parse_slice(b"test.example.org").unwrap())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"HELO test.example.org\r\n");
 
         let b = Bytes::from(&b"test."[..]);
-        assert!(Domain::new((&b).into()).is_err());
+        assert!(Domain::parse((&b).into()).is_err());
     }
 }

@@ -1,5 +1,7 @@
 use bytes::Bytes;
-use std::{cmp::min, slice};
+use std::{cmp::min, io, slice};
+
+use sendable::Sendable;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SmtpString(Bytes);
@@ -7,6 +9,12 @@ pub struct SmtpString(Bytes);
 impl From<Bytes> for SmtpString {
     fn from(b: Bytes) -> SmtpString {
         SmtpString(b)
+    }
+}
+
+impl From<Vec<u8>> for SmtpString {
+    fn from(b: Vec<u8>) -> SmtpString {
+        SmtpString(Bytes::from(b))
     }
 }
 
@@ -27,6 +35,13 @@ impl<'a> From<&'a str> for SmtpString {
 impl SmtpString {
     pub fn from_static(b: &'static [u8]) -> SmtpString {
         SmtpString(Bytes::from_static(b))
+    }
+
+    // TODO: (C) add hint for length in Sendable
+    pub fn from_sendable<T: Sendable>(t: &T) -> io::Result<SmtpString> {
+        let mut v = Vec::new();
+        t.send_to(&mut v)?;
+        Ok(SmtpString::from(v))
     }
 
     pub fn iter_bytes(&self) -> slice::Iter<u8> {

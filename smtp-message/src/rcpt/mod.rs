@@ -3,6 +3,7 @@ use std::io;
 
 use byteslice::ByteSlice;
 use email::{address_in_maybe_bracketed_path, Email};
+use sendable::Sendable;
 use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -21,7 +22,7 @@ impl RcptCommand {
 
     pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"RCPT TO:<")?;
-        w.write_all(&self.to.as_string().bytes()[..])?;
+        self.to.send_to(w)?;
         w.write_all(b">\r\n")
     }
 }

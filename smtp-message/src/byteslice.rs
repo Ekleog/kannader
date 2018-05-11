@@ -31,6 +31,10 @@ impl<'a> ByteSlice<'a> {
     pub fn promote(&self) -> Bytes {
         self.buf.slice(self.start, self.end)
     }
+
+    pub fn demote(self) -> &'a [u8] {
+        &self.buf[self.start..self.end]
+    }
 }
 
 impl<'a> Deref for ByteSlice<'a> {
