@@ -108,12 +108,5 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
     let stream = stream::iter_ok(chunks);
     let mut sink = DiscardSink {};
     let mut cfg = FuzzConfig {};
-    let _ignore_errors = interact(
-        stream,
-        &mut sink,
-        (),
-        |()| panic!(),
-        |()| panic!(),
-        &mut cfg,
-    ).wait();
+    let _ignore_errors = interact(stream, &mut sink, (), &mut cfg).wait();
 });

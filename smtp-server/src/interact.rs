@@ -13,38 +13,30 @@ use stupidfut::FutIn11;
 
 // TODO: (A) try removing as much lifetimes as possible from the whole mess
 
-// TODO: (A) remove Handle{Reader,Writer}Error that just make no sense
-// The user could just as well map before passing us Reader and Writer)
+// TODO: (B) Allow Reader and Writer to return errors?
 pub fn interact<
     'a,
-    ReaderError,
-    Reader: 'a + Stream<Item = BytesMut, Error = ReaderError>,
-    WriterError,
-    Writer: Sink<SinkItem = Bytes, SinkError = WriterError>,
+    Reader: 'a + Stream<Item = BytesMut, Error = ()>,
+    Writer: Sink<SinkItem = Bytes, SinkError = ()>,
     UserProvidedMetadata: 'a,
-    HandleReaderError: 'a + FnMut(ReaderError) -> (),
-    HandleWriterError: 'a + FnMut(WriterError) -> (),
     Cfg: 'a + Config<UserProvidedMetadata>,
 >(
     incoming: Reader,
     outgoing: &'a mut Writer,
     metadata: UserProvidedMetadata,
-    handle_reader_error: HandleReaderError,
-    handle_writer_error: HandleWriterError,
     cfg: &'a mut Cfg,
 ) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
-    let writer = outgoing
-        .sink_map_err(handle_writer_error)
-        .with(|c: ReplyLine| {
-            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-            c.send_to(&mut w).unwrap();
-            // By design of BytesMut::writer, this cannot fail so long as the buffer
-            // has sufficient capacity. As if this is not respected it is a clear
-            // programming error, there's no need to try and handle this cleanly.
-            future::ok(w.into_inner().freeze())
-        });
-    CrlfLines::new(incoming.map_err(handle_reader_error).prependable())
+    let writer = outgoing.with(|c: ReplyLine| {
+        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+        // TODO: (B) refactor Sendable to send to a sink instead of to a Write
+        c.send_to(&mut w).unwrap();
+        // By design of BytesMut::writer, this cannot fail so long as the buffer
+        // has sufficient capacity. As if this is not respected it is a clear
+        // programming error, there's no need to try and handle this cleanly.
+        future::ok(w.into_inner().freeze())
+    });
+    CrlfLines::new(incoming.prependable())
         .fold_with_stream((cfg, writer, conn_meta, None), move |acc, line, reader| {
             handle_line(reader.into_inner(), acc, line).and_then(|(reader, acc)| {
                 future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
@@ -356,9 +348,7 @@ mod tests {
             let stream = stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)));
             let mut cfg = TestConfig { mails: Vec::new() };
             let mut resp = Vec::new();
-            interact(stream, &mut resp, (), |()| (), |()| (), &mut cfg)
-                .wait()
-                .unwrap();
+            interact(stream, &mut resp, (), &mut cfg).wait().unwrap();
             let resp = resp.into_iter().concat();
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
@@ -395,7 +385,7 @@ mod tests {
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
         let mut cfg = TestConfig { mails: Vec::new() };
         let mut resp = Vec::new();
-        let res = interact(stream, &mut resp, (), |()| (), |()| (), &mut cfg).wait();
+        let res = interact(stream, &mut resp, (), &mut cfg).wait();
         assert!(res.is_err());
     }
 
@@ -458,8 +448,6 @@ mod tests {
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
         let mut resp = Vec::new();
         let mut cfg = TestConfig { mails: Vec::new() };
-        interact(stream, &mut resp, (), |()| (), |()| (), &mut cfg)
-            .wait()
-            .unwrap();
+        interact(stream, &mut resp, (), &mut cfg).wait().unwrap();
     }
 }
