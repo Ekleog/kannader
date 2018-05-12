@@ -11,18 +11,16 @@ use metadata::{ConnectionMetadata, MailMetadata};
 use sendreply::send_reply;
 use stupidfut::FutIn11;
 
-// TODO: (A) try removing as much lifetimes as possible from the whole mess
-
 // TODO: (B) Allow Reader and Writer to return errors?
 pub fn interact<
     'a,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    Writer: Sink<SinkItem = Bytes, SinkError = ()>,
+    Writer: 'a + Sink<SinkItem = Bytes, SinkError = ()>,
     UserProvidedMetadata: 'a,
-    Cfg: 'a + Config<UserProvidedMetadata>,
+    Cfg: Config<UserProvidedMetadata>,
 >(
     incoming: Reader,
-    outgoing: &'a mut Writer,
+    outgoing: Writer,
     metadata: UserProvidedMetadata,
     cfg: &'a mut Cfg,
 ) -> impl Future<Item = (), Error = ()> + 'a {
@@ -51,7 +49,7 @@ fn handle_line<
     U: 'a,
     Writer: 'a + Sink<SinkItem = ReplyLine, SinkError = ()>,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    Cfg: 'a + Config<U>,
+    Cfg: Config<U>,
 >(
     reader: Prependable<Reader>,
     (cfg, writer, conn_meta, mail_data): (
