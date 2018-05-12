@@ -53,6 +53,7 @@ pub fn interact<
         .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
 }
 
+// TODO: (B) use async/await here
 fn handle_line<
     'a,
     U: 'a,
@@ -94,6 +95,7 @@ fn handle_line<
                     }),
                 )
             } else {
+                cfg.new_mail();
                 match cfg.filter_from(&from, &conn_meta) {
                     Decision::Accept => {
                         let to = Vec::new();

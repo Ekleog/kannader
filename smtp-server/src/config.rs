@@ -5,8 +5,10 @@ use tokio::prelude::*;
 use decision::Decision;
 use metadata::{ConnectionMetadata, MailMetadata};
 
-// TODO: (A) add new_mail called before filter_from
 pub trait Config<U> {
+    // TODO: (A) return futures to Decision here and in filter_{from,to}
+    fn new_mail(&mut self) {}
+
     fn filter_from(&mut self, from: &Option<Email>, conn_meta: &ConnectionMetadata<U>) -> Decision;
 
     fn filter_to(
