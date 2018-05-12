@@ -1,10 +1,9 @@
-use nom::IResult;
-use std::{
-    io, str::{self, FromStr},
-};
+use bytes::Bytes;
+use std::{io, str::FromStr};
 
 use builderror::BuildError;
-use parseresult::ParseError;
+use byteslice::ByteSlice;
+use parseresult::{nom_to_result, ParseError};
 use smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -97,13 +96,8 @@ impl ReplyLine {
     }
 
     // Parse one line of SMTP reply
-    // TODO: (A) use nom_to_result @easy
-    pub fn parse(arg: &[u8]) -> Result<(ReplyLine, &[u8]), ParseError> {
-        match reply(arg) {
-            IResult::Done(rem, res) => Ok((res, rem)),
-            IResult::Error(e) => Err(ParseError::ParseError(e)),
-            IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
-        }
+    pub fn parse(arg: Bytes) -> Result<ReplyLine, ParseError> {
+        nom_to_result(reply(ByteSlice::from(&arg)))
     }
 
     pub fn byte_len(&self) -> usize {
@@ -127,25 +121,33 @@ impl ReplyLine {
     }
 }
 
-named!(pub reply(&[u8]) -> ReplyLine, do_parse!(
+named!(pub reply(ByteSlice) -> ReplyLine, do_parse!(
     code: map!(
         verify!(
             map_res!(
-                map_res!(take!(3), |bytes| str::from_utf8(bytes)),
+                map_res!(take!(3), ByteSlice::into_utf8),
                 |utf8| u16::from_str(utf8)
             ),
             |x: u16| x < 1000
         ),
         ReplyCode::custom
     ) >>
-    is_last: map!(alt!(tag!("-") | tag!(" ")), |b| if b == b" " { IsLastLine::Yes } else { IsLastLine::No }) >>
+    is_last: map!(alt!(tag!("-") | tag!(" ")), |b| {
+        if b.len() == 1 && b[0] == b' ' {
+            IsLastLine::Yes
+        } else {
+            IsLastLine::No
+        }
+    }) >>
     line: take_until_and_consume!("\r\n") >>
-    (ReplyLine { code, is_last, line: line.into() })
+    (ReplyLine { code, is_last, line: line.promote().into() })
 ));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use nom::IResult;
 
     #[test]
     fn reply_not_last() {
@@ -244,7 +246,12 @@ mod tests {
             ),
         ];
         for (inp, out) in tests.iter().cloned() {
-            assert_eq!(reply(inp), IResult::Done(&b""[..], out));
+            let b = Bytes::from(inp);
+            let res = reply(ByteSlice::from(&b));
+            match res {
+                IResult::Done(rem, ref res) if rem.len() == 0 => assert_eq!(res, &out),
+                x => panic!("Unexpected `reply` result: {:?}", x),
+            }
         }
     }
 }

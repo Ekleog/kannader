@@ -2,7 +2,7 @@ use bytes::Bytes;
 use nom::{Compare, CompareResult, FindSubstring, InputIter, InputLength, Slice};
 use std::{
     cmp::PartialEq, iter::{Enumerate, Iterator, Map},
-    ops::{Deref, Range, RangeFrom, RangeFull, RangeTo}, slice,
+    ops::{Deref, Range, RangeFrom, RangeFull, RangeTo}, slice, str,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +34,10 @@ impl<'a> ByteSlice<'a> {
 
     pub fn demote(self) -> &'a [u8] {
         &self.buf[self.start..self.end]
+    }
+
+    pub fn into_utf8(self) -> Result<&'a str, str::Utf8Error> {
+        str::from_utf8(self.demote())
     }
 }
 

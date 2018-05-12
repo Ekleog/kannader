@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use std::{
-    io, net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr}, str::{self, FromStr},
+    io, net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr}, str::FromStr,
 };
 
 use byteslice::ByteSlice;
@@ -36,10 +36,6 @@ impl Sendable for Domain {
     }
 }
 
-fn str_from_utf8_byteslice<'a>(b: ByteSlice<'a>) -> Result<&'a str, str::Utf8Error> {
-    str::from_utf8(b.demote())
-}
-
 named!(pub hostname(ByteSlice) -> Domain,
     alt!(
         map!(recognize!(
@@ -48,12 +44,12 @@ named!(pub hostname(ByteSlice) -> Domain,
                               opt!(is_a!(concat!(alnum!(), "-")))))),
              |x| Domain::Host(SmtpString::from(x.promote()))) |
         map_res!(map_res!(preceded!(tag!("[IPv6:"), take_until_and_consume!("]")),
-                          str_from_utf8_byteslice),
+                          ByteSlice::into_utf8),
                  |x| -> Result<Domain, AddrParseError> {
                      Ok(Domain::Addr(Ipv6Addr::from_str(x)?.into()))
                  }) |
         map_res!(map_res!(preceded!(tag!("["), take_until_and_consume!("]")),
-                          str_from_utf8_byteslice),
+                          ByteSlice::into_utf8),
                  |x| -> Result<Domain, AddrParseError> {
                      Ok(Domain::Addr(Ipv4Addr::from_str(x)?.into()))
                  })
