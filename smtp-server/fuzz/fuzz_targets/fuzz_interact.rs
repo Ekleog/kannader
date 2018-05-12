@@ -11,7 +11,7 @@ extern crate tokio;
 use bytes::{Bytes, BytesMut};
 use tokio::prelude::*;
 
-use smtp_message::{DataStream, Email, Prependable, ReplyCode, StreamExt};
+use smtp_message::{DataStream, Email, Prependable, ReplyCode, SmtpString, StreamExt};
 use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata, Refusal};
 
 struct DiscardSink {}
@@ -32,6 +32,10 @@ impl Sink for DiscardSink {
 struct FuzzConfig {}
 
 impl smtp_server::Config<()> for FuzzConfig {
+    fn hostname(&self) -> SmtpString {
+        SmtpString::from_static(b"test.example.org")
+    }
+
     fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
         if let Some(ref addr) = addr {
             let loc = addr.localpart();

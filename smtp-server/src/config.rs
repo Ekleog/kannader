@@ -37,6 +37,21 @@ pub trait Config<U> {
         Self: 'a,
         S: 'a + Stream<Item = BytesMut, Error = ()>;
 
+    fn hostname(&self) -> SmtpString;
+
+    fn banner(&self) -> SmtpString {
+        SmtpString::from_static(b"Service ready")
+    }
+
+    // TODO: (B) avoid concatenation here id:XIP2
+    // Technique: Have Reply take mutliple strings
+    fn welcome_banner(&self) -> (ReplyCode, SmtpString) {
+        (
+            ReplyCode::SERVICE_READY,
+            self.hostname() + SmtpString::from_static(b" ") + self.banner(),
+        )
+    }
+
     // TODO: (B) return Reply when it is a thing (and same for below) id:E4tJ
     fn okay(&self) -> (ReplyCode, SmtpString) {
         (ReplyCode::OKAY, SmtpString::from_static(b"Okay"))
@@ -51,7 +66,10 @@ pub trait Config<U> {
     }
 
     fn data_okay(&self) -> (ReplyCode, SmtpString) {
-        (ReplyCode::START_MAIL_INPUT, SmtpString::from_static(b"Start mail input; end with <CRLF>.<CRLF>"))
+        (
+            ReplyCode::START_MAIL_INPUT,
+            SmtpString::from_static(b"Start mail input; end with <CRLF>.<CRLF>"),
+        )
     }
 
     fn mail_accepted(&self) -> (ReplyCode, SmtpString) {

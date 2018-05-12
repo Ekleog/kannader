@@ -34,13 +34,15 @@ pub fn interact<
         // programming error, there's no need to try and handle this cleanly.
         future::ok(w.into_inner().freeze())
     });
-    CrlfLines::new(incoming.prependable())
-        .fold_with_stream((cfg, writer, conn_meta, None), move |acc, line, reader| {
-            handle_line(reader.into_inner(), acc, line).and_then(|(reader, acc)| {
-                future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
+    send_reply(writer, cfg.welcome_banner()).and_then(|writer| {
+        CrlfLines::new(incoming.prependable())
+            .fold_with_stream((cfg, writer, conn_meta, None), move |acc, line, reader| {
+                handle_line(reader.into_inner(), acc, line).and_then(|(reader, acc)| {
+                    future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
+                })
             })
-        })
-        .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
+            .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
+    })
 }
 
 // TODO: (B) use async/await here hide:async-await-in-rust-and-tokio
@@ -217,6 +219,10 @@ mod tests {
     }
 
     impl Config<()> for TestConfig {
+        fn hostname(&self) -> SmtpString {
+            SmtpString::from_static(b"test.example.org")
+        }
+
         fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
             if addr == &Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
                 Decision::Reject(Refusal {
@@ -277,7 +283,6 @@ mod tests {
     #[test]
     fn interacts_ok() {
         let tests: &[(&[&[u8]], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
-            // TODO: (A) send banner before EHLO
             (
                 &[b"MAIL FROM:<>\r\n\
                     RCPT TO:<baz@quux.example.org>\r\n\
@@ -287,7 +292,8 @@ mod tests {
                     Hello world\r\n\
                     .\r\n\
                     QUIT\r\n"],
-                b"250 Okay\r\n\
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
                   550 No user 'baz'\r\n\
                   250 Okay\r\n\
                   250 Okay\r\n\
@@ -309,7 +315,8 @@ mod tests {
                     b".\r\n",
                     b"QUIT\r\n",
                 ],
-                b"250 Okay\r\n\
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
                   250 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   550 Don't you dare say 'World'!\r\n\
@@ -318,7 +325,8 @@ mod tests {
             ),
             (
                 &[b"HELP hello\r\n"],
-                b"502 Command not implemented\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  502 Command not implemented\r\n",
                 &[],
             ),
             (
@@ -332,7 +340,8 @@ mod tests {
                     b".\r\n\
                       QUIT\r\n",
                 ],
-                b"550 User 'bad' banned\r\n\
+                b"220 test.example.org Service ready\r\n\
+                  550 User 'bad' banned\r\n\
                   250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   250 Okay\r\n\
@@ -349,7 +358,8 @@ mod tests {
                 &[b"MAIL FROM:<foo@test.example.com>\r\n\
                     DATA\r\n\
                     QUIT\r\n"],
-                b"250 Okay\r\n\
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   502 Command not implemented\r\n",
                 &[],
@@ -357,7 +367,8 @@ mod tests {
             (
                 &[b"MAIL FROM:<foo@test.example.com>\r\n\
                     RCPT TO:<foo@bar.example.org>\r"],
-                b"250 Okay\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n",
                 &[],
             ),
         ];

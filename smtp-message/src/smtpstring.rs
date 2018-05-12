@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::{cmp::min, io, slice};
+use std::{cmp::min, io, ops::Add, slice};
 
 use sendable::Sendable;
 
@@ -64,5 +64,15 @@ impl SmtpString {
         let copy = self.0.clone();
         (0..(self.byte_len() + bytes - 1) / bytes)
             .map(move |i| SmtpString(copy.slice(i * bytes, min(copy.len(), (i + 1) * bytes))))
+    }
+}
+
+// TODO: (C) either remove or optimize
+impl Add<SmtpString> for SmtpString {
+    type Output = SmtpString;
+
+    fn add(mut self, rhs: SmtpString) -> SmtpString {
+        self.0.extend_from_slice(&rhs.0);
+        self
     }
 }
