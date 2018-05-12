@@ -9,7 +9,7 @@ use crlflines::CrlfLines;
 use decision::Decision;
 use metadata::{ConnectionMetadata, MailMetadata};
 use sendreply::send_reply;
-use stupidfut::FutIn11;
+use stupidfut::FutIn12;
 
 // TODO: (B) Allow Reader and Writer to return errors?
 pub fn interact<
@@ -43,7 +43,7 @@ pub fn interact<
         .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
 }
 
-// TODO: (B) use async/await here
+// TODO: (B) use async/await here hide:async-await-in-rust-and-tokio
 fn handle_line<
     'a,
     U: 'a,
@@ -79,7 +79,7 @@ fn handle_line<
             params: _params,
         })) => {
             if mail_data.is_some() {
-                FutIn11::Fut1(
+                FutIn12::Fut1(
                     send_reply(writer, cfg.already_in_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -89,14 +89,14 @@ fn handle_line<
                 match cfg.filter_from(&from, &conn_meta) {
                     Decision::Accept => {
                         let to = Vec::new();
-                        FutIn11::Fut2(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
+                        FutIn12::Fut2(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
                             future::ok((
                                 Some(reader),
                                 (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
                             ))
                         }))
                     }
-                    Decision::Reject(r) => FutIn11::Fut3(
+                    Decision::Reject(r) => FutIn12::Fut3(
                         send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                         }),
@@ -110,7 +110,7 @@ fn handle_line<
                     Decision::Accept => {
                         let MailMetadata { from, mut to } = mail_meta;
                         to.push(rcpt_to);
-                        FutIn11::Fut4(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
+                        FutIn12::Fut4(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
                             future::ok((
                                 Some(reader),
                                 (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
@@ -118,13 +118,13 @@ fn handle_line<
                         }))
                     }
                     Decision::Reject(r) => {
-                        FutIn11::Fut5(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
+                        FutIn12::Fut5(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }))
                     }
                 }
             } else {
-                FutIn11::Fut6(
+                FutIn12::Fut6(
                     send_reply(writer, cfg.rcpt_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -134,34 +134,57 @@ fn handle_line<
         Ok(Command::Data(_)) => {
             if let Some(mail_meta) = mail_data {
                 if !mail_meta.to.is_empty() {
-                    FutIn11::Fut7(
-                        cfg.handle_mail(DataStream::new(reader), mail_meta, &conn_meta)
-                            .and_then(|(cfg, reader, decision)| match decision {
-                                Decision::Accept => future::Either::A(
-                                    send_reply(writer, cfg.mail_accepted()).and_then(|writer| {
-                                        future::ok((reader, (cfg, writer, conn_meta, None)))
-                                    }),
-                                ),
-                                Decision::Reject(r) => future::Either::B(
-                                    send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                                        // Other mail systems (at least postfix, OpenSMTPD and
-                                        // gmail) appear to drop the state on an unsuccessful
-                                        // DATA command (eg. too long). Couldn't find the RFC
-                                        // reference anywhere, though.
-                                        future::ok((reader, (cfg, writer, conn_meta, None)))
-                                    }),
-                                ),
+                    match cfg.filter_data(&mail_meta, &conn_meta) {
+                        Decision::Accept => FutIn12::Fut7(
+                            send_reply(writer, cfg.data_okay()).and_then(move |writer| {
+                                cfg.handle_mail(DataStream::new(reader), mail_meta, &conn_meta)
+                                    .and_then(|(cfg, reader, decision)| match decision {
+                                        Decision::Accept => future::Either::A(
+                                            send_reply(writer, cfg.mail_accepted()).and_then(
+                                                |writer| {
+                                                    future::ok((
+                                                        reader,
+                                                        (cfg, writer, conn_meta, None),
+                                                    ))
+                                                },
+                                            ),
+                                        ),
+                                        Decision::Reject(r) => future::Either::B(
+                                            send_reply(writer, (r.code, r.msg.into())).and_then(
+                                                |writer| {
+                                                    // Other mail systems (at least postfix,
+                                                    // OpenSMTPD and gmail) appear to drop the
+                                                    // state on an unsuccessful DATA command (eg.
+                                                    // too long). Couldn't find the RFC reference
+                                                    // anywhere, though.
+                                                    future::ok((
+                                                        reader,
+                                                        (cfg, writer, conn_meta, None),
+                                                    ))
+                                                },
+                                            ),
+                                        ),
+                                    })
                             }),
-                    )
+                        ),
+                        Decision::Reject(r) => FutIn12::Fut8(
+                            send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
+                                future::ok((
+                                    Some(reader),
+                                    (cfg, writer, conn_meta, Some(mail_meta)),
+                                ))
+                            }),
+                        ),
+                    }
                 } else {
-                    FutIn11::Fut8(
+                    FutIn12::Fut9(
                         send_reply(writer, cfg.data_before_rcpt()).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }),
                     )
                 }
             } else {
-                FutIn11::Fut9(
+                FutIn12::Fut10(
                     send_reply(writer, cfg.data_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -169,11 +192,11 @@ fn handle_line<
             }
         }
         // TODO: (B) implement all the parsed commands and remove this case
-        Ok(_) => FutIn11::Fut10(
+        Ok(_) => FutIn12::Fut11(
             send_reply(writer, cfg.command_unimplemented())
                 .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
-        Err(_) => FutIn11::Fut11(
+        Err(_) => FutIn12::Fut12(
             send_reply(writer, cfg.command_unrecognized())
                 .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
@@ -255,7 +278,6 @@ mod tests {
     fn interacts_ok() {
         let tests: &[(&[&[u8]], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
             // TODO: (A) send banner before EHLO
-            // TODO: (A) send please go on after DATA
             (
                 &[b"MAIL FROM:<>\r\n\
                     RCPT TO:<baz@quux.example.org>\r\n\
@@ -269,6 +291,7 @@ mod tests {
                   550 No user 'baz'\r\n\
                   250 Okay\r\n\
                   250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   250 Okay\r\n\
                   502 Command not implemented\r\n",
                 &[(
@@ -288,6 +311,7 @@ mod tests {
                 ],
                 b"250 Okay\r\n\
                   250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   550 Don't you dare say 'World'!\r\n\
                   502 Command not implemented\r\n",
                 &[],
@@ -312,6 +336,7 @@ mod tests {
                   250 Okay\r\n\
                   503 Bad sequence of commands\r\n\
                   250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   250 Okay\r\n\
                   502 Command not implemented\r\n",
                 &[(

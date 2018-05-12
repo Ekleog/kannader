@@ -18,6 +18,14 @@ pub trait Config<U> {
         conn_meta: &ConnectionMetadata<U>,
     ) -> Decision;
 
+    fn filter_data(
+        &mut self,
+        _meta: &MailMetadata,
+        _conn_meta: &ConnectionMetadata<U>,
+    ) -> Decision {
+        Decision::Accept
+    }
+
     // TODO: (B) replace this Box by impl Trait syntax hide:impl-trait-in-trait
     fn handle_mail<'a, S>(
         &'a mut self,
@@ -40,6 +48,10 @@ pub trait Config<U> {
 
     fn rcpt_okay(&self) -> (ReplyCode, SmtpString) {
         self.okay()
+    }
+
+    fn data_okay(&self) -> (ReplyCode, SmtpString) {
+        (ReplyCode::START_MAIL_INPUT, SmtpString::from_static(b"Start mail input; end with <CRLF>.<CRLF>"))
     }
 
     fn mail_accepted(&self) -> (ReplyCode, SmtpString) {
