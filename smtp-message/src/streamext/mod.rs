@@ -1,11 +1,13 @@
 mod concatandrecover;
 mod foldwithstream;
+mod forwardnotclosing;
 mod prependable;
 
 use tokio::prelude::*;
 
 pub use self::{
-    concatandrecover::ConcatAndRecover, foldwithstream::FoldWithStream, prependable::Prependable,
+    concatandrecover::ConcatAndRecover, foldwithstream::FoldWithStream,
+    forwardnotclosing::ForwardNotClosing, prependable::Prependable,
 };
 
 pub trait StreamExt: Stream {
@@ -35,6 +37,15 @@ pub trait StreamExt: Stream {
         Ret: Future<Item = (Self, Acc), Error = Self::Error>,
     {
         FoldWithStream::new(self, init, f)
+    }
+
+    fn forward_not_closing<S>(self, sink: S) -> ForwardNotClosing<Self, S>
+    where
+        Self: Sized,
+        S: Sink<SinkItem = Self::Item>,
+        Self::Error: From<S::SinkError>,
+    {
+        self::forwardnotclosing::new(self, sink)
     }
 }
 
