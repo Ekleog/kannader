@@ -11,11 +11,11 @@ use stupidparsers::eat_spaces;
 #[derive(Debug)]
 pub struct MailCommand {
     pub from:   Option<Email>,
-    pub params: Option<SpParameters>,
+    pub params: SpParameters,
 }
 
 impl MailCommand {
-    pub fn new(from: Option<Email>, params: Option<SpParameters>) -> MailCommand {
+    pub fn new(from: Option<Email>, params: SpParameters) -> MailCommand {
         MailCommand { from, params }
     }
 
@@ -43,7 +43,7 @@ named!(pub command_mail_args(ByteSlice) -> MailCommand,
             map!(tag!("<>"), |_| None) |
             map!(address_in_maybe_bracketed_path, |x| Some(x))
         ) >>
-        sp: opt!(preceded!(tag!("SP"), sp_parameters)) >>
+        sp: sp_parameters >>
         crlf >>
         (MailCommand {
             from: from,
@@ -66,41 +66,42 @@ mod tests {
                 &b" FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
-                    params: None,
+                    params: SpParameters::none(),
                 },
             ),
             (
                 &b"FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"quux@example.net").unwrap()),
-                    params: None,
+                    params: SpParameters::none(),
                 },
             ),
             (
                 &b"FROM:<>\r\n"[..],
                 MailCommand {
                     from:   None,
-                    params: None,
+                    params: SpParameters::none(),
                 },
             ),
             (
                 &b"FROM:<> SP hello=world SP foo\r\n"[..],
                 MailCommand {
                     from:   None,
-                    params: Some(SpParameters(
+                    params: SpParameters(
                         vec![
                             ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
                             ((b"foo"[..]).into(), None),
                         ].into_iter()
                             .collect(),
-                    )),
+                    ),
                 },
             ),
         ];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);
+            println!("Trying to parse {:?}", b);
             match command_mail_args(ByteSlice::from(&b)) {
-                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
+                IResult::Done(rem, ref res) if rem.len() == 0 => assert_eq!(res, &r),
                 x => panic!("Unexpected result: {:?}", x),
             }
         }
@@ -118,13 +119,17 @@ mod tests {
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();
-        MailCommand::new(Some(Email::parse_slice(b"foo@bar.baz").unwrap()), None)
-            .send_to(&mut v)
+        MailCommand::new(
+            Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
+            SpParameters::none(),
+        ).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
         let mut v = Vec::new();
-        MailCommand::new(None, None).send_to(&mut v).unwrap();
+        MailCommand::new(None, SpParameters::none())
+            .send_to(&mut v)
+            .unwrap();
         assert_eq!(v, b"MAIL FROM:<>\r\n");
     }
 }

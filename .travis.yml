@@ -10,6 +10,9 @@ rust:
   - beta
   - nightly
 
+# TODO: (C) import interesting stuff from https://github.com/Geal/nom/blob/master/.travis.yml
+# (esp. the cargo-travis / coverage story)
+
 matrix:
   include:
     # TODO: (C) reenable coverage hide:https://github.com/xd009642/tarpaulin/issues/101

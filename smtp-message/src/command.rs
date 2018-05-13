@@ -54,6 +54,7 @@ impl Command {
     }
 }
 
+// TODO: (A) Use switch! here and replace the ' ' by any(" \t")
 named!(command(ByteSlice) -> Command, alt!(
     map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
     map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |

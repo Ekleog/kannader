@@ -8,15 +8,17 @@ use stupidparsers::eat_spaces;
 #[cfg_attr(test, derive(PartialEq))]
 pub struct SpParameters(pub HashMap<SmtpString, Option<SmtpString>>);
 
+impl SpParameters {
+    pub fn none() -> SpParameters {
+        SpParameters(HashMap::new())
+    }
+}
+
 named!(pub sp_parameters(ByteSlice) -> SpParameters, do_parse!(
-    params: separated_nonempty_list_complete!(
+    params: many0!(
         do_parse!(
-            many1!(one_of!(" \t")) >>
-            tag!("SP") >>
-            many1!(one_of!(" \t")) >>
-            ()
-        ),
-        do_parse!(
+            eat_spaces >>
+            tag_no_case!("SP") >>
             eat_spaces >>
             key: recognize!(preceded!(one_of!(alnum!()), opt!(is_a!(alnumdash!())))) >>
             value: opt!(complete!(preceded!(tag!("="), is_a!(graph_except_equ!())))) >>
@@ -34,22 +36,22 @@ mod tests {
     #[test]
     fn valid_sp_parameters() {
         let tests: &[(&[u8], &[(&[u8], Option<&[u8]>)])] = &[
-            (b"key=value", &[(b"key", Some(b"value"))]),
+            (b"SP key=value", &[(b"key", Some(b"value"))]),
             (
-                b"key=value SP key2=value2",
+                b"sp key=value SP key2=value2",
                 &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))],
             ),
             (
-                b"KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
+                b"sP KeY2=V4\"l\\u@e.z\tSP\t0tterkeyz=very_muchWh4t3ver",
                 &[
                     (b"KeY2", Some(b"V4\"l\\u@e.z")),
                     (b"0tterkeyz", Some(b"very_muchWh4t3ver")),
                 ],
             ),
-            (b"NoValueKey", &[(b"NoValueKey", None)]),
-            (b"A SP B", &[(b"A", None), (b"B", None)]),
+            (b"Sp NoValueKey", &[(b"NoValueKey", None)]),
+            (b"SP A SP B", &[(b"A", None), (b"B", None)]),
             (
-                b"A=B SP C SP D=SP",
+                b"sp A=B SP C SP D=SP",
                 &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))],
             ),
         ];
