@@ -36,38 +36,82 @@ impl smtp_server::Config<()> for FuzzConfig {
         SmtpString::from_static(b"test.example.org")
     }
 
-    fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
-        if let Some(ref addr) = addr {
+    fn filter_from<'a>(
+        &'a mut self,
+        addr: Option<Email>,
+        conn_meta: ConnectionMetadata<()>,
+    ) -> Box<
+        'a
+            + Future<
+                Item = (
+                    &'a mut Self,
+                    Option<Email>,
+                    ConnectionMetadata<()>,
+                    Decision,
+                ),
+                Error = (),
+            >,
+    >
+    where
+        (): 'a,
+    {
+        if let Some(addr) = addr {
             let loc = addr.localpart();
             let locb = loc.bytes();
             if locb.len() >= 2 && locb[0] > locb[1] {
-                Decision::Accept
+                Box::new(future::ok((self, Some(addr), conn_meta, Decision::Accept)))
             } else {
-                Decision::Reject(Refusal {
-                    code: ReplyCode::POLICY_REASON,
-                    msg:  (&"forbidden user"[..]).into(),
-                })
+                Box::new(future::ok((
+                    self,
+                    Some(addr),
+                    conn_meta,
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::POLICY_REASON,
+                        msg:  (&"forbidden user"[..]).into(),
+                    }),
+                )))
             }
         } else {
-            Decision::Accept
+            Box::new(future::ok((self, addr, conn_meta, Decision::Accept)))
         }
     }
 
-    fn filter_to(
-        &mut self,
-        email: &Email,
-        _: &MailMetadata,
-        _: &ConnectionMetadata<()>,
-    ) -> Decision {
+    fn filter_to<'a>(
+        &'a mut self,
+        email: Email,
+        meta: MailMetadata,
+        conn_meta: ConnectionMetadata<()>,
+    ) -> Box<
+        'a
+            + Future<
+                Item = (
+                    &'a mut Self,
+                    Email,
+                    MailMetadata,
+                    ConnectionMetadata<()>,
+                    Decision,
+                ),
+                Error = (),
+            >,
+    >
+    where
+        (): 'a,
+    {
         let loc = email.localpart();
         let locb = loc.bytes();
         if locb.len() >= 2 && locb[0] > locb[1] {
-            Decision::Accept
+            Box::new(future::ok((self, email, meta, conn_meta, Decision::Accept)))
         } else {
-            Decision::Reject(Refusal {
-                code: ReplyCode::POLICY_REASON,
-                msg:  (&"forbidden user"[..]).into(),
-            })
+            Box::new(future::ok((
+                self,
+                email,
+                meta,
+                conn_meta,
+                Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg:  (&"forbidden user"[..]).into(),
+                }),
+            )))
         }
     }
 
@@ -75,8 +119,19 @@ impl smtp_server::Config<()> for FuzzConfig {
         &'a mut self,
         reader: DataStream<S>,
         mail: MailMetadata,
-        _: &ConnectionMetadata<()>,
-    ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>> {
+        conn_meta: ConnectionMetadata<()>,
+    ) -> Box<
+        'a
+            + Future<
+                Item = (
+                    &'a mut Self,
+                    Option<Prependable<S>>,
+                    ConnectionMetadata<()>,
+                    Decision,
+                ),
+                Error = (),
+            >,
+    > {
         Box::new(
             reader
                 .concat_and_recover()
@@ -88,13 +143,14 @@ impl smtp_server::Config<()> for FuzzConfig {
                         future::ok((
                             self,
                             Some(reader.into_inner()),
+                            conn_meta,
                             Decision::Reject(Refusal {
                                 code: ReplyCode::POLICY_REASON,
                                 msg:  (&"Too many recipients!"[..]).into(),
                             }),
                         ))
                     } else {
-                        future::ok((self, Some(reader.into_inner()), Decision::Accept))
+                        future::ok((self, Some(reader.into_inner()), conn_meta, Decision::Accept))
                     }
                 }),
         )

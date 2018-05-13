@@ -5,37 +5,84 @@ use tokio::prelude::*;
 use decision::Decision;
 use metadata::{ConnectionMetadata, MailMetadata};
 
+// TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
+// TODO: (B) for a clean api, the futures should not take ownership and return
+// but rather take a reference (when async/await will be done)
 pub trait Config<U> {
-    // TODO: (A) return futures to Decision here and in filter_{from,to}
-    fn new_mail(&mut self) {}
-
-    fn filter_from(&mut self, from: &Option<Email>, conn_meta: &ConnectionMetadata<U>) -> Decision;
-
-    fn filter_to(
-        &mut self,
-        to: &Email,
-        meta: &MailMetadata,
-        conn_meta: &ConnectionMetadata<U>,
-    ) -> Decision;
-
-    fn filter_data(
-        &mut self,
-        _meta: &MailMetadata,
-        _conn_meta: &ConnectionMetadata<U>,
-    ) -> Decision {
-        Decision::Accept
+    fn new_mail<'a>(&'a mut self) -> Box<'a + Future<Item = &'a mut Self, Error = ()>>
+    where
+        U: 'a,
+    {
+        Box::new(future::ok(self))
     }
 
-    // TODO: (B) replace this Box by impl Trait syntax hide:impl-trait-in-trait
-    fn handle_mail<'a, S>(
+    fn filter_from<'a>(
+        &'a mut self,
+        from: Option<Email>,
+        conn_meta: ConnectionMetadata<U>,
+    ) -> Box<
+        'a
+            + Future<Item = (&'a mut Self, Option<Email>, ConnectionMetadata<U>, Decision), Error = ()>,
+    >
+    where
+        U: 'a;
+
+    fn filter_to<'a>(
+        &'a mut self,
+        to: Email,
+        meta: MailMetadata,
+        conn_meta: ConnectionMetadata<U>,
+    ) -> Box<
+        'a
+            + Future<
+                Item = (
+                    &'a mut Self,
+                    Email,
+                    MailMetadata,
+                    ConnectionMetadata<U>,
+                    Decision,
+                ),
+                Error = (),
+            >,
+    >
+    where
+        U: 'a;
+
+    fn filter_data<'a>(
+        &'a mut self,
+        meta: MailMetadata,
+        conn_meta: ConnectionMetadata<U>,
+    ) -> Box<
+        'a
+            + Future<Item = (&'a mut Self, MailMetadata, ConnectionMetadata<U>, Decision), Error = ()>,
+    >
+    where
+        U: 'a,
+    {
+        Box::new(future::ok((self, meta, conn_meta, Decision::Accept)))
+    }
+
+    fn handle_mail<'a, S: 'a>(
         &'a mut self,
         stream: DataStream<S>,
         meta: MailMetadata,
-        conn_meta: &ConnectionMetadata<U>,
-    ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>>
+        conn_meta: ConnectionMetadata<U>,
+    ) -> Box<
+        'a
+            + Future<
+                Item = (
+                    &'a mut Self,
+                    Option<Prependable<S>>,
+                    ConnectionMetadata<U>,
+                    Decision,
+                ),
+                Error = (),
+            >,
+    >
     where
         Self: 'a,
-        S: 'a + Stream<Item = BytesMut, Error = ()>;
+        S: 'a + Stream<Item = BytesMut, Error = ()>,
+        U: 'a;
 
     fn hostname(&self) -> SmtpString;
 

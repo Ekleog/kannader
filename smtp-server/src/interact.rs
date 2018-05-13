@@ -2,14 +2,14 @@ use bytes::{BufMut, Bytes, BytesMut};
 use smtp_message::{
     Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine, StreamExt,
 };
-use tokio::prelude::*;
+use tokio::prelude::{future::Either, *};
 
 use config::Config;
 use crlflines::CrlfLines;
 use decision::Decision;
 use metadata::{ConnectionMetadata, MailMetadata};
 use sendreply::send_reply;
-use stupidfut::FutIn12;
+use stupidfut::FutIn9;
 
 // TODO: (B) Allow Reader and Writer to return errors?
 pub fn interact<
@@ -81,29 +81,32 @@ fn handle_line<
             params: _params,
         })) => {
             if mail_data.is_some() {
-                FutIn12::Fut1(
+                FutIn9::Fut1(
                     send_reply(writer, cfg.already_in_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
                 )
             } else {
-                cfg.new_mail();
-                match cfg.filter_from(&from, &conn_meta) {
-                    Decision::Accept => {
-                        let to = Vec::new();
-                        FutIn12::Fut2(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
-                            future::ok((
-                                Some(reader),
-                                (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                            ))
-                        }))
-                    }
-                    Decision::Reject(r) => FutIn12::Fut3(
-                        send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                            future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
+                FutIn9::Fut2(
+                    cfg.new_mail()
+                        .and_then(|cfg| cfg.filter_from(from, conn_meta))
+                        .and_then(|(cfg, from, conn_meta, decision)| match decision {
+                            Decision::Accept => {
+                                let to = Vec::new();
+                                Either::A(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
+                                    future::ok((
+                                        Some(reader),
+                                        (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
+                                    ))
+                                }))
+                            }
+                            Decision::Reject(r) => Either::B(
+                                send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
+                                    future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
+                                }),
+                            ),
                         }),
-                    ),
-                }
+                )
             }
         }
         Ok(Command::Rcpt(RcptCommand {
@@ -111,25 +114,30 @@ fn handle_line<
             params: _params,
         })) => {
             if let Some(mail_meta) = mail_data {
-                match cfg.filter_to(&rcpt_to, &mail_meta, &conn_meta) {
-                    Decision::Accept => {
-                        let MailMetadata { from, mut to } = mail_meta;
-                        to.push(rcpt_to);
-                        FutIn12::Fut4(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
-                            future::ok((
-                                Some(reader),
-                                (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                            ))
-                        }))
-                    }
-                    Decision::Reject(r) => {
-                        FutIn12::Fut5(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
-                            future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
-                        }))
-                    }
-                }
+                FutIn9::Fut3(cfg.filter_to(rcpt_to, mail_meta, conn_meta).and_then(
+                    |(cfg, rcpt_to, mail_meta, conn_meta, decision)| match decision {
+                        Decision::Accept => {
+                            let MailMetadata { from, mut to } = mail_meta;
+                            to.push(rcpt_to);
+                            Either::A(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
+                                future::ok((
+                                    Some(reader),
+                                    (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
+                                ))
+                            }))
+                        }
+                        Decision::Reject(r) => {
+                            Either::B(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
+                                future::ok((
+                                    Some(reader),
+                                    (cfg, writer, conn_meta, Some(mail_meta)),
+                                ))
+                            }))
+                        }
+                    },
+                ))
             } else {
-                FutIn12::Fut6(
+                FutIn9::Fut4(
                     send_reply(writer, cfg.rcpt_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -139,57 +147,60 @@ fn handle_line<
         Ok(Command::Data(_)) => {
             if let Some(mail_meta) = mail_data {
                 if !mail_meta.to.is_empty() {
-                    match cfg.filter_data(&mail_meta, &conn_meta) {
-                        Decision::Accept => FutIn12::Fut7(
-                            send_reply(writer, cfg.data_okay()).and_then(move |writer| {
-                                cfg.handle_mail(DataStream::new(reader), mail_meta, &conn_meta)
-                                    .and_then(|(cfg, reader, decision)| match decision {
-                                        Decision::Accept => future::Either::A(
-                                            send_reply(writer, cfg.mail_accepted()).and_then(
-                                                |writer| {
-                                                    future::ok((
-                                                        reader,
-                                                        (cfg, writer, conn_meta, None),
-                                                    ))
-                                                },
-                                            ),
-                                        ),
-                                        Decision::Reject(r) => future::Either::B(
-                                            send_reply(writer, (r.code, r.msg.into())).and_then(
-                                                |writer| {
-                                                    // Other mail systems (at least postfix,
-                                                    // OpenSMTPD and gmail) appear to drop the
-                                                    // state on an unsuccessful DATA command (eg.
-                                                    // too long). Couldn't find the RFC reference
-                                                    // anywhere, though.
-                                                    future::ok((
-                                                        reader,
-                                                        (cfg, writer, conn_meta, None),
-                                                    ))
-                                                },
-                                            ),
-                                        ),
-                                    })
-                            }),
-                        ),
-                        Decision::Reject(r) => FutIn12::Fut8(
-                            send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                                future::ok((
-                                    Some(reader),
-                                    (cfg, writer, conn_meta, Some(mail_meta)),
-                                ))
-                            }),
-                        ),
-                    }
+                    FutIn9::Fut5(cfg.filter_data(mail_meta, conn_meta).and_then(
+                        |(cfg, mail_meta, conn_meta, decision)| match decision {
+                            Decision::Accept => Either::A(
+                                send_reply(writer, cfg.data_okay()).and_then(move |writer| {
+                                    cfg.handle_mail(DataStream::new(reader), mail_meta, conn_meta)
+                                        .and_then(|(cfg, reader, conn_meta, decision)| {
+                                            match decision {
+                                                Decision::Accept => Either::A(
+                                                    send_reply(writer, cfg.mail_accepted())
+                                                        .and_then(|writer| {
+                                                            future::ok((
+                                                                reader,
+                                                                (cfg, writer, conn_meta, None),
+                                                            ))
+                                                        }),
+                                                ),
+                                                Decision::Reject(r) => Either::B(
+                                                    send_reply(writer, (r.code, r.msg.into()))
+                                                        .and_then(|writer| {
+                                                            // Other mail systems (at least
+                                                            // postfix, OpenSMTPD and gmail) appear
+                                                            // to drop the state on an unsuccessful
+                                                            // DATA command (eg. too long).
+                                                            // Couldn't find the RFC reference
+                                                            // anywhere, though.
+                                                            future::ok((
+                                                                reader,
+                                                                (cfg, writer, conn_meta, None),
+                                                            ))
+                                                        }),
+                                                ),
+                                            }
+                                        })
+                                }),
+                            ),
+                            Decision::Reject(r) => Either::B(
+                                send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
+                                    future::ok((
+                                        Some(reader),
+                                        (cfg, writer, conn_meta, Some(mail_meta)),
+                                    ))
+                                }),
+                            ),
+                        },
+                    ))
                 } else {
-                    FutIn12::Fut9(
+                    FutIn9::Fut6(
                         send_reply(writer, cfg.data_before_rcpt()).and_then(|writer| {
                             future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
                         }),
                     )
                 }
             } else {
-                FutIn12::Fut10(
+                FutIn9::Fut7(
                     send_reply(writer, cfg.data_before_mail()).and_then(|writer| {
                         future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
                     }),
@@ -197,11 +208,11 @@ fn handle_line<
             }
         }
         // TODO: (B) implement all the parsed commands and remove this case
-        Ok(_) => FutIn12::Fut11(
+        Ok(_) => FutIn9::Fut8(
             send_reply(writer, cfg.command_unimplemented())
                 .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
-        Err(_) => FutIn12::Fut12(
+        Err(_) => FutIn9::Fut9(
             send_reply(writer, cfg.command_unrecognized())
                 .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
         ),
@@ -226,30 +237,74 @@ mod tests {
             SmtpString::from_static(b"test.example.org")
         }
 
-        fn filter_from(&mut self, addr: &Option<Email>, _: &ConnectionMetadata<()>) -> Decision {
-            if addr == &Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
-                Decision::Reject(Refusal {
-                    code: ReplyCode::POLICY_REASON,
-                    msg:  "User 'bad' banned".into(),
-                })
+        fn filter_from<'a>(
+            &'a mut self,
+            addr: Option<Email>,
+            conn_meta: ConnectionMetadata<()>,
+        ) -> Box<
+            'a
+                + Future<
+                    Item = (
+                        &'a mut Self,
+                        Option<Email>,
+                        ConnectionMetadata<()>,
+                        Decision,
+                    ),
+                    Error = (),
+                >,
+        >
+        where
+            (): 'a,
+        {
+            if addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
+                Box::new(future::ok((
+                    self,
+                    addr,
+                    conn_meta,
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::POLICY_REASON,
+                        msg:  "User 'bad' banned".into(),
+                    }),
+                )))
             } else {
-                Decision::Accept
+                Box::new(future::ok((self, addr, conn_meta, Decision::Accept)))
             }
         }
 
-        fn filter_to(
-            &mut self,
-            email: &Email,
-            _: &MailMetadata,
-            _: &ConnectionMetadata<()>,
-        ) -> Decision {
+        fn filter_to<'a>(
+            &'a mut self,
+            email: Email,
+            meta: MailMetadata,
+            conn_meta: ConnectionMetadata<()>,
+        ) -> Box<
+            'a
+                + Future<
+                    Item = (
+                        &'a mut Self,
+                        Email,
+                        MailMetadata,
+                        ConnectionMetadata<()>,
+                        Decision,
+                    ),
+                    Error = (),
+                >,
+        >
+        where
+            (): 'a,
+        {
             if email.localpart().bytes() == &b"baz"[..] {
-                Decision::Reject(Refusal {
-                    code: ReplyCode::MAILBOX_UNAVAILABLE,
-                    msg:  "No user 'baz'".into(),
-                })
+                Box::new(future::ok((
+                    self,
+                    email,
+                    meta,
+                    conn_meta,
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::MAILBOX_UNAVAILABLE,
+                        msg:  "No user 'baz'".into(),
+                    }),
+                )))
             } else {
-                Decision::Accept
+                Box::new(future::ok((self, email, meta, conn_meta, Decision::Accept)))
             }
         }
 
@@ -257,11 +312,23 @@ mod tests {
             &'a mut self,
             reader: DataStream<S>,
             meta: MailMetadata,
-            _: &ConnectionMetadata<()>,
-        ) -> Box<'a + Future<Item = (&'a mut Self, Option<Prependable<S>>, Decision), Error = ()>>
+            conn_meta: ConnectionMetadata<()>,
+        ) -> Box<
+            'a
+                + Future<
+                    Item = (
+                        &'a mut Self,
+                        Option<Prependable<S>>,
+                        ConnectionMetadata<()>,
+                        Decision,
+                    ),
+                    Error = (),
+                >,
+        >
         where
             Self: 'a,
             S: 'a + Stream<Item = BytesMut, Error = ()>,
+            (): 'a,
         {
             Box::new(reader.concat_and_recover().map_err(|_| ()).and_then(
                 move |(mail_text, reader)| {
@@ -269,6 +336,7 @@ mod tests {
                         future::ok((
                             self,
                             Some(reader.into_inner()),
+                            conn_meta,
                             Decision::Reject(Refusal {
                                 code: ReplyCode::POLICY_REASON,
                                 msg:  "Don't you dare say 'World'!".into(),
@@ -276,7 +344,7 @@ mod tests {
                         ))
                     } else {
                         self.mails.push((meta.from, meta.to, mail_text));
-                        future::ok((self, Some(reader.into_inner()), Decision::Accept))
+                        future::ok((self, Some(reader.into_inner()), conn_meta, Decision::Accept))
                     }
                 },
             ))
