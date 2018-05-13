@@ -31,7 +31,7 @@ impl DataCommand {
 }
 
 named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
-    eat_spaces >> crlf >>
+    tag_no_case!("DATA") >> eat_spaces >> crlf >>
     (DataCommand { _useless: () })
 ));
 
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn valid_command_data_args() {
-        let tests = vec![&b" \t  \t \r\n"[..], &b"\r\n"[..]];
+        let tests = vec![&b"DATA \t  \t \r\n"[..], &b"daTa\r\n"[..]];
         for test in tests.into_iter() {
             let b = Bytes::from(test);
             match command_data_args(ByteSlice::from(&b)) {

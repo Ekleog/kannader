@@ -29,6 +29,7 @@ impl HeloCommand {
 
 named!(pub command_helo_args(ByteSlice) -> HeloCommand,
     sep!(eat_spaces, do_parse!(
+        tag_no_case!("HELO") >>
         domain: hostname >>
         tag!("\r\n") >>
         (HeloCommand {
@@ -50,8 +51,8 @@ mod tests {
     #[test]
     fn valid_command_helo_args() {
         let tests = vec![
-            (&b" \t hello.world \t \r\n"[..], &b"hello.world"[..]),
-            (&b"hello.world\r\n"[..], &b"hello.world"[..]),
+            (&b"hElO\t hello.world \t \r\n"[..], &b"hello.world"[..]),
+            (&b"HELO hello.world\r\n"[..], &b"hello.world"[..]),
         ];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);

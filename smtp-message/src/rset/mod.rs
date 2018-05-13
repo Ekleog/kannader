@@ -26,7 +26,7 @@ impl RsetCommand {
 
 named!(pub command_rset_args(ByteSlice) -> RsetCommand,
     do_parse!(
-        eat_spaces >> crlf >>
+        tag_no_case!("RSET") >> eat_spaces >> crlf >>
         (RsetCommand {
             _useless: ()
         })
@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn valid_command_rset_args() {
-        let tests = vec![&b" \t  \t \r\n"[..], &b"\r\n"[..]];
+        let tests = vec![&b"RSET \t  \t \r\n"[..], &b"rSet\r\n"[..]];
         for test in tests.into_iter() {
             let b = Bytes::from(test);
             match command_rset_args(ByteSlice::from(&b)) {

@@ -26,6 +26,7 @@ impl VrfyCommand {
 }
 
 named!(pub command_vrfy_args(ByteSlice) -> VrfyCommand, do_parse!(
+    tag_no_case!("VRFY") >> one_of!(spaces!()) >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (VrfyCommand {
@@ -43,9 +44,9 @@ mod tests {
     #[test]
     fn valid_command_vrfy_args() {
         let tests = vec![(
-            &b" \t hello.world \t \r\n"[..],
+            &b"VrFY \t hello.world \t \r\n"[..],
             VrfyCommand {
-                name: (&b" \t hello.world \t "[..]).into(),
+                name: (&b"\t hello.world \t "[..]).into(),
             },
         )];
         for (s, r) in tests.into_iter() {

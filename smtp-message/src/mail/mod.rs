@@ -41,7 +41,7 @@ impl Sendable for MailCommand {
 // compliance with the RFC, please by all means submit an issue.
 named!(pub command_mail_args(ByteSlice) -> MailCommand,
     sep!(eat_spaces, do_parse!(
-        tag_no_case!("FROM:") >>
+        tag_no_case!("MAIL FROM:") >>
         from: alt!(
             map!(tag!("<>"), |_| None) |
             map!(address_in_maybe_bracketed_path, |x| Some(x))
@@ -67,28 +67,28 @@ mod tests {
     fn valid_command_mail_args() {
         let tests = vec![
             (
-                &b" FROM:<@one,@two:foo@bar.baz>\r\n"[..],
+                &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
                     params: SpParameters::none(),
                 },
             ),
             (
-                &b"FrOm: quux@example.net  \t \r\n"[..],
+                &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"quux@example.net").unwrap()),
                     params: SpParameters::none(),
                 },
             ),
             (
-                &b"FROM:<>\r\n"[..],
+                &b"mail FROM:<>\r\n"[..],
                 MailCommand {
                     from:   None,
                     params: SpParameters::none(),
                 },
             ),
             (
-                &b"FROM:<> SP hello=world SP foo\r\n"[..],
+                &b"MAIL FROM:<> SP hello=world SP foo\r\n"[..],
                 MailCommand {
                     from:   None,
                     params: SpParameters(
@@ -113,9 +113,9 @@ mod tests {
 
     #[test]
     fn incomplete_args() {
-        let b = Bytes::from(&b" FROM:<foo@bar.com"[..]);
+        let b = Bytes::from(&b"MAIL FROM:<foo@bar.com"[..]);
         assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
-        let b = Bytes::from(&b" FROM:foo@bar.com"[..]);
+        let b = Bytes::from(&b"mail from:foo@bar.com"[..]);
         assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
     }
 
@@ -157,10 +157,7 @@ mod tests {
         );
         c.send_to(&mut v).unwrap();
         let b = Bytes::from(v);
-        // 5.. is to skip the “MAIL ” part
-        let r = command_mail_args(ByteSlice::from(&b.slice_from(5)))
-            .unwrap()
-            .1;
+        let r = command_mail_args(ByteSlice::from(&b)).unwrap().1;
         assert_eq!(c, r);
     }
 }

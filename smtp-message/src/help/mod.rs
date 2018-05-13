@@ -2,7 +2,6 @@ use std::io;
 
 use byteslice::ByteSlice;
 use smtpstring::SmtpString;
-use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -26,8 +25,9 @@ impl HelpCommand {
     }
 }
 
+// TODO: (B) this opt!(…) allows HELPfoo, which is wrong, like other commands
 named!(pub command_help_args(ByteSlice) -> HelpCommand, do_parse!(
-    eat_spaces >>
+    tag_no_case!("HELP") >> opt!(one_of!(spaces!())) >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (HelpCommand {
@@ -46,19 +46,19 @@ mod tests {
     fn valid_command_help_args() {
         let tests = vec![
             (
-                &b" \t hello.world \t \r\n"[..],
+                &b"help \t hello.world \t \r\n"[..],
                 HelpCommand {
-                    subject: (&b"hello.world \t "[..]).into(),
+                    subject: (&b"\t hello.world \t "[..]).into(),
                 },
             ),
             (
-                &b"\r\n"[..],
+                &b"HELP\r\n"[..],
                 HelpCommand {
                     subject: (&b""[..]).into(),
                 },
             ),
             (
-                &b" \r\n"[..],
+                &b"hElP \r\n"[..],
                 HelpCommand {
                     subject: (&b""[..]).into(),
                 },

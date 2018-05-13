@@ -1,5 +1,10 @@
 use byteslice::ByteSlice;
 
+macro_rules! spaces {
+    () => {
+        " \t"
+    };
+}
 macro_rules! alpha_lower {
     () => {
         "abcdefghijklmnopqrstuvwxyz"
@@ -41,4 +46,4 @@ macro_rules! graph_except_equ {
     };
 }
 
-named!(pub eat_spaces(ByteSlice) -> ByteSlice, eat_separator!(" \t"));
+named!(pub eat_spaces(ByteSlice) -> ByteSlice, eat_separator!(spaces!()));

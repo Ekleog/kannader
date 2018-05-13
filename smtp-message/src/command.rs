@@ -55,19 +55,18 @@ impl Command {
     }
 }
 
-// TODO: (A) Use switch! here and replace the ' ' by any(" \t")
 named!(command(ByteSlice) -> Command, alt!(
-    map!(preceded!(tag_no_case!("DATA"), command_data_args), Command::Data) |
-    map!(preceded!(tag_no_case!("EHLO "), command_ehlo_args), Command::Ehlo) |
-    map!(preceded!(tag_no_case!("EXPN "), command_expn_args), Command::Expn) |
-    map!(preceded!(tag_no_case!("HELO "), command_helo_args), Command::Helo) |
-    map!(preceded!(tag_no_case!("HELP"), command_help_args), Command::Help) |
-    map!(preceded!(tag_no_case!("MAIL "), command_mail_args), Command::Mail) |
-    map!(preceded!(tag_no_case!("NOOP"), command_noop_args), Command::Noop) |
-    map!(preceded!(tag_no_case!("QUIT"), command_quit_args), Command::Quit) |
-    map!(preceded!(tag_no_case!("RCPT "), command_rcpt_args), Command::Rcpt) |
-    map!(preceded!(tag_no_case!("RSET"), command_rset_args), Command::Rset) |
-    map!(preceded!(tag_no_case!("VRFY "), command_vrfy_args), Command::Vrfy)
+    map!(command_data_args, Command::Data) |
+    map!(command_ehlo_args, Command::Ehlo) |
+    map!(command_expn_args, Command::Expn) |
+    map!(command_helo_args, Command::Helo) |
+    map!(command_help_args, Command::Help) |
+    map!(command_mail_args, Command::Mail) |
+    map!(command_noop_args, Command::Noop) |
+    map!(command_quit_args, Command::Quit) |
+    map!(command_rcpt_args, Command::Rcpt) |
+    map!(command_rset_args, Command::Rset) |
+    map!(command_vrfy_args, Command::Vrfy)
 ));
 
 #[cfg(test)]

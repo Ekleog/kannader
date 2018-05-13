@@ -2,7 +2,6 @@ use std::io;
 
 use byteslice::ByteSlice;
 use smtpstring::SmtpString;
-use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -27,7 +26,7 @@ impl NoopCommand {
 }
 
 named!(pub command_noop_args(ByteSlice) -> NoopCommand, do_parse!(
-    eat_spaces >>
+    tag_no_case!("NOOP") >> opt!(one_of!(spaces!())) >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (NoopCommand {
@@ -46,19 +45,19 @@ mod tests {
     fn valid_command_noop_args() {
         let tests = vec![
             (
-                &b" \t hello.world \t \r\n"[..],
+                &b"NOOP \t hello.world \t \r\n"[..],
                 NoopCommand {
-                    string: (&b"hello.world \t "[..]).into(),
+                    string: (&b"\t hello.world \t "[..]).into(),
                 },
             ),
             (
-                &b"\r\n"[..],
+                &b"nOoP\r\n"[..],
                 NoopCommand {
                     string: (&b""[..]).into(),
                 },
             ),
             (
-                &b" \r\n"[..],
+                &b"noop \r\n"[..],
                 NoopCommand {
                     string: (&b""[..]).into(),
                 },

@@ -18,6 +18,7 @@ impl SpParameters {
 impl Sendable for SpParameters {
     fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         for (k, v) in self.0.iter() {
+            // TODO: (A) Actually this SP meant space, see https://www.ietf.org/rfc/rfc1870.txt
             w.write_all(b" SP ")?;
             k.send_to(w)?;
             if let Some(v) = v {

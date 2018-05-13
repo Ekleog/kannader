@@ -26,6 +26,7 @@ impl ExpnCommand {
 }
 
 named!(pub command_expn_args(ByteSlice) -> ExpnCommand, do_parse!(
+    tag_no_case!("EXPN") >> one_of!(spaces!()) >>
     res: take_until!("\r\n") >>
     tag!("\r\n") >>
     (ExpnCommand {
@@ -43,9 +44,9 @@ mod tests {
     #[test]
     fn valid_command_expn_args() {
         let tests = vec![(
-            &b" \t hello.world \t \r\n"[..],
+            &b"EXpN \t hello.world \t \r\n"[..],
             ExpnCommand {
-                name: (&b" \t hello.world \t "[..]).into(),
+                name: (&b"\t hello.world \t "[..]).into(),
             },
         )];
         for (s, r) in tests.into_iter() {

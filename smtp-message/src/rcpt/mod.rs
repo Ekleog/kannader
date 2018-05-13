@@ -29,7 +29,7 @@ impl RcptCommand {
 
 named!(pub command_rcpt_args(ByteSlice) -> RcptCommand,
     sep!(eat_spaces, do_parse!(
-        tag_no_case!("TO:") >>
+        tag_no_case!("RCPT TO:") >>
         to: address_in_maybe_bracketed_path >>
         crlf >>
         (RcptCommand {
@@ -48,17 +48,22 @@ mod tests {
     #[test]
     fn valid_command_rcpt_args() {
         let tests: Vec<(&[u8], &[u8], Option<&[u8]>)> = vec![
-            (b" TO:<@one,@two:foo@bar.baz>\r\n", b"foo", Some(b"bar.baz")),
             (
-                b"tO: quux@example.net  \t \r\n",
+                b"RCPT TO:<@one,@two:foo@bar.baz>\r\n",
+                b"foo",
+                Some(b"bar.baz"),
+            ),
+            (
+                b"Rcpt tO: quux@example.net  \t \r\n",
                 b"quux",
                 Some(b"example.net"),
             ),
-            (b"TO:<Postmaster>\r\n", b"Postmaster", None),
-            (b"TO: \t poStmaster\r\n", b"poStmaster", None),
+            (b"rcpt TO:<Postmaster>\r\n", b"Postmaster", None),
+            (b"RcPt TO: \t poStmaster\r\n", b"poStmaster", None),
         ];
         for (s, l, h) in tests.into_iter() {
             let b = Bytes::from(s);
+            println!("About to parse {:?}", b);
             let res = command_rcpt_args(ByteSlice::from(&b)).unwrap().1;
             assert_eq!(res.to.raw_localpart().bytes(), l);
             assert_eq!(
