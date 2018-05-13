@@ -3,19 +3,19 @@ use std::io;
 
 use byteslice::ByteSlice;
 use email::{address_in_maybe_bracketed_path, Email};
+use parameters::{parse_parameters, Parameters};
 use sendable::Sendable;
-use spparameters::{sp_parameters, SpParameters};
 use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct MailCommand {
     pub from:   Option<Email>,
-    pub params: SpParameters,
+    pub params: Parameters,
 }
 
 impl MailCommand {
-    pub fn new(from: Option<Email>, params: SpParameters) -> MailCommand {
+    pub fn new(from: Option<Email>, params: Parameters) -> MailCommand {
         MailCommand { from, params }
     }
 }
@@ -40,19 +40,19 @@ impl Sendable for MailCommand {
 // to be better for interoperability. If you have a use case for strict
 // compliance with the RFC, please by all means submit an issue.
 named!(pub command_mail_args(ByteSlice) -> MailCommand,
-    sep!(eat_spaces, do_parse!(
-        tag_no_case!("MAIL FROM:") >>
+    do_parse!(
+        tag_no_case!("MAIL FROM:") >> eat_spaces >>
         from: alt!(
             map!(tag!("<>"), |_| None) |
             map!(address_in_maybe_bracketed_path, |x| Some(x))
         ) >>
-        sp: sp_parameters >>
+        sp: parse_parameters >> eat_spaces >>
         crlf >>
         (MailCommand {
             from: from,
             params: sp.into(),
         })
-    ))
+    )
 );
 
 #[cfg(test)]
@@ -70,28 +70,28 @@ mod tests {
                 &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
-                    params: SpParameters::none(),
+                    params: Parameters::none(),
                 },
             ),
             (
                 &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
                     from:   Some(Email::parse_slice(b"quux@example.net").unwrap()),
-                    params: SpParameters::none(),
+                    params: Parameters::none(),
                 },
             ),
             (
                 &b"mail FROM:<>\r\n"[..],
                 MailCommand {
                     from:   None,
-                    params: SpParameters::none(),
+                    params: Parameters::none(),
                 },
             ),
             (
-                &b"MAIL FROM:<> SP hello=world SP foo\r\n"[..],
+                &b"MAIL FROM:<> hello=world foo\r\n"[..],
                 MailCommand {
                     from:   None,
-                    params: SpParameters(
+                    params: Parameters(
                         vec![
                             ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
                             ((b"foo"[..]).into(), None),
@@ -125,13 +125,13 @@ mod tests {
         let mut v = Vec::new();
         MailCommand::new(
             Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
-            SpParameters::none(),
+            Parameters::none(),
         ).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
         let mut v = Vec::new();
-        MailCommand::new(None, SpParameters::none())
+        MailCommand::new(None, Parameters::none())
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<>\r\n");
@@ -139,7 +139,7 @@ mod tests {
         let mut v = Vec::new();
         let c = MailCommand::new(
             Some(Email::parse_slice(b"hello@world.example.org").unwrap()),
-            SpParameters(
+            Parameters(
                 [
                     (
                         SmtpString::from_static(b"foo"),
@@ -157,7 +157,13 @@ mod tests {
         );
         c.send_to(&mut v).unwrap();
         let b = Bytes::from(v);
-        let r = command_mail_args(ByteSlice::from(&b)).unwrap().1;
+        let res = command_mail_args(ByteSlice::from(&b));
+        println!(
+            "Expecting something like \"MAIL FROM:<hello@world.example.org> foo=bar baz \
+             helloworld=bleh\""
+        );
+        println!("Got {:?}", res);
+        let r = res.unwrap().1;
         assert_eq!(c, r);
     }
 }

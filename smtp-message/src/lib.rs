@@ -17,10 +17,10 @@ mod builderror;
 mod byteslice;
 mod domain;
 mod email;
+mod parameters;
 mod parseresult;
 mod sendable;
 mod smtpstring;
-mod spparameters;
 mod streamext;
 
 mod data;
