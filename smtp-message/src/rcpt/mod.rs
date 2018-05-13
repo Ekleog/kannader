@@ -3,39 +3,41 @@ use std::io;
 
 use byteslice::ByteSlice;
 use email::{address_in_maybe_bracketed_path, Email};
+use parameters::{parse_parameters, Parameters};
 use sendable::Sendable;
 use stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct RcptCommand {
-    // TO: parameter with the forward-path (“@ONE,@TWO:” portion)
-    // removed, as per RFC5321 Appendix C
-    // TODO: (A) support the SP arguments
-    pub to: Email,
+    pub to:     Email,
+    pub params: Parameters,
 }
 
 impl RcptCommand {
-    pub fn new(to: Email) -> RcptCommand {
-        RcptCommand { to }
+    pub fn new(to: Email, params: Parameters) -> RcptCommand {
+        RcptCommand { to, params }
     }
+}
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+impl Sendable for RcptCommand {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"RCPT TO:<")?;
         self.to.send_to(w)?;
-        w.write_all(b">\r\n")
+        w.write_all(b">")?;
+        self.params.send_to(w)?;
+        w.write_all(b"\r\n")
     }
 }
 
 named!(pub command_rcpt_args(ByteSlice) -> RcptCommand,
-    sep!(eat_spaces, do_parse!(
-        tag_no_case!("RCPT TO:") >>
+    do_parse!(
+        tag_no_case!("RCPT TO:") >> eat_spaces >>
         to: address_in_maybe_bracketed_path >>
+        params: parse_parameters >> eat_spaces >>
         crlf >>
-        (RcptCommand {
-            to,
-        })
-    ))
+        (RcptCommand { to, params })
+    )
 );
 
 #[cfg(test)]
@@ -76,16 +78,21 @@ mod tests {
     #[test]
     fn valid_build() {
         let mut v = Vec::new();
-        RcptCommand::new(Email::new(
-            (&b"foo"[..]).into(),
-            Some(Domain::parse_slice(b"bar.com").unwrap()),
-        )).send_to(&mut v)
+        RcptCommand::new(
+            Email::new(
+                (&b"foo"[..]).into(),
+                Some(Domain::parse_slice(b"bar.com").unwrap()),
+            ),
+            Parameters::none(),
+        ).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<foo@bar.com>\r\n");
 
         v = Vec::new();
-        RcptCommand::new(Email::new((&b"Postmaster"[..]).into(), None))
-            .send_to(&mut v)
+        RcptCommand::new(
+            Email::new((&b"Postmaster"[..]).into(), None),
+            Parameters::none(),
+        ).send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"RCPT TO:<Postmaster>\r\n");
     }

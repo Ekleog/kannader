@@ -46,12 +46,9 @@ named!(pub command_mail_args(ByteSlice) -> MailCommand,
             map!(tag!("<>"), |_| None) |
             map!(address_in_maybe_bracketed_path, |x| Some(x))
         ) >>
-        sp: parse_parameters >> eat_spaces >>
+        params: parse_parameters >> eat_spaces >>
         crlf >>
-        (MailCommand {
-            from: from,
-            params: sp.into(),
-        })
+        (MailCommand { from, params })
     )
 );
 

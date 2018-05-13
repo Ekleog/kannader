@@ -106,7 +106,10 @@ fn handle_line<
                 }
             }
         }
-        Ok(Command::Rcpt(RcptCommand { to: rcpt_to })) => {
+        Ok(Command::Rcpt(RcptCommand {
+            to: rcpt_to,
+            params: _params,
+        })) => {
             if let Some(mail_meta) = mail_data {
                 match cfg.filter_to(&rcpt_to, &mail_meta, &conn_meta) {
                     Decision::Accept => {
