@@ -18,12 +18,15 @@ impl MailCommand {
     pub fn new(from: Option<Email>, params: SpParameters) -> MailCommand {
         MailCommand { from, params }
     }
+}
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+impl Sendable for MailCommand {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
         w.write_all(b"MAIL FROM:<")?;
         self.from.send_to(w)?;
-        w.write_all(b">\r\n")
-        // TODO: (A) also send parameters
+        w.write_all(b">")?;
+        self.params.send_to(w)?;
+        w.write_all(b"\r\n")
     }
 }
 
@@ -58,6 +61,7 @@ mod tests {
 
     use bytes::Bytes;
     use nom::IResult;
+    use smtpstring::SmtpString;
 
     #[test]
     fn valid_command_mail_args() {
@@ -131,5 +135,32 @@ mod tests {
             .send_to(&mut v)
             .unwrap();
         assert_eq!(v, b"MAIL FROM:<>\r\n");
+
+        let mut v = Vec::new();
+        let c = MailCommand::new(
+            Some(Email::parse_slice(b"hello@world.example.org").unwrap()),
+            SpParameters(
+                [
+                    (
+                        SmtpString::from_static(b"foo"),
+                        Some(SmtpString::from_static(b"bar")),
+                    ),
+                    (SmtpString::from_static(b"baz"), None),
+                    (
+                        SmtpString::from_static(b"helloworld"),
+                        Some(SmtpString::from_static(b"bleh")),
+                    ),
+                ].iter()
+                    .cloned()
+                    .collect(),
+            ),
+        );
+        c.send_to(&mut v).unwrap();
+        let b = Bytes::from(v);
+        // 5.. is to skip the “MAIL ” part
+        let r = command_mail_args(ByteSlice::from(&b.slice_from(5)))
+            .unwrap()
+            .1;
+        assert_eq!(c, r);
     }
 }

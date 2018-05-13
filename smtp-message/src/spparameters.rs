@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io};
 
 use byteslice::ByteSlice;
+use sendable::Sendable;
 use smtpstring::SmtpString;
 use stupidparsers::eat_spaces;
 
@@ -11,6 +12,20 @@ pub struct SpParameters(pub HashMap<SmtpString, Option<SmtpString>>);
 impl SpParameters {
     pub fn none() -> SpParameters {
         SpParameters(HashMap::new())
+    }
+}
+
+impl Sendable for SpParameters {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        for (k, v) in self.0.iter() {
+            w.write_all(b" SP ")?;
+            k.send_to(w)?;
+            if let Some(v) = v {
+                w.write_all(b"=")?;
+                v.send_to(w)?;
+            }
+        }
+        Ok(())
     }
 }
 

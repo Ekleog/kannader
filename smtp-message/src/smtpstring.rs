@@ -67,6 +67,12 @@ impl SmtpString {
     }
 }
 
+impl Sendable for SmtpString {
+    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+        w.write_all(&self.0[..])
+    }
+}
+
 // TODO: (C) either remove or optimize
 impl Add<SmtpString> for SmtpString {
     type Output = SmtpString;

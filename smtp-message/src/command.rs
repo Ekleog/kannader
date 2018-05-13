@@ -3,6 +3,7 @@ use std::io;
 
 use byteslice::ByteSlice;
 use parseresult::{nom_to_result, ParseError};
+use sendable::Sendable;
 
 use data::{command_data_args, DataCommand};
 use ehlo::{command_ehlo_args, EhloCommand};
