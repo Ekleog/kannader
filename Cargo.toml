@@ -1,6 +1,7 @@
 [workspace]
 members = [ "smtp-message", "smtp-message/fuzz",
-            "smtp-server", "smtp-server/fuzz" ]
+            "smtp-server", "smtp-server/fuzz",
+            "smtp-queue" ]
 
 [profile.release]
 lto = true

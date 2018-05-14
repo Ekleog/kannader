@@ -1,0 +1,8 @@
+[package]
+name = "smtp-queue"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["queue", "smtp", "email"]
+description = "Queue for SMTP messages using tokio"
