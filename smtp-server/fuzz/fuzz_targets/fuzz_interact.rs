@@ -36,24 +36,11 @@ impl smtp_server::Config<()> for FuzzConfig {
         SmtpString::from_static(b"test.example.org")
     }
 
-    fn filter_from<'a>(
-        &'a mut self,
+    fn filter_from(
+        self,
         addr: Option<Email>,
         conn_meta: ConnectionMetadata<()>,
-    ) -> Box<
-        'a
-            + Future<
-                Item = (
-                    &'a mut Self,
-                    Option<Email>,
-                    ConnectionMetadata<()>,
-                    Decision,
-                ),
-                Error = (),
-            >,
-    >
-    where
-        (): 'a,
+    ) -> Box<Future<Item = (Self, Option<Email>, ConnectionMetadata<()>, Decision), Error = ()>>
     {
         if let Some(addr) = addr {
             let loc = addr.localpart();
@@ -76,26 +63,12 @@ impl smtp_server::Config<()> for FuzzConfig {
         }
     }
 
-    fn filter_to<'a>(
-        &'a mut self,
+    fn filter_to(
+        self,
         email: Email,
         meta: MailMetadata,
         conn_meta: ConnectionMetadata<()>,
-    ) -> Box<
-        'a
-            + Future<
-                Item = (
-                    &'a mut Self,
-                    Email,
-                    MailMetadata,
-                    ConnectionMetadata<()>,
-                    Decision,
-                ),
-                Error = (),
-            >,
-    >
-    where
-        (): 'a,
+    ) -> Box<Future<Item = (Self, Email, MailMetadata, ConnectionMetadata<()>, Decision), Error = ()>>
     {
         let loc = email.localpart();
         let locb = loc.bytes();
@@ -116,7 +89,7 @@ impl smtp_server::Config<()> for FuzzConfig {
     }
 
     fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
-        &'a mut self,
+        self,
         reader: DataStream<S>,
         mail: MailMetadata,
         conn_meta: ConnectionMetadata<()>,
@@ -124,7 +97,7 @@ impl smtp_server::Config<()> for FuzzConfig {
         'a
             + Future<
                 Item = (
-                    &'a mut Self,
+                    Self,
                     Option<Prependable<S>>,
                     ConnectionMetadata<()>,
                     Decision,
@@ -167,6 +140,5 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
     // And send stuff in
     let stream = stream::iter_ok(chunks);
     let mut sink = DiscardSink {};
-    let mut cfg = FuzzConfig {};
-    let _ignore_errors = interact(stream, &mut sink, (), &mut cfg).wait();
+    let _ignore_errors = interact(stream, &mut sink, (), FuzzConfig {}).wait();
 });

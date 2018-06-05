@@ -16,13 +16,13 @@ pub fn interact<
     'a,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
     Writer: 'a + Sink<SinkItem = Bytes, SinkError = ()>,
-    UserProvidedMetadata: 'a,
+    UserProvidedMetadata: 'static,
     Cfg: Config<UserProvidedMetadata>,
 >(
     incoming: Reader,
     outgoing: Writer,
     metadata: UserProvidedMetadata,
-    cfg: &'a mut Cfg,
+    cfg: Cfg,
 ) -> impl Future<Item = (), Error = ()> + 'a {
     let conn_meta = ConnectionMetadata { user: metadata };
     let writer = outgoing.with(|c: ReplyLine| {
@@ -48,28 +48,18 @@ pub fn interact<
 // TODO: (B) use async/await here hide:async-await-in-rust-and-tokio
 fn handle_line<
     'a,
-    U: 'a,
+    U: 'static,
     Writer: 'a + Sink<SinkItem = ReplyLine, SinkError = ()>,
     Reader: 'a + Stream<Item = BytesMut, Error = ()>,
     Cfg: Config<U>,
 >(
     reader: Prependable<Reader>,
-    (cfg, writer, conn_meta, mail_data): (
-        &'a mut Cfg,
-        Writer,
-        ConnectionMetadata<U>,
-        Option<MailMetadata>,
-    ),
+    (cfg, writer, conn_meta, mail_data): (Cfg, Writer, ConnectionMetadata<U>, Option<MailMetadata>),
     line: BytesMut,
 ) -> impl Future<
     Item = (
         Option<Prependable<Reader>>,
-        (
-            &'a mut Cfg,
-            Writer,
-            ConnectionMetadata<U>,
-            Option<MailMetadata>,
-        ),
+        (Cfg, Writer, ConnectionMetadata<U>, Option<MailMetadata>),
     ),
     Error = (),
 >
@@ -224,12 +214,12 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use smtp_message::{Email, ReplyCode, SmtpString};
-    use std;
+    use std::{self, cell::RefCell, rc::Rc};
 
     use decision::Refusal;
 
     struct TestConfig {
-        mails: Vec<(Option<Email>, Vec<Email>, BytesMut)>,
+        mails: Rc<RefCell<Vec<(Option<Email>, Vec<Email>, BytesMut)>>>,
     }
 
     impl Config<()> for TestConfig {
@@ -237,24 +227,11 @@ mod tests {
             SmtpString::from_static(b"test.example.org")
         }
 
-        fn filter_from<'a>(
-            &'a mut self,
+        fn filter_from(
+            self,
             addr: Option<Email>,
             conn_meta: ConnectionMetadata<()>,
-        ) -> Box<
-            'a
-                + Future<
-                    Item = (
-                        &'a mut Self,
-                        Option<Email>,
-                        ConnectionMetadata<()>,
-                        Decision,
-                    ),
-                    Error = (),
-                >,
-        >
-        where
-            (): 'a,
+        ) -> Box<Future<Item = (Self, Option<Email>, ConnectionMetadata<()>, Decision), Error = ()>>
         {
             if addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
                 Box::new(future::ok((
@@ -271,27 +248,17 @@ mod tests {
             }
         }
 
-        fn filter_to<'a>(
-            &'a mut self,
+        fn filter_to(
+            self,
             email: Email,
             meta: MailMetadata,
             conn_meta: ConnectionMetadata<()>,
         ) -> Box<
-            'a
-                + Future<
-                    Item = (
-                        &'a mut Self,
-                        Email,
-                        MailMetadata,
-                        ConnectionMetadata<()>,
-                        Decision,
-                    ),
-                    Error = (),
-                >,
-        >
-        where
-            (): 'a,
-        {
+            Future<
+                Item = (Self, Email, MailMetadata, ConnectionMetadata<()>, Decision),
+                Error = (),
+            >,
+        > {
             if email.localpart().bytes() == &b"baz"[..] {
                 Box::new(future::ok((
                     self,
@@ -309,7 +276,7 @@ mod tests {
         }
 
         fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
-            &'a mut self,
+            self,
             reader: DataStream<S>,
             meta: MailMetadata,
             conn_meta: ConnectionMetadata<()>,
@@ -317,19 +284,14 @@ mod tests {
             'a
                 + Future<
                     Item = (
-                        &'a mut Self,
+                        Self,
                         Option<Prependable<S>>,
                         ConnectionMetadata<()>,
                         Decision,
                     ),
                     Error = (),
                 >,
-        >
-        where
-            Self: 'a,
-            S: 'a + Stream<Item = BytesMut, Error = ()>,
-            (): 'a,
-        {
+        > {
             Box::new(reader.concat_and_recover().map_err(|_| ()).and_then(
                 move |(mail_text, reader)| {
                     if mail_text.windows(5).position(|x| x == b"World").is_some() {
@@ -343,7 +305,9 @@ mod tests {
                             }),
                         ))
                     } else {
-                        self.mails.push((meta.from, meta.to, mail_text));
+                        self.mails
+                            .borrow_mut()
+                            .push((meta.from, meta.to, mail_text));
                         future::ok((self, Some(reader.into_inner()), conn_meta, Decision::Accept))
                     }
                 },
@@ -451,15 +415,18 @@ mod tests {
                     .collect::<Vec<&str>>()
             );
             let stream = stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)));
-            let mut cfg = TestConfig { mails: Vec::new() };
+            let resp_mail = Rc::new(RefCell::new(Vec::new()));
+            let mut cfg = TestConfig {
+                mails: resp_mail.clone(),
+            };
             let mut resp = Vec::new();
-            interact(stream, &mut resp, (), &mut cfg).wait().unwrap();
+            interact(stream, &mut resp, (), cfg).wait().unwrap();
             let resp = resp.into_iter().concat();
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
             assert_eq!(resp, out);
             println!("Checking mails:");
-            let resp_mail = cfg.mails;
+            let resp_mail = Rc::try_unwrap(resp_mail).unwrap().into_inner();
             assert_eq!(resp_mail.len(), mail.len());
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
                 println!("Mail\n---");
@@ -488,9 +455,11 @@ mod tests {
                                 DATA\r\n\
                                 hello"];
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
-        let mut cfg = TestConfig { mails: Vec::new() };
+        let cfg = TestConfig {
+            mails: Rc::new(RefCell::new(Vec::new())),
+        };
         let mut resp = Vec::new();
-        let res = interact(stream, &mut resp, (), &mut cfg).wait();
+        let res = interact(stream, &mut resp, (), cfg).wait();
         assert!(res.is_err());
     }
 
@@ -552,7 +521,9 @@ mod tests {
         ];
         let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
         let mut resp = Vec::new();
-        let mut cfg = TestConfig { mails: Vec::new() };
-        interact(stream, &mut resp, (), &mut cfg).wait().unwrap();
+        let cfg = TestConfig {
+            mails: Rc::new(RefCell::new(Vec::new())),
+        };
+        interact(stream, &mut resp, (), cfg).wait().unwrap();
     }
 }
