@@ -10,5 +10,5 @@ description = "SMTP server library using tokio"
 [dependencies]
 bytes = "0.4.6"
 itertools = "0.7.8"
-smtp-message = { version = "0.1.0", path = "../smtp-message" }
+smtp-message = { path = "../smtp-message" }
 tokio = "0.1.5"
