@@ -6,3 +6,8 @@ license = "MIT"
 categories = ["email", "network-programming"]
 keywords = ["queue", "smtp", "email"]
 description = "Queue for SMTP messages using tokio"
+
+[dependencies]
+bytes = "0.4.6"
+smtp-message = { path = "../smtp-message" }
+tokio = "0.1.5"

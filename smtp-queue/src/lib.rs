@@ -1,3 +1,13 @@
+extern crate bytes;
+extern crate smtp_message;
+extern crate tokio;
+
+mod mail;
+mod storage;
+
+pub use mail::{InflightMail, Mail, QueuedMail};
+pub use storage::Storage;
+
 // TODO: (B) make this not do bad things with multiple instances
 // Use cases to take into account:
 //  * By mistake, multiple instances have been started with the same queue
