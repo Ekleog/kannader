@@ -4,6 +4,7 @@ extern crate tokio;
 
 mod mail;
 mod storage;
+mod transport;
 
 pub use mail::{InflightMail, Mail, QueuedMail};
 pub use storage::Storage;
