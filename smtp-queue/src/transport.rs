@@ -5,11 +5,9 @@ use tokio::prelude::*;
 use mail::Mail;
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
-// TODO: (B) for a clean api, the futures should not take ownership and return
-// but rather take a reference (when async/await will be done)
-pub trait Transport<M>: Sized {
+pub trait Transport<M>: Sized + Sync + Send + 'static {
     fn send<S: Stream<Item = BytesMut, Error = ()>>(
-        self,
+        &self,
         mail: Mail<S, M>,
-    ) -> Box<Future<Item = Self, Error = (Self, ReplyCode, SmtpString)>>;
+    ) -> Box<Future<Item = (), Error = (Self, ReplyCode, SmtpString)>>;
 }

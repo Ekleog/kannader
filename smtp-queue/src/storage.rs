@@ -14,11 +14,11 @@ pub trait Storage<M, QM: QueuedMail<M>, IM: InflightMail<M>, FIM: FoundInflightM
 
     fn cancel_found_inflight(&self, mail: FIM) -> Box<Future<Item = QM, Error = ()> + Send>;
 
-    fn enqueue<S>(self, mail: Mail<S, M>) -> Box<Future<Item = (Self, QM), Error = ()>>
+    fn enqueue<S>(&self, mail: Mail<S, M>) -> Box<Future<Item = QM, Error = ()>>
     where
         S: Stream<Item = BytesMut, Error = ()>;
 
-    fn send_start(self, mail: QM) -> Box<Future<Item = (Self, IM), Error = ()>>;
-    fn send_done(self, mail: IM) -> Box<Future<Item = Self, Error = ()>>;
-    fn send_cancelled(self, mail: IM) -> Box<Future<Item = (Self, QM), Error = ()>>;
+    fn send_start(&self, mail: QM) -> Box<Future<Item = IM, Error = ()>>;
+    fn send_done(&self, mail: IM) -> Box<Future<Item = (), Error = ()>>;
+    fn send_cancel(&self, mail: IM) -> Box<Future<Item = QM, Error = ()>>;
 }
