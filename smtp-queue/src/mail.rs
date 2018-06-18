@@ -12,8 +12,8 @@ pub struct Mail<S: Stream<Item = BytesMut, Error = ()>, M> {
 pub trait QueuedMail<M>: 'static {}
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
-pub trait InflightMail<M>: 'static {
-    fn get_mail(&self) -> Mail<Box<Stream<Item = BytesMut, Error = ()>>, M>;
+pub trait InflightMail<M>: Send + 'static {
+    fn get_mail(&self) -> Box<Future<Item = Mail<Box<Stream<Item = BytesMut, Error = ()>>, M>, Error = ()> + Send>;
 }
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait

@@ -18,7 +18,7 @@ pub trait Storage<M, QM: QueuedMail<M>, IM: InflightMail<M>, FIM: FoundInflightM
     where
         S: Stream<Item = BytesMut, Error = ()>;
 
-    fn send_start(&self, mail: QM) -> Box<Future<Item = IM, Error = ()>>;
-    fn send_done(&self, mail: IM) -> Box<Future<Item = (), Error = ()>>;
-    fn send_cancel(&self, mail: IM) -> Box<Future<Item = QM, Error = ()>>;
+    fn send_start(&self, mail: QM) -> Box<Future<Item = IM, Error = ()> + Send>;
+    fn send_done(&self, mail: IM) -> Box<Future<Item = (), Error = ()> + Send>;
+    fn send_cancel(&self, mail: IM) -> Box<Future<Item = QM, Error = ()> + Send>;
 }

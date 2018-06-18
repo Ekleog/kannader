@@ -1,5 +1,6 @@
 use std::{
-    sync::Arc, time::{Duration, Instant},
+    sync::Arc,
+    time::{Duration, Instant},
 };
 use tokio::{self, prelude::*, timer::Delay};
 
@@ -25,7 +26,13 @@ where
     let transport_copy = transport.clone();
     storage
         .list_queue()
-        .for_each(move |qm| tokio::spawn(send_queued_mail(storage_copy.clone(), transport_copy.clone(), qm)))
+        .for_each(move |qm| {
+            tokio::spawn(send_queued_mail(
+                storage_copy.clone(),
+                transport_copy.clone(),
+                qm,
+            ))
+        })
         .and_then(move |()| {
             // TODO: (B) Make this delay configurable
             // The important thing is it must be longer than the time between switching a
