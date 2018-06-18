@@ -72,10 +72,12 @@ where
     }
 
     fn take_result(&mut self) -> (T, U) {
-        let sink = self.sink
+        let sink = self
+            .sink
             .take()
             .expect("Attempted to poll Forward after completion");
-        let fuse = self.stream
+        let fuse = self
+            .stream
             .take()
             .expect("Attempted to poll Forward after completion");
         (fuse.into_inner(), sink)
@@ -83,7 +85,8 @@ where
 
     fn try_start_send(&mut self, item: T::Item) -> Poll<(), U::SinkError> {
         debug_assert!(self.buffered.is_none());
-        if let AsyncSink::NotReady(item) = self.sink_mut()
+        if let AsyncSink::NotReady(item) = self
+            .sink_mut()
             .take()
             .expect("Attempted to poll Forward after completion")
             .start_send(item)?
@@ -112,7 +115,8 @@ where
         }
 
         loop {
-            match self.stream_mut()
+            match self
+                .stream_mut()
                 .take()
                 .expect("Attempted to poll Forward after completion")
                 .poll()?

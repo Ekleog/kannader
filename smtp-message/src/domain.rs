@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use std::{
-    io, net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr}, str::FromStr,
+    io,
+    net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
 };
 
 use byteslice::ByteSlice;

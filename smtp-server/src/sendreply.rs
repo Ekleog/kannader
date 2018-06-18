@@ -13,7 +13,8 @@ where
     W: 'a + Sink<SinkItem = ReplyLine>,
     W::SinkError: 'a,
 {
-    let replies = text.byte_chunks(ReplyLine::MAX_LEN)
+    let replies = text
+        .byte_chunks(ReplyLine::MAX_LEN)
         .with_position()
         .map(move |t| {
             use itertools::Position::*;

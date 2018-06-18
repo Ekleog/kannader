@@ -79,7 +79,8 @@ impl ReplyLine {
                 length: line.byte_len(),
                 limit:  Self::MAX_LEN,
             })
-        } else if let Some(p) = line.iter_bytes()
+        } else if let Some(p) = line
+            .iter_bytes()
             .position(|&x| !(x == 9 || (x >= 32 && x <= 126)))
         {
             Err(BuildError::DisallowedByte {

@@ -73,7 +73,8 @@ mod tests {
             let res = parse_parameters(ByteSlice::from(&b));
             let (rem, res) = res.unwrap();
             assert_eq!(&rem[..], b"");
-            let res_reference = out.iter()
+            let res_reference = out
+                .iter()
                 .map(|(a, b)| ((*a).into(), b.map(|x| x.into())))
                 .collect::<HashMap<_, _>>();
             assert_eq!(res.0, res_reference);

@@ -1,8 +1,10 @@
 use bytes::Bytes;
 use nom::{Compare, CompareResult, FindSubstring, InputIter, InputLength, Slice};
 use std::{
-    cmp::PartialEq, iter::{Enumerate, Iterator, Map},
-    ops::{Deref, Range, RangeFrom, RangeFull, RangeTo}, slice, str,
+    cmp::PartialEq,
+    iter::{Enumerate, Iterator, Map},
+    ops::{Deref, Range, RangeFrom, RangeFull, RangeTo},
+    slice, str,
 };
 
 #[derive(Clone, Copy, Debug)]

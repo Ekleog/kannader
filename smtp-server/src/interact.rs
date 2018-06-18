@@ -435,7 +435,8 @@ mod tests {
                 println!("From: expected {:?}, got {:?}", fo, fr);
                 assert_eq!(fo, fr);
                 let to_smtp = to.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>();
-                let tr_smtp = tr.into_iter()
+                let tr_smtp = tr
+                    .into_iter()
                     .map(|x| SmtpString::from_sendable(&x).unwrap())
                     .collect::<Vec<_>>();
                 println!("To: expected {:?}, got {:?}", to_smtp, tr_smtp);

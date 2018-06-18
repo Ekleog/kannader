@@ -31,7 +31,8 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
     };
 
     // Compute with a naive algorithm
-    let raw_data = data.into_iter()
+    let raw_data = data
+        .into_iter()
         .flat_map(|x| x.into_iter())
         .collect::<Vec<u8>>();
     let eof = (if raw_data.get(..3) == Some(b".\r\n") {

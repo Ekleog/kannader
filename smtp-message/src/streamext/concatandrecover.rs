@@ -28,7 +28,8 @@ where
     type Error = (S::Error, S);
 
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        let mut s = self.stream
+        let mut s = self
+            .stream
             .take()
             .expect("attempted to poll ConcatAndRecover after completion");
         loop {

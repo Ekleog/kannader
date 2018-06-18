@@ -49,7 +49,8 @@ impl Email {
                 Backslash,
             }
 
-            let mut res = self.localpart
+            let mut res = self
+                .localpart
                 .iter_bytes()
                 .skip(1)
                 .scan(State::Start, |state, &x| match (*state, x) {
@@ -239,7 +240,8 @@ mod tests {
             let b = Bytes::from(inp);
             match address_in_path(ByteSlice::from(&b)) {
                 IResult::Done(rem, res) => assert!(
-                    rem.len() == 0 && res.raw_localpart().bytes() == local
+                    rem.len() == 0
+                        && res.raw_localpart().bytes() == local
                         && res.hostname() == &host.map(|h| Domain::parse_slice(h).unwrap())
                 ),
                 x => panic!("Unexpected address_in_path result: {:?}", x),
