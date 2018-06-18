@@ -3,11 +3,15 @@ extern crate smtp_message;
 extern crate tokio;
 
 mod mail;
+mod run;
+mod send_queued_mail;
 mod storage;
 mod transport;
 
 pub use mail::{InflightMail, Mail, QueuedMail};
+pub use run::run;
 pub use storage::Storage;
+pub use transport::Transport;
 
 // TODO: (B) make this not do bad things with multiple instances
 // Use cases to take into account:
