@@ -2,6 +2,5 @@ with import ./common.nix;
 
 pkgs.stdenv.mkDerivation {
   name = "yuubind";
-  buildInputs = (with rustNightlyChannel; [ rustfmt-preview ]) ++
-                (with rustStableChannel; [ rust ]);
+  buildInputs = (with rustNightlyChannel; [ rust rustfmt-preview ]);
 }
