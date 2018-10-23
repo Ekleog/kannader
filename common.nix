@@ -19,7 +19,7 @@ rec {
     overlays = [ rustOverlay ];
   };
   rustNightlyChannel = pkgs.rustChannelOf {
-    date = "2018-06-17";
+    date = "2018-10-23";
     channel = "nightly";
   };
   #rustBetaChannel = pkgs.rustChannelOf {
