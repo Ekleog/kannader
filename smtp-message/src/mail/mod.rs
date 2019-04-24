@@ -1,11 +1,13 @@
 use nom::crlf;
 use std::io;
 
-use crate::byteslice::ByteSlice;
-use crate::email::{address_in_maybe_bracketed_path, Email};
-use crate::parameters::{parse_parameters, Parameters};
-use crate::sendable::Sendable;
-use crate::stupidparsers::eat_spaces;
+use crate::{
+    byteslice::ByteSlice,
+    email::{address_in_maybe_bracketed_path, Email},
+    parameters::{parse_parameters, Parameters},
+    sendable::Sendable,
+    stupidparsers::eat_spaces,
+};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -93,8 +95,9 @@ mod tests {
                         vec![
                             ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
                             ((b"foo"[..]).into(), None),
-                        ].into_iter()
-                            .collect(),
+                        ]
+                        .into_iter()
+                        .collect(),
                     ),
                 },
             ),
@@ -124,8 +127,9 @@ mod tests {
         MailCommand::new(
             Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
             Parameters::none(),
-        ).send_to(&mut v)
-            .unwrap();
+        )
+        .send_to(&mut v)
+        .unwrap();
         assert_eq!(v, b"MAIL FROM:<foo@bar.baz>\r\n");
 
         let mut v = Vec::new();
@@ -148,9 +152,10 @@ mod tests {
                         SmtpString::from_static(b"helloworld"),
                         Some(SmtpString::from_static(b"bleh")),
                     ),
-                ].iter()
-                    .cloned()
-                    .collect(),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
             ),
         );
         c.send_to(&mut v).unwrap();

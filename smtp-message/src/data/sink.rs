@@ -14,7 +14,7 @@ pub struct DataSink<S> {
 }
 
 // TODO: (A) remove Unpin bound hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
-// TODO: (B) make that a Sink impl once the API is no longer stupidly complex to implement
+// TODO: (B) make that a Sink impl once the API is no longer stupidly complex
 impl<S: Sink<Bytes> + Unpin> DataSink<S> {
     pub fn new(sink: S) -> DataSink<S> {
         DataSink {

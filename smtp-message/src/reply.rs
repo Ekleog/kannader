@@ -1,10 +1,12 @@
 use bytes::Bytes;
 use std::{io, str::FromStr};
 
-use crate::builderror::BuildError;
-use crate::byteslice::ByteSlice;
-use crate::parseresult::{nom_to_result, ParseError};
-use crate::smtpstring::SmtpString;
+use crate::{
+    builderror::BuildError,
+    byteslice::ByteSlice,
+    parseresult::{nom_to_result, ParseError},
+    smtpstring::SmtpString,
+};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone, Copy)]
@@ -156,7 +158,8 @@ mod tests {
             ReplyCode::SERVICE_READY,
             IsLastLine::No,
             (&b"hello world!"[..]).into(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             r,
             ReplyLine {
@@ -177,7 +180,8 @@ mod tests {
             ReplyCode::COMMAND_UNIMPLEMENTED,
             IsLastLine::Yes,
             (&b"test"[..]).into(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             r,
             ReplyLine {
@@ -194,20 +198,18 @@ mod tests {
 
     #[test]
     fn refuse_build() {
-        assert!(
-            ReplyLine::build(
-                ReplyCode::EXCEEDED_STORAGE,
-                IsLastLine::Yes,
-                (&vec![b'a'; 1000][..]).into(),
-            ).is_err()
-        );
-        assert!(
-            ReplyLine::build(
-                ReplyCode::EXCEEDED_STORAGE,
-                IsLastLine::No,
-                (&b"\r"[..]).into()
-            ).is_err()
-        );
+        assert!(ReplyLine::build(
+            ReplyCode::EXCEEDED_STORAGE,
+            IsLastLine::Yes,
+            (&vec![b'a'; 1000][..]).into(),
+        )
+        .is_err());
+        assert!(ReplyLine::build(
+            ReplyCode::EXCEEDED_STORAGE,
+            IsLastLine::No,
+            (&b"\r"[..]).into()
+        )
+        .is_err());
     }
 
     #[test]

@@ -2,8 +2,8 @@ use std::fmt;
 
 #[derive(Fail, Debug, Clone)]
 pub enum BuildError {
-    LineTooLong { length: usize, limit:  usize },
-    DisallowedByte { b:   u8, pos: usize },
+    LineTooLong { length: usize, limit: usize },
+    DisallowedByte { b: u8, pos: usize },
     ContainsNewLine { pos: usize },
 }
 

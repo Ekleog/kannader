@@ -12,11 +12,13 @@ pub enum ParseError {
 
 pub fn nom_to_result<T>(d: nom::IResult<ByteSlice, T>) -> Result<T, ParseError> {
     match d {
-        IResult::Done(rem, res) => if rem.len() == 0 {
-            Ok(res)
-        } else {
-            Err(ParseError::DidNotConsumeEverything(rem.len()))
-        },
+        IResult::Done(rem, res) => {
+            if rem.len() == 0 {
+                Ok(res)
+            } else {
+                Err(ParseError::DidNotConsumeEverything(rem.len()))
+            }
+        }
         IResult::Error(e) => Err(ParseError::ParseError(e)),
         IResult::Incomplete(n) => Err(ParseError::IncompleteString(n)),
     }

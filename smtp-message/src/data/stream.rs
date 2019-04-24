@@ -1,4 +1,7 @@
-use std::{pin::Pin, task::{Context, Poll}};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use bytes::BytesMut;
 use futures::prelude::*;
@@ -233,10 +236,8 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem),
             );
-            let mut stream = DataStream::new(
-                stream::iter(inp.iter().map(|x| BytesMut::from(*x)))
-                    .prependable(),
-            );
+            let mut stream =
+                DataStream::new(stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable());
             let output = block_on(async {
                 let mut res = BytesMut::new();
                 while let Some(i) = await!(stream.by_ref().next()) {

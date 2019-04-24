@@ -4,8 +4,7 @@ mod stream;
 use nom::crlf;
 use std::io;
 
-use crate::byteslice::ByteSlice;
-use crate::stupidparsers::eat_spaces;
+use crate::{byteslice::ByteSlice, stupidparsers::eat_spaces};
 
 pub use self::{sink::DataSink, stream::DataStream};
 
@@ -40,7 +39,7 @@ mod tests {
     use super::*;
 
     use bytes::{Bytes, BytesMut};
-    use futures::{stream, executor::block_on, StreamExt};
+    use futures::{executor::block_on, stream, StreamExt};
     use nom::IResult;
 
     use crate::streamext::StreamExt as SmtpStreamExt;

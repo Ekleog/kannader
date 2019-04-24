@@ -23,8 +23,9 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
                 let res = BytesMut::from(&d[..]);
                 // println!("Sending chunk {:?}", res);
                 res
-            })).map_err(|()| ())
-                .prependable(),
+            }))
+            .map_err(|()| ())
+            .prependable(),
         );
         let output = stream.by_ref().concat2().wait().ok();
         output.map(|out| (out, stream.into_inner().concat2().wait().unwrap()))
@@ -39,7 +40,8 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
         Some((0, 3))
     } else {
         None
-    }).or_else(|| {
+    })
+    .or_else(|| {
         raw_data
             .windows(5)
             .position(|x| x == b"\r\n.\r\n")

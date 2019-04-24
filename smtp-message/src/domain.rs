@@ -5,10 +5,12 @@ use std::{
     str::FromStr,
 };
 
-use crate::byteslice::ByteSlice;
-use crate::parseresult::{nom_to_result, ParseError};
-use crate::sendable::Sendable;
-use crate::smtpstring::SmtpString;
+use crate::{
+    byteslice::ByteSlice,
+    parseresult::{nom_to_result, ParseError},
+    sendable::Sendable,
+    smtpstring::SmtpString,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Domain {

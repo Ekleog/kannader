@@ -1,7 +1,6 @@
 use std::{pin::Pin, task::Context};
 
-use futures::prelude::*;
-use futures::task::Poll;
+use futures::{prelude::*, task::Poll};
 
 pub struct Prependable<S: Stream> {
     stream:    S,
@@ -31,8 +30,8 @@ impl<S: Stream> Stream for Prependable<S> {
 
     fn poll_next(mut self: Pin<&mut Self>, lw: &mut Context) -> Poll<Option<S::Item>> {
         // TODO: (A) check that this get_unchecked_mut is safe
-        // As `self.prepended` is never taken out of a `Pin<>`, it should be OK, but that would
-        // definitely need checking.
+        // As `self.prepended` is never taken out of a `Pin<>`, it should be OK, but
+        // that would definitely need checking.
         // If it isn't, `S::Item` would have to be asserted `Unpin`.
         let try_take = unsafe { self.as_mut().get_unchecked_mut().prepended.take() };
         if let Some(item) = try_take {
@@ -40,7 +39,9 @@ impl<S: Stream> Stream for Prependable<S> {
         } else {
             // See the documentation of the `std::pin` module for why this is safe.
             unsafe {
-                self.as_mut().map_unchecked_mut(|s| &mut s.stream).poll_next(lw)
+                self.as_mut()
+                    .map_unchecked_mut(|s| &mut s.stream)
+                    .poll_next(lw)
             }
         }
     }

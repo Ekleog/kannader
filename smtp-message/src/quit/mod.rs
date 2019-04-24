@@ -1,8 +1,7 @@
 use nom::crlf;
 use std::io;
 
-use crate::byteslice::ByteSlice;
-use crate::stupidparsers::eat_spaces;
+use crate::{byteslice::ByteSlice, stupidparsers::eat_spaces};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

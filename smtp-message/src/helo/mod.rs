@@ -1,9 +1,11 @@
 use std::io;
 
-use crate::byteslice::ByteSlice;
-use crate::domain::{hostname, Domain};
-use crate::sendable::Sendable;
-use crate::stupidparsers::eat_spaces;
+use crate::{
+    byteslice::ByteSlice,
+    domain::{hostname, Domain},
+    sendable::Sendable,
+    stupidparsers::eat_spaces,
+};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
