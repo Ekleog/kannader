@@ -1,11 +1,11 @@
 use bytes::Bytes;
 use std::io;
 
-use byteslice::ByteSlice;
-use domain::{hostname, Domain};
-use parseresult::{nom_to_result, ParseError};
-use sendable::Sendable;
-use smtpstring::SmtpString;
+use crate::byteslice::ByteSlice;
+use crate::domain::{hostname, Domain};
+use crate::parseresult::{nom_to_result, ParseError};
+use crate::sendable::Sendable;
+use crate::smtpstring::SmtpString;
 
 // TODO: (C) Make equivalent emails (modulo escaping) be equal?
 #[derive(Debug, Eq, PartialEq)]

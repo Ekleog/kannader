@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use tokio::prelude::*;
+use futures::prelude::*;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum DataSinkState {
@@ -8,12 +8,14 @@ enum DataSinkState {
     CrLfPassed,
 }
 
-pub struct DataSink<S: Sink<SinkItem = Bytes>> {
+pub struct DataSink<S> {
     sink:  S,
     state: DataSinkState,
 }
 
-impl<S: Sink<SinkItem = Bytes>> DataSink<S> {
+// TODO: (A) remove Unpin bound hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
+// TODO: (B) make that a Sink impl once the API is no longer stupidly complex to implement
+impl<S: Sink<Bytes> + Unpin> DataSink<S> {
     pub fn new(sink: S) -> DataSink<S> {
         DataSink {
             sink,
@@ -21,26 +23,13 @@ impl<S: Sink<SinkItem = Bytes>> DataSink<S> {
         }
     }
 
-    pub fn end(self) -> impl Future<Item = S, Error = S::SinkError> {
-        use self::DataSinkState::*;
-        let bytes = match self.state {
-            Running => Bytes::from_static(b"\r\n.\r\n"),
-            CrPassed => Bytes::from_static(b"\r\n.\r\n"),
-            CrLfPassed => Bytes::from_static(b".\r\n"),
-        };
-        self.sink.send(bytes)
-    }
-}
-
-impl<S: Sink<SinkItem = Bytes>> Sink for DataSink<S> {
-    type SinkItem = Bytes;
-    type SinkError = S::SinkError;
-
-    fn start_send(&mut self, mut item: Bytes) -> Result<AsyncSink<Bytes>, Self::SinkError> {
+    pub async fn send(&mut self, mut item: Bytes) -> Result<(), S::SinkError> {
+        // TODO: (B) do not flush all the time
         use self::DataSinkState::*;
         loop {
             let mut breakat = None;
             for (pos, c) in item.iter().enumerate() {
+                // TODO: (B) using some search function might be faster
                 match (self.state, c) {
                     (_, b'\r') => self.state = CrPassed,
                     (CrPassed, b'\n') => self.state = CrLfPassed,
@@ -53,12 +42,13 @@ impl<S: Sink<SinkItem = Bytes>> Sink for DataSink<S> {
                 }
             }
             match breakat {
-                None => return self.sink.start_send(item),
+                None => {
+                    await!(self.sink.send(item))?;
+                    return Ok(());
+                }
                 Some(pos) => {
                     // Send everything until and including the '.'
-                    if self.sink.start_send(item.slice_to(pos + 1))?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item));
-                    }
+                    await!(self.sink.send(item.slice_to(pos + 1)))?;
                     // Now send all the remaining stuff by going through the loop again
                     // The escaping is done by the fact the '.' was already sent once, and yet left
                     // in `item` to be sent again.
@@ -68,14 +58,23 @@ impl<S: Sink<SinkItem = Bytes>> Sink for DataSink<S> {
         }
     }
 
-    fn poll_complete(&mut self) -> Result<Async<()>, Self::SinkError> {
-        self.sink.poll_complete()
+    pub async fn end(mut self) -> Result<S, S::SinkError> {
+        use self::DataSinkState::*;
+        let bytes = match self.state {
+            Running => Bytes::from_static(b"\r\n.\r\n"),
+            CrPassed => Bytes::from_static(b"\r\n.\r\n"),
+            CrLfPassed => Bytes::from_static(b".\r\n"),
+        };
+        await!(self.sink.send(bytes))?;
+        Ok(self.sink)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use futures::executor::block_on;
 
     #[test]
     fn valid_data_sink() {
@@ -89,14 +88,13 @@ mod tests {
         for &(inp, out) in tests {
             let mut v = Vec::new();
             {
-                let sink = DataSink::new(&mut v);
-                sink.send_all(stream::iter_ok(inp.iter().map(|x| Bytes::from(*x))))
-                    .wait()
-                    .unwrap()
-                    .0
-                    .end()
-                    .wait()
-                    .unwrap();
+                let mut sink = DataSink::new(&mut v);
+                block_on(async {
+                    for i in inp.iter() {
+                        await!(sink.send(Bytes::from(*i))).unwrap();
+                    }
+                    await!(sink.end()).unwrap();
+                });
             }
             assert_eq!(
                 v.into_iter()

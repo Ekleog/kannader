@@ -1,21 +1,22 @@
 use bytes::Bytes;
 use std::io;
 
-use byteslice::ByteSlice;
-use parseresult::{nom_to_result, ParseError};
-use sendable::Sendable;
+use crate::byteslice::ByteSlice;
+use crate::parseresult::{nom_to_result, ParseError};
+use crate::sendable::Sendable;
 
-use data::{command_data_args, DataCommand};
-use ehlo::{command_ehlo_args, EhloCommand};
-use expn::{command_expn_args, ExpnCommand};
-use helo::{command_helo_args, HeloCommand};
-use help::{command_help_args, HelpCommand};
-use mail::{command_mail_args, MailCommand};
-use noop::{command_noop_args, NoopCommand};
-use quit::{command_quit_args, QuitCommand};
-use rcpt::{command_rcpt_args, RcptCommand};
-use rset::{command_rset_args, RsetCommand};
-use vrfy::{command_vrfy_args, VrfyCommand};
+// TODO: (C) factor code over all these with a macro or similar
+use crate::data::{command_data_args, DataCommand};
+use crate::ehlo::{command_ehlo_args, EhloCommand};
+use crate::expn::{command_expn_args, ExpnCommand};
+use crate::helo::{command_helo_args, HeloCommand};
+use crate::help::{command_help_args, HelpCommand};
+use crate::mail::{command_mail_args, MailCommand};
+use crate::noop::{command_noop_args, NoopCommand};
+use crate::quit::{command_quit_args, QuitCommand};
+use crate::rcpt::{command_rcpt_args, RcptCommand};
+use crate::rset::{command_rset_args, RsetCommand};
+use crate::vrfy::{command_vrfy_args, VrfyCommand};
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -73,9 +74,9 @@ named!(command(ByteSlice) -> Command, alt!(
 mod tests {
     use super::*;
 
-    use domain::Domain;
-    use email::Email;
-    use smtpstring::SmtpString;
+    use crate::domain::Domain;
+    use crate::email::Email;
+    use crate::smtpstring::SmtpString;
 
     #[test]
     fn valid_command() {

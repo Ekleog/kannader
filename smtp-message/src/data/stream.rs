@@ -1,7 +1,9 @@
-use bytes::BytesMut;
-use tokio::prelude::*;
+use std::{pin::Pin, task::{Context, Poll}};
 
-use streamext::Prependable;
+use bytes::BytesMut;
+use futures::prelude::*;
+
+use crate::streamext::Prependable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DataStreamState {
@@ -9,6 +11,7 @@ enum DataStreamState {
     CrPassed,
     CrLfPassed,
     Finished,
+    EarlyFin,
 }
 
 // Stream adapter that takes as input a stream that yields ByteMut elements,
@@ -45,7 +48,11 @@ impl<S: Stream<Item = BytesMut>> DataStream<S> {
     }
 
     // Beware: this will panic if it hasn't been fully consumed.
-    pub fn into_inner(mut self) -> Prependable<S> {
+    // If there has been an early EOF in the incoming stream, return Err(()).
+    pub fn into_inner(mut self) -> Result<Prependable<S>, ()> {
+        if self.state == DataStreamState::EarlyFin {
+            return Err(());
+        }
         assert_eq!(self.state, DataStreamState::Finished);
         if !self.buf.is_empty() {
             // If this `unwrap` fails, this means that somehow:
@@ -56,19 +63,20 @@ impl<S: Stream<Item = BytesMut>> DataStream<S> {
             // unwrap
             self.source.prepend(self.buf).unwrap();
         }
-        self.source
+        Ok(self.source)
     }
 }
 
-impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
+// TODO: (B) remove unpin marker hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
+impl<S: Stream<Item = BytesMut> + Unpin> Stream for DataStream<S> {
     type Item = BytesMut;
-    type Error = S::Error;
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        use self::{Async::*, DataStreamState::*};
+    fn poll_next(mut self: Pin<&mut Self>, ctxt: &mut Context) -> Poll<Option<Self::Item>> {
+        use self::DataStreamState::*;
+        use Poll::*;
         // First, handle the case when we're done
         if self.state == Finished {
-            return Ok(Ready(None));
+            return Ready(None);
         }
         loop {
             // Figure out what to send from the current buf
@@ -82,11 +90,12 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
             let mut split = BufSplit::Nowhere;
 
             // First, look at all that's in the buffe rexcept for the last 2 characters
+            let mut state = self.state; // Temporary variable to please the borrow checker
             for (idx, w) in self.buf.windows(3).enumerate() {
-                match (self.state, w[0]) {
+                match (state, w[0]) {
                     // Move forward in the \r\n state machine
-                    (_, b'\r') => self.state = CrPassed,
-                    (CrPassed, b'\n') => self.state = CrLfPassed,
+                    (_, b'\r') => state = CrPassed,
+                    (CrPassed, b'\n') => state = CrLfPassed,
 
                     // If there is a \r\n., what should we do?
                     (CrLfPassed, b'.') if w == b".\r\n" => {
@@ -99,9 +108,10 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                     }
 
                     // If we can't do either of the above, just continue reading stuff
-                    (_, _) => self.state = Running,
+                    (_, _) => state = Running,
                 }
             }
+            self.state = state;
 
             // Then, look at the last 2 characters
             let l = self.buf.len();
@@ -142,16 +152,16 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
 
             // Send the buffer if we have something to send
             match split {
-                BufSplit::Nowhere if self.buf.len() > 0 => return Ok(Ready(Some(self.buf.take()))),
+                BufSplit::Nowhere if self.buf.len() > 0 => return Ready(Some(self.buf.take())),
                 BufSplit::Nowhere => (), // Continue to read more data if nothing to send
                 BufSplit::Eof(x) => {
                     let res = self.buf.split_to(x);
                     self.buf.advance(3);
                     self.state = Finished;
                     if res.len() > 0 {
-                        return Ok(Ready(Some(res)));
+                        return Ready(Some(res));
                     } else {
-                        return Ok(Ready(None));
+                        return Ready(None);
                     }
                 }
                 BufSplit::Escape(x) => {
@@ -159,20 +169,20 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                     self.buf.advance(1);
                     self.state = Running;
                     if res.len() > 0 {
-                        return Ok(Ready(Some(res)));
+                        return Ready(Some(res));
                     } else {
                         // Continue to read more data if nothing is to be sent before the escape
                         // point
                         continue;
                     }
                 }
-                BufSplit::Unknown(x) if x > 0 => return Ok(Ready(Some(self.buf.split_to(x)))),
+                BufSplit::Unknown(x) if x > 0 => return Ready(Some(self.buf.split_to(x))),
                 BufSplit::Unknown(_) => (), // Continue to read more data if nothing to send
             }
 
             // Didn't find anything to send, so let's just gather more data from the network
-            match self.source.poll()? {
-                NotReady => return Ok(NotReady),
+            match Pin::new(&mut self.source).poll_next(ctxt) {
+                Pending => return Pending,
                 // If the stream ends there, it means that we received a FIN during the stream of
                 // DATA. This is an error according to the specification, so returning an error.
                 // Now, the receive end of the pipe isn't necessarily closed, so it may be a good
@@ -180,9 +190,13 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
                 // things possible, and both OpenSMTPD and gmail appear to just answer with closing
                 // the stream in the other direction. So here we do, doing nothing in case of
                 // unexpected connection closing.
-                // TODO: (B) print warning and/or add metadata to the error
-                Ready(None) => return Err(()),
-                Ready(Some(b)) => self.buf.unsplit(b),
+                // However, we definitely want to not considered the DATA as having completed
+                // correctly, so we do record that there was an early FIN.
+                Ready(None) => {
+                    self.state = DataStreamState::EarlyFin;
+                    return Ready(None);
+                }
+                Ready(Some(b)) => self.buf.unsplit(b), // TODO: (B) optimize with `self.buf = b`?
             }
         }
     }
@@ -192,7 +206,9 @@ impl<S: Stream<Item = BytesMut, Error = ()>> Stream for DataStream<S> {
 mod tests {
     use super::*;
 
-    use streamext::StreamExt;
+    use futures::{executor::block_on, StreamExt};
+
+    use crate::streamext::StreamExt as SmtpStreamExt;
 
     #[test]
     fn valid_data_stream() {
@@ -210,7 +226,7 @@ mod tests {
             (&[b"foo\r\n. ", b"bar\r\n.\r\n"], b"foo\r\n bar\r\n", b""),
         ];
         for &(inp, out, rem) in tests {
-            use smtpstring::SmtpString;
+            use crate::smtpstring::SmtpString;
             println!(
                 "\nTrying to parse {:?} into {:?} with {:?} remaining",
                 inp.iter().map(|x| SmtpString::from(*x)).collect::<Vec<_>>(),
@@ -218,13 +234,25 @@ mod tests {
                 SmtpString::from(rem),
             );
             let mut stream = DataStream::new(
-                stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)))
-                    .map_err(|()| ())
+                stream::iter(inp.iter().map(|x| BytesMut::from(*x)))
                     .prependable(),
             );
-            let output = stream.by_ref().concat2().wait().unwrap();
+            let output = block_on(async {
+                let mut res = BytesMut::new();
+                while let Some(i) = await!(stream.by_ref().next()) {
+                    res.unsplit(i);
+                }
+                res
+            });
             println!("Now computing remaining stuff");
-            let remaining = stream.into_inner().concat2().wait().unwrap();
+            let remaining = block_on(async {
+                let mut res = BytesMut::new();
+                let mut stream = stream.into_inner().unwrap();
+                while let Some(i) = await!(stream.next()) {
+                    res.unsplit(i);
+                }
+                res
+            });
             println!(
                 " -> Got {:?} with {:?} remaining",
                 SmtpString::from(&output[..]),
@@ -239,11 +267,14 @@ mod tests {
         fn all_leading_dots_are_escaped(v: Vec<Vec<u8>>) -> bool {
             let mut v = v;
             v.extend_from_slice(&[vec![b'\r', b'\n', b'.', b'\r', b'\n']]);
-            let r = DataStream::new(stream::iter_ok(v.into_iter().map(BytesMut::from)).prependable())
-                .map_err(|()| ())
-                .concat2()
-                .wait()
-                .unwrap();
+            let r = block_on(async {
+                let mut stream = DataStream::new(stream::iter(v.into_iter().map(BytesMut::from)).prependable());
+                let mut res = BytesMut::new();
+                while let Some(i) = await!(stream.next()) {
+                    res.unsplit(i);
+                }
+                res
+            });
             r.windows(5).position(|x| x == b"\r\n.\r\n").is_none()
         }
     }

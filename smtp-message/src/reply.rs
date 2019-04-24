@@ -1,10 +1,10 @@
 use bytes::Bytes;
 use std::{io, str::FromStr};
 
-use builderror::BuildError;
-use byteslice::ByteSlice;
-use parseresult::{nom_to_result, ParseError};
-use smtpstring::SmtpString;
+use crate::builderror::BuildError;
+use crate::byteslice::ByteSlice;
+use crate::parseresult::{nom_to_result, ParseError};
+use crate::smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug, Clone, Copy)]

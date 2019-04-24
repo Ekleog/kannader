@@ -1,11 +1,11 @@
 use nom::crlf;
 use std::io;
 
-use byteslice::ByteSlice;
-use email::{address_in_maybe_bracketed_path, Email};
-use parameters::{parse_parameters, Parameters};
-use sendable::Sendable;
-use stupidparsers::eat_spaces;
+use crate::byteslice::ByteSlice;
+use crate::email::{address_in_maybe_bracketed_path, Email};
+use crate::parameters::{parse_parameters, Parameters};
+use crate::sendable::Sendable;
+use crate::stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -45,7 +45,7 @@ mod tests {
     use super::*;
     use bytes::Bytes;
 
-    use domain::Domain;
+    use crate::domain::Domain;
 
     #[test]
     fn valid_command_rcpt_args() {

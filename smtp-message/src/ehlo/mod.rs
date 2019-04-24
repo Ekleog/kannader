@@ -1,9 +1,9 @@
 use std::io;
 
-use byteslice::ByteSlice;
-use domain::{hostname, Domain};
-use sendable::Sendable;
-use stupidparsers::eat_spaces;
+use crate::byteslice::ByteSlice;
+use crate::domain::{hostname, Domain};
+use crate::sendable::Sendable;
+use crate::stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -44,7 +44,8 @@ mod tests {
 
     use bytes::Bytes;
     use nom::IResult;
-    use smtpstring::SmtpString;
+
+    use crate::smtpstring::SmtpString;
 
     #[test]
     fn valid_command_ehlo_args() {

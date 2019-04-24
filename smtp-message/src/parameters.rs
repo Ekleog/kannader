@@ -1,9 +1,9 @@
 use std::{collections::HashMap, io};
 
-use byteslice::ByteSlice;
-use sendable::Sendable;
-use smtpstring::SmtpString;
-use stupidparsers::eat_spaces;
+use crate::byteslice::ByteSlice;
+use crate::sendable::Sendable;
+use crate::smtpstring::SmtpString;
+use crate::stupidparsers::eat_spaces;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]

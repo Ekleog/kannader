@@ -4,8 +4,8 @@ mod stream;
 use nom::crlf;
 use std::io;
 
-use byteslice::ByteSlice;
-use stupidparsers::eat_spaces;
+use crate::byteslice::ByteSlice;
+use crate::stupidparsers::eat_spaces;
 
 pub use self::{sink::DataSink, stream::DataStream};
 
@@ -38,11 +38,12 @@ named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::{Bytes, BytesMut};
-    use nom::IResult;
-    use tokio::{self, prelude::*};
 
-    use streamext::StreamExt;
+    use bytes::{Bytes, BytesMut};
+    use futures::{stream, executor::block_on, StreamExt};
+    use nom::IResult;
+
+    use crate::streamext::StreamExt as SmtpStreamExt;
 
     #[test]
     fn valid_command_data_args() {
@@ -80,24 +81,27 @@ mod tests {
             }
             let mut on_the_wire = Vec::new();
             {
-                let sink = DataSink::new(&mut on_the_wire);
-                sink.send_all(tokio::prelude::stream::iter_ok(input.iter().cloned()))
-                    .wait()
-                    .unwrap()
-                    .0
-                    .end()
-                    .wait()
-                    .unwrap();
+                let mut sink = DataSink::new(&mut on_the_wire);
+                block_on(async {
+                    for i in input.iter().cloned() {
+                        await!(sink.send(i)).unwrap();
+                    }
+                    await!(sink.end()).unwrap();
+                });
             }
             eprintln!("Moving on the wire: {:?}", on_the_wire);
-            let received = DataStream::new(
-                tokio::prelude::stream::iter_ok(
-                    on_the_wire.into_iter().map(BytesMut::from)
-                ).prependable()
-            ).map_err(|()| ())
-                .concat2()
-                .wait()
-                .unwrap();
+            let received = block_on(async {
+                let mut stream = DataStream::new(
+                    stream::iter(
+                        on_the_wire.into_iter().map(BytesMut::from)
+                    ).prependable()
+                );
+                let mut res = BytesMut::new();
+                while let Some(i) = await!(stream.next()) {
+                    res.unsplit(i);
+                }
+                res
+            });
             eprintln!("Recovered: {:?}", received);
             if !end_with_crlf && !raw_input.is_empty() {
                 raw_input.extend_from_slice(b"\r\n");

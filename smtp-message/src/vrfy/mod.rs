@@ -1,7 +1,7 @@
 use std::io;
 
-use byteslice::ByteSlice;
-use smtpstring::SmtpString;
+use crate::byteslice::ByteSlice;
+use crate::smtpstring::SmtpString;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]

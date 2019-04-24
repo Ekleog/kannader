@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use std::{cmp::min, io, ops::Add, slice};
 
-use sendable::Sendable;
+use crate::sendable::Sendable;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SmtpString(Bytes);

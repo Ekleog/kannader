@@ -1,4 +1,4 @@
-use byteslice::ByteSlice;
+use crate::byteslice::ByteSlice;
 
 macro_rules! spaces {
     () => {

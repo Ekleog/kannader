@@ -1,11 +1,11 @@
 use nom::crlf;
 use std::io;
 
-use byteslice::ByteSlice;
-use email::{address_in_maybe_bracketed_path, Email};
-use parameters::{parse_parameters, Parameters};
-use sendable::Sendable;
-use stupidparsers::eat_spaces;
+use crate::byteslice::ByteSlice;
+use crate::email::{address_in_maybe_bracketed_path, Email};
+use crate::parameters::{parse_parameters, Parameters};
+use crate::sendable::Sendable;
+use crate::stupidparsers::eat_spaces;
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
@@ -58,7 +58,8 @@ mod tests {
 
     use bytes::Bytes;
     use nom::IResult;
-    use smtpstring::SmtpString;
+
+    use crate::smtpstring::SmtpString;
 
     #[test]
     fn valid_command_mail_args() {
