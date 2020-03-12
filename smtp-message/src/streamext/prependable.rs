@@ -15,11 +15,13 @@ impl<S: Stream> Prependable<S> {
         }
     }
 
-    pub fn prepend(&mut self, item: S::Item) -> Result<(), ()> {
-        if self.prepended.is_some() {
+    pub fn prepend(self: Pin<&mut Self>, item: S::Item) -> Result<(), ()> {
+        // TODO: (B) replace all the unsafe around pin with pin_utils crate
+        let prep = unsafe { &mut self.get_unchecked_mut().prepended };
+        if prep.is_some() {
             Err(())
         } else {
-            self.prepended = Some(item);
+            *prep = Some(item);
             Ok(())
         }
     }

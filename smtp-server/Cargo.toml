@@ -6,9 +6,10 @@ license = "MIT"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
 description = "SMTP server library using tokio"
+edition = "2018"
 
 [dependencies]
-bytes = "0.4.6"
-itertools = "0.7.8"
+bytes = "0.4"
+itertools = "0.7"
 smtp-message = { path = "../smtp-message" }
-tokio = "0.1.5"
+futures-preview = "0.3.0-alpha.14"

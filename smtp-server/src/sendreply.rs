@@ -1,17 +1,19 @@
+use std::pin::Pin;
+
+use futures::prelude::*;
 use itertools::Itertools;
-use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString, StreamExt};
-use tokio::prelude::*;
+
+use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString};
 
 // TODO: (B) move to smtp_message's Reply builder id:tcHW
 // Panics if `text` has a byte not in {9} \union [32; 126]
 // TODO: (B) move sending logic to smtp_message::Reply
-pub fn send_reply<'a, W>(
-    writer: W,
+pub async fn send_reply<W>(
+    mut writer: Pin<&mut W>,
     (code, text): (ReplyCode, SmtpString),
-) -> impl Future<Item = W, Error = W::SinkError> + 'a
+) -> Result<(), W::SinkError>
 where
-    W: 'a + Sink<SinkItem = ReplyLine>,
-    W::SinkError: 'a,
+    W: Sink<ReplyLine>,
 {
     let replies = text
         .byte_chunks(ReplyLine::MAX_LEN)
@@ -23,8 +25,9 @@ where
                 Last(t) | Only(t) => ReplyLine::build(code, IsLastLine::Yes, t).unwrap(),
             }
         });
+    let mut reply_stream = stream::iter(replies);
 
-    stream::iter_ok(replies)
-        .forward_not_closing(writer)
-        .map(|(_, w)| w)
+    await!(writer.send_all(&mut reply_stream))?;
+
+    Ok(())
 }

@@ -1,66 +1,38 @@
+use std::pin::Pin;
+
 use bytes::BytesMut;
+use futures::{Stream, StreamExt};
+
 use smtp_message::Prependable;
-use tokio::prelude::*;
 
-pub struct CrlfLines<S: Stream<Item = BytesMut>> {
-    source: Prependable<S>,
-    buf:    BytesMut,
-}
+pub async fn next_crlf_line<S: Stream<Item = BytesMut>>(
+    mut s: Pin<&mut Prependable<S>>,
+) -> Option<BytesMut> {
+    let mut buf = BytesMut::new();
+    while let Some(pkt) = await!(s.next()) {
+        buf.unsplit(pkt);
 
-impl<S: Stream<Item = BytesMut>> CrlfLines<S> {
-    pub fn new(s: Prependable<S>) -> CrlfLines<S> {
-        CrlfLines {
-            source: s,
-            buf:    BytesMut::new(),
+        // TODO: (B) implement line length limits id:line-length-limit
+
+        // TODO: (C) optimize searching for crlf p:line-length-limit
+        // This can be done with much fewer allocations and searches through the buffer.
+        // Technique : do not extending the buffers straightaway but store them in a vec
+        // until the CRLF is found, and then extending with the right size).
+        // Other idea: just extend at line length limit.
+
+        if let Some(pos) = buf.windows(2).position(|x| x == b"\r\n") {
+            // This unwrap is free of risk, as `s.next()` has just been called above
+            s.prepend(buf.split_off(pos + 2)).unwrap();
+            return Some(buf);
         }
     }
 
-    pub fn into_inner(mut self) -> Prependable<S> {
-        if !self.buf.is_empty() {
-            // If this `unwrap` fails, this means that somehow:
-            //  1. The stream passed to `new` was already prepended
-            //  2. Somehow the buffer has been filled without ever pulling a single element
-            //     from the stream
-            // So, quite obviously, that'd be a programming error from here, so let's just
-            // unwrap
-            self.source.prepend(self.buf).unwrap();
-        }
-        self.source
-    }
-}
-
-impl<S: Stream<Item = BytesMut>> Stream for CrlfLines<S> {
-    type Item = BytesMut;
-    type Error = S::Error;
-
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        use self::Async::*;
-
-        // First, empty the current buffer
-        if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
-            return Ok(Ready(Some(self.buf.split_to(pos + 2))));
-        }
-
-        // Then ask for more until a complete line is found
-        loop {
-            match self.source.poll()? {
-                NotReady => return Ok(NotReady),
-                Ready(None) => return Ok(Ready(None)), // Drop self.buf
-                Ready(Some(b)) => {
-                    // TODO: (B) implement line length limits id:line-length-limit
-                    // TODO: (B) optimize searching for crlf p:line-length-limit
-                    // This can be done with much fewer allocations and searches through the buffer
-                    // Technique : do not extending the buffers straightaway but store them in a
-                    // vec until the CRLF is found, and then extending with the right size)
-                    // Other idea: just extend at line length limit
-                    self.buf.unsplit(b);
-                    if let Some(pos) = self.buf.windows(2).position(|x| x == b"\r\n") {
-                        return Ok(Ready(Some(self.buf.split_to(pos + 2))));
-                    }
-                }
-            }
-        }
-    }
+    // Failed to find a crlf before end-of-stream
+    // This unwrap is free of risk, as `s.next()` has just been called above
+    s.prepend(buf).unwrap();
+    // TODO: (A) here s will already have returned none, need to make sure we're not
+    // polling it again for the next none!!
+    None
 }
 
 #[cfg(test)]
@@ -80,10 +52,12 @@ mod tests {
                     b"Hello World\r\n",
                     b".\r\n",
                     b"QUIT\r\n",
-                ].into_iter()
-                    .map(BytesMut::from),
-            ).map_err(|()| ())
-                .prependable(),
+                ]
+                .into_iter()
+                .map(BytesMut::from),
+            )
+            .map_err(|()| ())
+            .prependable(),
         );
 
         assert_eq!(

@@ -1,10 +1,11 @@
 #![type_length_limit = "4194304"]
+#![feature(async_await, await_macro, futures_api)]
 
 // TODO: (B) add deadlines
 extern crate bytes;
+extern crate futures;
 extern crate itertools;
 extern crate smtp_message;
-extern crate tokio;
 
 mod config;
 mod crlflines;
@@ -12,7 +13,6 @@ mod decision;
 mod interact;
 mod metadata;
 mod sendreply;
-mod stupidfut;
 
 pub use config::Config;
 pub use decision::{Decision, Refusal};

@@ -1,211 +1,169 @@
+use std::pin::Pin;
+
 use bytes::{BufMut, Bytes, BytesMut};
-use smtp_message::{
-    Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine, StreamExt,
+use futures::prelude::*;
+
+use smtp_message::{Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine};
+
+use crate::{
+    config::Config,
+    crlflines::next_crlf_line,
+    decision::Decision,
+    metadata::{ConnectionMetadata, MailMetadata},
+    sendreply::send_reply,
 };
-use tokio::prelude::{future::Either, *};
 
-use config::Config;
-use crlflines::CrlfLines;
-use decision::Decision;
-use metadata::{ConnectionMetadata, MailMetadata};
-use sendreply::send_reply;
-use stupidfut::FutIn9;
-
-// TODO: (B) Allow Reader and Writer to return errors?
-pub fn interact<
+// TODO: (B) allow Reader and Writer to return errors?
+// TODO: (B) give up on having `Stream`s and `Sink`s until async streams and async sinks land
+pub async fn interact<
     'a,
-    Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    Writer: 'a + Sink<SinkItem = Bytes, SinkError = ()>,
+    Reader: 'a + Stream<Item = BytesMut>,
+    Writer: 'a + Sink<Bytes, SinkError = ()>,
     UserProvidedMetadata: 'static,
-    Cfg: Config<UserProvidedMetadata>,
+    Cfg: 'a + Config<UserProvidedMetadata>,
 >(
     incoming: Reader,
-    outgoing: Writer,
+    outgoing: Pin<&'a mut Writer>,
     metadata: UserProvidedMetadata,
-    cfg: Cfg,
-) -> impl Future<Item = (), Error = ()> + 'a {
-    let conn_meta = ConnectionMetadata { user: metadata };
-    let writer = outgoing.with(|c: ReplyLine| {
-        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-        // TODO: (B) refactor Sendable to send to a sink instead of to a Write
-        c.send_to(&mut w).unwrap();
-        // By design of BytesMut::writer, this cannot fail so long as the buffer
-        // has sufficient capacity. As if this is not respected it is a clear
-        // programming error, there's no need to try and handle this cleanly.
-        future::ok(w.into_inner().freeze())
-    });
-    send_reply(writer, cfg.welcome_banner()).and_then(|writer| {
-        CrlfLines::new(incoming.prependable())
-            .fold_with_stream((cfg, writer, conn_meta, None), move |acc, line, reader| {
-                handle_line(reader.into_inner(), acc, line).and_then(|(reader, acc)| {
-                    future::result(reader.ok_or(()).map(|read| (CrlfLines::new(read), acc)))
-                })
-            })
-            .map(|_acc| ()) // TODO: (B) warn of unfinished commands?
-    })
+    cfg: &'a mut Cfg,
+) -> Result<(), Writer::SinkError> {
+    let mut conn_meta = ConnectionMetadata { user: metadata };
+    let mut mail_meta = None;
+    let mut writer = outgoing.with(
+        async move |c: ReplyLine| -> Result<Bytes, Writer::SinkError> {
+            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+            // TODO: (B) refactor Sendable to send to a sink instead of to a Write
+            c.send_to(&mut w).unwrap();
+            // By design of BytesMut::writer, this cannot fail so long as the buffer
+            // has sufficient capacity. As if this is not respected it is a clear
+            // programming error, there's no need to try and handle this cleanly.
+            Ok(w.into_inner().freeze())
+        },
+    );
+    fn randomtest<Writer: Sink<Bytes>, S: Sink<ReplyLine, SinkError = Writer::SinkError>>(_: &S) {}
+    randomtest::<Writer, _>(&writer);
+    let mut writer = unsafe { Pin::new_unchecked(&mut writer) };
+    let mut reader = Prependable::new(incoming);
+    let mut reader = unsafe { Pin::new_unchecked(&mut reader) };
+
+    await!(send_reply(writer.as_mut(), cfg.welcome_banner()))?;
+    // TODO: (C) optimize by trying parsing directly and not buffering until crlf
+    // Rationale: it allows to make parsing 1-pass in most cases, which is more
+    // efficient
+    while let Some(line) = await!(next_crlf_line(reader.as_mut())) {
+        await!(handle_line(
+            reader.as_mut(),
+            writer.as_mut(),
+            line,
+            cfg,
+            &mut conn_meta,
+            &mut mail_meta
+        ));
+    }
+    // TODO: (B) warn of unfinished commands?
+
+    Ok(())
 }
 
-// TODO: (B) use async/await here hide:async-await-in-rust-and-tokio
-fn handle_line<
-    'a,
-    U: 'static,
-    Writer: 'a + Sink<SinkItem = ReplyLine, SinkError = ()>,
-    Reader: 'a + Stream<Item = BytesMut, Error = ()>,
-    Cfg: Config<U>,
->(
-    reader: Prependable<Reader>,
-    (cfg, writer, conn_meta, mail_data): (Cfg, Writer, ConnectionMetadata<U>, Option<MailMetadata>),
+// TODO: (A) allow for errors in sinks & streams
+async fn handle_line<'a, U, W, R, Cfg>(
+    reader: Pin<&'a mut Prependable<R>>,
+    mut writer: Pin<&'a mut W>,
     line: BytesMut,
-) -> impl Future<
-    Item = (
-        Option<Prependable<Reader>>,
-        (Cfg, Writer, ConnectionMetadata<U>, Option<MailMetadata>),
-    ),
-    Error = (),
->
-         + 'a {
+    cfg: &'a mut Cfg,
+    conn_meta: &'a mut ConnectionMetadata<U>,
+    mail_meta: &'a mut Option<MailMetadata>,
+) where
+    U: 'static,
+    W: 'a + Sink<ReplyLine>,
+    R: 'a + Stream<Item = BytesMut>,
+    Cfg: Config<U>,
+{
     let cmd = Command::parse(line.freeze());
     match cmd {
         Ok(Command::Mail(MailCommand {
-            from,
-            params: _params,
+            mut from,
+            params: _params, // TODO: (C) this should be used
         })) => {
-            if mail_data.is_some() {
-                FutIn9::Fut1(
-                    send_reply(writer, cfg.already_in_mail()).and_then(|writer| {
-                        future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
-                    }),
-                )
+            if mail_meta.is_some() {
+                await!(send_reply(writer, cfg.already_in_mail()));
+            // TODO: (B) check we're not supposed to drop mail_meta
             } else {
-                FutIn9::Fut2(
-                    cfg.new_mail()
-                        .and_then(|cfg| cfg.filter_from(from, conn_meta))
-                        .and_then(|(cfg, from, conn_meta, decision)| match decision {
-                            Decision::Accept => {
-                                let to = Vec::new();
-                                Either::A(send_reply(writer, cfg.mail_okay()).and_then(|writer| {
-                                    future::ok((
-                                        Some(reader),
-                                        (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                                    ))
-                                }))
-                            }
-                            Decision::Reject(r) => Either::B(
-                                send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                                    future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
-                                }),
-                            ),
-                        }),
-                )
+                await!(cfg.new_mail());
+                match await!(cfg.filter_from(&mut from, conn_meta)) {
+                    Decision::Accept => {
+                        let to = Vec::new();
+                        await!(send_reply(writer, cfg.mail_okay()));
+                        *mail_meta = Some(MailMetadata { from, to });
+                    }
+                    Decision::Reject(r) => {
+                        await!(send_reply(writer, (r.code, r.msg.into())));
+                    }
+                }
             }
         }
         Ok(Command::Rcpt(RcptCommand {
-            to: rcpt_to,
-            params: _params,
+            mut to,
+            params: _params, // TODO: (C) this should be used
         })) => {
-            if let Some(mail_meta) = mail_data {
-                FutIn9::Fut3(cfg.filter_to(rcpt_to, mail_meta, conn_meta).and_then(
-                    |(cfg, rcpt_to, mail_meta, conn_meta, decision)| match decision {
-                        Decision::Accept => {
-                            let MailMetadata { from, mut to } = mail_meta;
-                            to.push(rcpt_to);
-                            Either::A(send_reply(writer, cfg.rcpt_okay()).and_then(|writer| {
-                                future::ok((
-                                    Some(reader),
-                                    (cfg, writer, conn_meta, Some(MailMetadata { from, to })),
-                                ))
-                            }))
-                        }
-                        Decision::Reject(r) => {
-                            Either::B(send_reply(writer, (r.code, r.msg)).and_then(|writer| {
-                                future::ok((
-                                    Some(reader),
-                                    (cfg, writer, conn_meta, Some(mail_meta)),
-                                ))
-                            }))
-                        }
-                    },
-                ))
+            if let Some(ref mut mail_meta_unw) = *mail_meta {
+                match await!(cfg.filter_to(&mut to, mail_meta_unw, conn_meta)) {
+                    Decision::Accept => {
+                        mail_meta_unw.to.push(to);
+                        await!(send_reply(writer, cfg.rcpt_okay()));
+                    }
+                    Decision::Reject(r) => {
+                        await!(send_reply(writer, (r.code, r.msg)));
+                    }
+                }
             } else {
-                FutIn9::Fut4(
-                    send_reply(writer, cfg.rcpt_before_mail()).and_then(|writer| {
-                        future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
-                    }),
-                )
+                await!(send_reply(writer, cfg.rcpt_before_mail()));
             }
         }
         Ok(Command::Data(_)) => {
-            if let Some(mail_meta) = mail_data {
-                if !mail_meta.to.is_empty() {
-                    FutIn9::Fut5(cfg.filter_data(mail_meta, conn_meta).and_then(
-                        |(cfg, mail_meta, conn_meta, decision)| match decision {
-                            Decision::Accept => Either::A(
-                                send_reply(writer, cfg.data_okay()).and_then(move |writer| {
-                                    cfg.handle_mail(DataStream::new(reader), mail_meta, conn_meta)
-                                        .and_then(|(cfg, reader, conn_meta, decision)| {
-                                            match decision {
-                                                Decision::Accept => Either::A(
-                                                    send_reply(writer, cfg.mail_accepted())
-                                                        .and_then(|writer| {
-                                                            future::ok((
-                                                                reader,
-                                                                (cfg, writer, conn_meta, None),
-                                                            ))
-                                                        }),
-                                                ),
-                                                Decision::Reject(r) => Either::B(
-                                                    send_reply(writer, (r.code, r.msg.into()))
-                                                        .and_then(|writer| {
-                                                            // Other mail systems (at least
-                                                            // postfix, OpenSMTPD and gmail) appear
-                                                            // to drop the state on an unsuccessful
-                                                            // DATA command (eg. too long).
-                                                            // Couldn't find the RFC reference
-                                                            // anywhere, though.
-                                                            future::ok((
-                                                                reader,
-                                                                (cfg, writer, conn_meta, None),
-                                                            ))
-                                                        }),
-                                                ),
-                                            }
-                                        })
-                                }),
-                            ),
-                            Decision::Reject(r) => Either::B(
-                                send_reply(writer, (r.code, r.msg.into())).and_then(|writer| {
-                                    future::ok((
-                                        Some(reader),
-                                        (cfg, writer, conn_meta, Some(mail_meta)),
-                                    ))
-                                }),
-                            ),
-                        },
-                    ))
+            if let Some(mut mail_meta_unw) = mail_meta.take() {
+                if !mail_meta_unw.to.is_empty() {
+                    match await!(cfg.filter_data(&mut mail_meta_unw, conn_meta)) {
+                        Decision::Accept => {
+                            await!(send_reply(writer.as_mut(), cfg.data_okay()));
+                            let mut data_stream = DataStream::new(reader);
+                            let decision =
+                                await!(cfg.handle_mail(&mut data_stream, mail_meta_unw, conn_meta));
+                            // TODO: (B) fail more elegantly on configuration error
+                            assert!(data_stream.was_completed());
+                            match decision {
+                                Decision::Accept => {
+                                    await!(send_reply(writer, cfg.mail_accepted()));
+                                }
+                                Decision::Reject(r) => {
+                                    await!(send_reply(writer, (r.code, r.msg.into())));
+                                    // Other mail systems (at least postfix, OpenSMTPD and gmail)
+                                    // appear to drop the state on an unsuccessful DATA command
+                                    // (eg. too long). Couldn't find the RFC reference anywhere,
+                                    // though.
+                                }
+                            }
+                        }
+                        Decision::Reject(r) => {
+                            await!(send_reply(writer, (r.code, r.msg.into())));
+                            *mail_meta = Some(mail_meta_unw);
+                        }
+                    }
                 } else {
-                    FutIn9::Fut6(
-                        send_reply(writer, cfg.data_before_rcpt()).and_then(|writer| {
-                            future::ok((Some(reader), (cfg, writer, conn_meta, Some(mail_meta))))
-                        }),
-                    )
+                    await!(send_reply(writer, cfg.data_before_rcpt()));
+                    *mail_meta = Some(mail_meta_unw);
                 }
             } else {
-                FutIn9::Fut7(
-                    send_reply(writer, cfg.data_before_mail()).and_then(|writer| {
-                        future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))
-                    }),
-                )
+                await!(send_reply(writer, cfg.data_before_mail()));
             }
         }
         // TODO: (B) implement all the parsed commands and remove this case
-        Ok(_) => FutIn9::Fut8(
-            send_reply(writer, cfg.command_unimplemented())
-                .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
-        ),
-        Err(_) => FutIn9::Fut9(
-            send_reply(writer, cfg.command_unrecognized())
-                .and_then(|writer| future::ok((Some(reader), (cfg, writer, conn_meta, mail_data)))),
-        ),
+        Ok(_) => {
+            await!(send_reply(writer, cfg.command_unimplemented()));
+        }
+        Err(_) => {
+            await!(send_reply(writer, cfg.command_unrecognized()));
+        }
     }
 }
 

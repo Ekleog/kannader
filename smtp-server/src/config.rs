@@ -1,56 +1,52 @@
-use bytes::BytesMut;
-use smtp_message::{DataStream, Email, Prependable, ReplyCode, SmtpString};
-use tokio::prelude::*;
+use std::pin::Pin;
 
-use decision::Decision;
-use metadata::{ConnectionMetadata, MailMetadata};
+use bytes::BytesMut;
+use futures::{future, Future, Stream};
+
+use smtp_message::{DataStream, Email, ReplyCode, SmtpString};
+
+use crate::{
+    decision::Decision,
+    metadata::{ConnectionMetadata, MailMetadata},
+};
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
-// TODO: (B) for a clean api, the futures should not take ownership and return
-// but rather take a reference (when async/await will be done)
 pub trait Config<U: 'static>: Sized + 'static {
-    fn new_mail(self) -> Box<Future<Item = Self, Error = ()>> {
-        Box::new(future::ok(self))
+    fn new_mail(&mut self) -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(future::ready(()))
     }
 
     fn filter_from(
-        self,
-        from: Option<Email>,
-        conn_meta: ConnectionMetadata<U>,
-    ) -> Box<Future<Item = (Self, Option<Email>, ConnectionMetadata<U>, Decision), Error = ()>>;
+        &mut self,
+        from: &mut Option<Email>,
+        conn_meta: &mut ConnectionMetadata<U>,
+    ) -> Pin<Box<dyn Future<Output = Decision>>>;
 
     fn filter_to(
-        self,
-        to: Email,
-        meta: MailMetadata,
-        conn_meta: ConnectionMetadata<U>,
-    ) -> Box<Future<Item = (Self, Email, MailMetadata, ConnectionMetadata<U>, Decision), Error = ()>>;
+        &mut self,
+        to: &mut Email,
+        meta: &mut MailMetadata,
+        conn_meta: &mut ConnectionMetadata<U>,
+    ) -> Pin<Box<dyn Future<Output = Decision>>>;
 
     fn filter_data(
-        self,
-        meta: MailMetadata,
-        conn_meta: ConnectionMetadata<U>,
-    ) -> Box<Future<Item = (Self, MailMetadata, ConnectionMetadata<U>, Decision), Error = ()>> {
-        Box::new(future::ok((self, meta, conn_meta, Decision::Accept)))
+        &mut self,
+        meta: &mut MailMetadata,
+        conn_meta: &mut ConnectionMetadata<U>,
+    ) -> Pin<Box<dyn Future<Output = Decision>>> {
+        let _ = (meta, conn_meta); // Silence unused variable warning to keep nice names in the doc
+        Box::pin(future::ready(Decision::Accept))
     }
 
-    fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
-        self,
-        stream: DataStream<S>,
+    // Note: handle_mail *must* consume all of `stream` and call its `complete`
+    // method to check that the data stream was properly closed and did not just
+    // EOF too early. Things will panic otherwise.
+    fn handle_mail<S: Stream<Item = BytesMut>>(
+        &mut self,
+        stream: &mut DataStream<S>,
         meta: MailMetadata,
-        conn_meta: ConnectionMetadata<U>,
-    ) -> Box<
-        'a
-            + Future<
-                Item = (
-                    Self,
-                    Option<Prependable<S>>,
-                    ConnectionMetadata<U>,
-                    Decision,
-                ),
-                Error = (),
-            >,
-    >;
+        conn_meta: &mut ConnectionMetadata<U>,
+    ) -> Pin<Box<dyn Future<Output = Decision>>>;
 
     fn hostname(&self) -> SmtpString;
 
