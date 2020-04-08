@@ -10,7 +10,7 @@ cargo-fuzz = true
 [dependencies]
 arbitrary = "0.1.1"
 bytes = "0.4.6"
-tokio = "0.1.5"
+tokio = "0.2.16"
 [dependencies.smtp-message]
 path = ".."
 [dependencies.libfuzzer-sys]
