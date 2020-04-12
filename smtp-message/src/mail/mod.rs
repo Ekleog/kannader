@@ -66,41 +66,29 @@ mod tests {
     #[test]
     fn valid_command_mail_args() {
         let tests = vec![
-            (
-                &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
-                MailCommand {
-                    from: Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
-                    params: Parameters::none(),
-                },
-            ),
-            (
-                &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
-                MailCommand {
-                    from: Some(Email::parse_slice(b"quux@example.net").unwrap()),
-                    params: Parameters::none(),
-                },
-            ),
-            (
-                &b"mail FROM:<>\r\n"[..],
-                MailCommand {
-                    from: None,
-                    params: Parameters::none(),
-                },
-            ),
-            (
-                &b"MAIL FROM:<> hello=world foo\r\n"[..],
-                MailCommand {
-                    from: None,
-                    params: Parameters(
-                        vec![
-                            ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
-                            ((b"foo"[..]).into(), None),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    ),
-                },
-            ),
+            (&b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..], MailCommand {
+                from: Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
+                params: Parameters::none(),
+            }),
+            (&b"MaiL FrOm: quux@example.net  \t \r\n"[..], MailCommand {
+                from: Some(Email::parse_slice(b"quux@example.net").unwrap()),
+                params: Parameters::none(),
+            }),
+            (&b"mail FROM:<>\r\n"[..], MailCommand {
+                from: None,
+                params: Parameters::none(),
+            }),
+            (&b"MAIL FROM:<> hello=world foo\r\n"[..], MailCommand {
+                from: None,
+                params: Parameters(
+                    vec![
+                        ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),
+                        ((b"foo"[..]).into(), None),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            }),
         ];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);

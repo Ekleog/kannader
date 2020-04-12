@@ -60,17 +60,14 @@ mod tests {
             .prependable(),
         );
 
-        assert_eq!(
-            stream.collect().wait().unwrap(),
-            vec![
-                b"MAIL FROM:<foo@bar.example.org>\r\n".to_vec(),
-                b"RCPT TO:<baz@quux.example.org>\r\n".to_vec(),
-                b"RCPT TO:<foo2@bar.example.org>\r\n".to_vec(),
-                b"DATA\r\n".to_vec(),
-                b"Hello World\r\n".to_vec(),
-                b".\r\n".to_vec(),
-                b"QUIT\r\n".to_vec(),
-            ]
-        );
+        assert_eq!(stream.collect().wait().unwrap(), vec![
+            b"MAIL FROM:<foo@bar.example.org>\r\n".to_vec(),
+            b"RCPT TO:<baz@quux.example.org>\r\n".to_vec(),
+            b"RCPT TO:<foo2@bar.example.org>\r\n".to_vec(),
+            b"DATA\r\n".to_vec(),
+            b"Hello World\r\n".to_vec(),
+            b".\r\n".to_vec(),
+            b"QUIT\r\n".to_vec(),
+        ]);
     }
 }

@@ -42,12 +42,9 @@ mod tests {
 
     #[test]
     fn valid_command_vrfy_args() {
-        let tests = vec![(
-            &b"VrFY \t hello.world \t \r\n"[..],
-            VrfyCommand {
-                name: (&b"\t hello.world \t "[..]).into(),
-            },
-        )];
+        let tests = vec![(&b"VrFY \t hello.world \t \r\n"[..], VrfyCommand {
+            name: (&b"\t hello.world \t "[..]).into(),
+        })];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);
             match command_vrfy_args(ByteSlice::from(&b)) {

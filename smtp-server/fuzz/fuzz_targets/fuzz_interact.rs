@@ -10,8 +10,8 @@ use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata, Refusal}
 struct DiscardSink {}
 
 impl Sink for DiscardSink {
-    type SinkItem = Bytes;
     type SinkError = ();
+    type SinkItem = Bytes;
 
     fn start_send(&mut self, _: Bytes) -> Result<AsyncSink<Bytes>, ()> {
         Ok(AsyncSink::Ready)

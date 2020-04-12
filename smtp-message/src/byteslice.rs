@@ -89,9 +89,9 @@ impl<'a> Slice<RangeFull> for ByteSlice<'a> {
 
 impl<'a> InputIter for ByteSlice<'a> {
     type Item = u8;
-    type RawItem = u8;
     type Iter = Enumerate<Self::IterElem>;
     type IterElem = Map<slice::Iter<'a, Self::Item>, fn(&u8) -> u8>;
+    type RawItem = u8;
 
     fn iter_indices(&self) -> Self::Iter {
         self.iter_elements().enumerate()

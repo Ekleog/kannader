@@ -43,24 +43,15 @@ mod tests {
     #[test]
     fn valid_command_noop_args() {
         let tests = vec![
-            (
-                &b"NOOP \t hello.world \t \r\n"[..],
-                NoopCommand {
-                    string: (&b"\t hello.world \t "[..]).into(),
-                },
-            ),
-            (
-                &b"nOoP\r\n"[..],
-                NoopCommand {
-                    string: (&b""[..]).into(),
-                },
-            ),
-            (
-                &b"noop \r\n"[..],
-                NoopCommand {
-                    string: (&b""[..]).into(),
-                },
-            ),
+            (&b"NOOP \t hello.world \t \r\n"[..], NoopCommand {
+                string: (&b"\t hello.world \t "[..]).into(),
+            }),
+            (&b"nOoP\r\n"[..], NoopCommand {
+                string: (&b""[..]).into(),
+            }),
+            (&b"noop \r\n"[..], NoopCommand {
+                string: (&b""[..]).into(),
+            }),
         ];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);

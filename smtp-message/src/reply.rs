@@ -15,6 +15,7 @@ pub struct ReplyCode {
 }
 
 #[cfg_attr(test, allow(dead_code))]
+#[rustfmt::skip] // Keep the const order equal to the one in the RFC
 impl ReplyCode {
     pub const SYSTEM_STATUS: ReplyCode = ReplyCode { code: 211 };
     pub const HELP_MESSAGE: ReplyCode = ReplyCode { code: 214 };
@@ -69,7 +70,8 @@ pub struct ReplyLine {
 }
 
 impl ReplyLine {
-    pub const MAX_LEN: usize = 506; // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
+    // 506 is 512 - strlen(code) - strlen(is_last) - strlen("\r\n")
+    pub const MAX_LEN: usize = 506;
 
     pub fn build(
         code: ReplyCode,
@@ -160,14 +162,11 @@ mod tests {
             (&b"hello world!"[..]).into(),
         )
         .unwrap();
-        assert_eq!(
-            r,
-            ReplyLine {
-                code: ReplyCode { code: 220 },
-                is_last: IsLastLine::No,
-                line: (&b"hello world!"[..]).into(),
-            }
-        );
+        assert_eq!(r, ReplyLine {
+            code: ReplyCode { code: 220 },
+            is_last: IsLastLine::No,
+            line: (&b"hello world!"[..]).into(),
+        });
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
@@ -182,14 +181,11 @@ mod tests {
             (&b"test"[..]).into(),
         )
         .unwrap();
-        assert_eq!(
-            r,
-            ReplyLine {
-                code: ReplyCode { code: 502 },
-                is_last: IsLastLine::Yes,
-                line: (&b"test"[..]).into(),
-            }
-        );
+        assert_eq!(r, ReplyLine {
+            code: ReplyCode { code: 502 },
+            is_last: IsLastLine::Yes,
+            line: (&b"test"[..]).into(),
+        });
 
         let mut res = Vec::new();
         r.send_to(&mut res).unwrap();
@@ -198,55 +194,47 @@ mod tests {
 
     #[test]
     fn refuse_build() {
-        assert!(ReplyLine::build(
-            ReplyCode::EXCEEDED_STORAGE,
-            IsLastLine::Yes,
-            (&vec![b'a'; 1000][..]).into(),
-        )
-        .is_err());
-        assert!(ReplyLine::build(
-            ReplyCode::EXCEEDED_STORAGE,
-            IsLastLine::No,
-            (&b"\r"[..]).into()
-        )
-        .is_err());
+        assert!(
+            ReplyLine::build(
+                ReplyCode::EXCEEDED_STORAGE,
+                IsLastLine::Yes,
+                (&vec![b'a'; 1000][..]).into(),
+            )
+            .is_err()
+        );
+        assert!(
+            ReplyLine::build(
+                ReplyCode::EXCEEDED_STORAGE,
+                IsLastLine::No,
+                (&b"\r"[..]).into()
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn parse_ok() {
         let tests: &[(&[u8], ReplyLine)] = &[
-            (
-                b"250 All is well\r\n",
-                ReplyLine {
-                    code: ReplyCode { code: 250 },
-                    is_last: IsLastLine::Yes,
-                    line: (&b"All is well"[..]).into(),
-                },
-            ),
-            (
-                b"450-Temporary\r\n",
-                ReplyLine {
-                    code: ReplyCode { code: 450 },
-                    is_last: IsLastLine::No,
-                    line: (&b"Temporary"[..]).into(),
-                },
-            ),
-            (
-                b"354-Please do start input now\r\n",
-                ReplyLine {
-                    code: ReplyCode { code: 354 },
-                    is_last: IsLastLine::No,
-                    line: (&b"Please do start input now"[..]).into(),
-                },
-            ),
-            (
-                b"550 Something is really very wrong!\r\n",
-                ReplyLine {
-                    code: ReplyCode { code: 550 },
-                    is_last: IsLastLine::Yes,
-                    line: (&b"Something is really very wrong!"[..]).into(),
-                },
-            ),
+            (b"250 All is well\r\n", ReplyLine {
+                code: ReplyCode { code: 250 },
+                is_last: IsLastLine::Yes,
+                line: (&b"All is well"[..]).into(),
+            }),
+            (b"450-Temporary\r\n", ReplyLine {
+                code: ReplyCode { code: 450 },
+                is_last: IsLastLine::No,
+                line: (&b"Temporary"[..]).into(),
+            }),
+            (b"354-Please do start input now\r\n", ReplyLine {
+                code: ReplyCode { code: 354 },
+                is_last: IsLastLine::No,
+                line: (&b"Please do start input now"[..]).into(),
+            }),
+            (b"550 Something is really very wrong!\r\n", ReplyLine {
+                code: ReplyCode { code: 550 },
+                is_last: IsLastLine::Yes,
+                line: (&b"Something is really very wrong!"[..]).into(),
+            }),
         ];
         for (inp, out) in tests.iter().cloned() {
             let b = Bytes::from(inp);

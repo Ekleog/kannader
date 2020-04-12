@@ -49,23 +49,21 @@ mod tests {
     fn valid_parameters() {
         let tests: &[(&[u8], &[(&[u8], Option<&[u8]>)])] = &[
             (b" key=value", &[(b"key", Some(b"value"))]),
-            (
-                b"\tkey=value\tkey2=value2",
-                &[(b"key", Some(b"value")), (b"key2", Some(b"value2"))],
-            ),
-            (
-                b" KeY2=V4\"l\\u@e.z\t0tterkeyz=very_muchWh4t3ver",
-                &[
-                    (b"KeY2", Some(b"V4\"l\\u@e.z")),
-                    (b"0tterkeyz", Some(b"very_muchWh4t3ver")),
-                ],
-            ),
+            (b"\tkey=value\tkey2=value2", &[
+                (b"key", Some(b"value")),
+                (b"key2", Some(b"value2")),
+            ]),
+            (b" KeY2=V4\"l\\u@e.z\t0tterkeyz=very_muchWh4t3ver", &[
+                (b"KeY2", Some(b"V4\"l\\u@e.z")),
+                (b"0tterkeyz", Some(b"very_muchWh4t3ver")),
+            ]),
             (b" NoValueKey", &[(b"NoValueKey", None)]),
             (b" A B", &[(b"A", None), (b"B", None)]),
-            (
-                b" A=B C D=SP",
-                &[(b"A", Some(b"B")), (b"C", None), (b"D", Some(b"SP"))],
-            ),
+            (b" A=B C D=SP", &[
+                (b"A", Some(b"B")),
+                (b"C", None),
+                (b"D", Some(b"SP")),
+            ]),
         ];
         for (inp, out) in tests {
             let b = Bytes::from(*inp);

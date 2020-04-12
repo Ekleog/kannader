@@ -44,24 +44,15 @@ mod tests {
     #[test]
     fn valid_command_help_args() {
         let tests = vec![
-            (
-                &b"help \t hello.world \t \r\n"[..],
-                HelpCommand {
-                    subject: (&b"\t hello.world \t "[..]).into(),
-                },
-            ),
-            (
-                &b"HELP\r\n"[..],
-                HelpCommand {
-                    subject: (&b""[..]).into(),
-                },
-            ),
-            (
-                &b"hElP \r\n"[..],
-                HelpCommand {
-                    subject: (&b""[..]).into(),
-                },
-            ),
+            (&b"help \t hello.world \t \r\n"[..], HelpCommand {
+                subject: (&b"\t hello.world \t "[..]).into(),
+            }),
+            (&b"HELP\r\n"[..], HelpCommand {
+                subject: (&b""[..]).into(),
+            }),
+            (&b"hElP \r\n"[..], HelpCommand {
+                subject: (&b""[..]).into(),
+            }),
         ];
         for (s, r) in tests.into_iter() {
             let b = Bytes::from(s);
