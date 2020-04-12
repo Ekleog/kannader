@@ -43,15 +43,14 @@ where
     randomtest::<Writer, _>(&writer);
     let mut writer = unsafe { Pin::new_unchecked(&mut writer) };
     let mut reader = Prependable::new(incoming);
-    let mut reader = unsafe { Pin::new_unchecked(&mut reader) };
 
     send_reply(writer.as_mut(), cfg.welcome_banner()).await?;
     // TODO: (C) optimize by trying parsing directly and not buffering until crlf
     // Rationale: it allows to make parsing 1-pass in most cases, which is more
     // efficient
-    while let Some(line) = next_crlf_line(reader.as_mut()).await {
+    while let Some(line) = next_crlf_line(&mut reader).await {
         handle_line(
-            reader.as_mut(),
+            &mut reader,
             writer.as_mut(),
             line,
             cfg,
@@ -67,7 +66,7 @@ where
 
 // TODO: (A) allow for errors in sinks & streams
 async fn handle_line<'a, U, W, R, Cfg>(
-    reader: Pin<&'a mut Prependable<R>>,
+    reader: &'a mut Prependable<R>,
     mut writer: Pin<&'a mut W>,
     line: BytesMut,
     cfg: &'a mut Cfg,

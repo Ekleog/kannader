@@ -1,13 +1,12 @@
-use std::pin::Pin;
-
 use bytes::BytesMut;
 use futures::{Stream, StreamExt};
 
 use smtp_message::Prependable;
 
-pub async fn next_crlf_line<S: Stream<Item = BytesMut>>(
-    mut s: Pin<&mut Prependable<S>>,
-) -> Option<BytesMut> {
+pub async fn next_crlf_line<S>(s: &mut Prependable<S>) -> Option<BytesMut>
+where
+    S: Unpin + Stream<Item = BytesMut>,
+{
     let mut buf = BytesMut::new();
     while let Some(pkt) = s.next().await {
         buf.unsplit(pkt);

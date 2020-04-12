@@ -35,15 +35,21 @@ enum DataStreamState {
 // In order to handle the case of a packet received that doesn't end exactly
 // after the \r\n.\r\n, the received stream must be Prependable, so that the
 // additional data can be pushed back into it if need be.
-pub struct DataStream<'a, S: Stream<Item = BytesMut>> {
-    source: Pin<&'a mut Prependable<S>>,
+pub struct DataStream<'a, S>
+where
+    S: Unpin + Stream<Item = BytesMut>,
+{
+    source: &'a mut Prependable<S>,
     // state is the state of the state machine at the BEGINNING of `buf`
     state: DataStreamState,
     buf: BytesMut,
 }
 
-impl<'a, S: Stream<Item = BytesMut>> DataStream<'a, S> {
-    pub fn new(source: Pin<&mut Prependable<S>>) -> DataStream<S> {
+impl<'a, S> DataStream<'a, S>
+where
+    S: Unpin + Stream<Item = BytesMut>,
+{
+    pub fn new(source: &mut Prependable<S>) -> DataStream<S> {
         DataStream {
             source,
             state: DataStreamState::CrLfPassed,
@@ -67,7 +73,7 @@ impl<'a, S: Stream<Item = BytesMut>> DataStream<'a, S> {
             //     filled without ever pulling a single element from the stream
             // So, quite obviously, that'd be a programming error from here, so let's just
             // unwrap
-            self.source.as_mut().prepend(self.buf.split_off(0)).unwrap();
+            self.source.prepend(self.buf.split_off(0)).unwrap();
         }
         self.state = DataStreamState::Completed;
         Ok(())
@@ -79,7 +85,10 @@ impl<'a, S: Stream<Item = BytesMut>> DataStream<'a, S> {
 }
 
 // TODO: (B) remove unpin marker hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
-impl<'a, S: Stream<Item = BytesMut> + Unpin> Stream for DataStream<'a, S> {
+impl<'a, S> Stream for DataStream<'a, S>
+where
+    S: Unpin + Stream<Item = BytesMut>,
+{
     type Item = BytesMut;
 
     fn poll_next(mut self: Pin<&mut Self>, ctxt: &mut Context) -> Poll<Option<Self::Item>> {
@@ -192,7 +201,7 @@ impl<'a, S: Stream<Item = BytesMut> + Unpin> Stream for DataStream<'a, S> {
             }
 
             // Didn't find anything to send, so let's just gather more data from the network
-            match self.source.as_mut().poll_next(ctxt) {
+            match Pin::new(&mut self.source).poll_next(ctxt) {
                 Pending => return Pending,
                 // If the stream ends there, it means that we received a FIN during the stream of
                 // DATA. This is an error according to the specification, so returning an error.
@@ -244,9 +253,8 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem),
             );
-            let stream = stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable();
-            let mut stream = Box::pin(stream);
-            let mut data_stream = DataStream::new(stream.as_mut());
+            let mut stream = stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable();
+            let mut data_stream = DataStream::new(&mut stream);
             let output = block_on(async {
                 let mut res = BytesMut::new();
                 while let Some(i) = data_stream.by_ref().next().await {
@@ -278,9 +286,8 @@ mod tests {
             let mut v = v;
             v.extend_from_slice(&[vec![b'\r', b'\n', b'.', b'\r', b'\n']]);
             let r = block_on(async {
-                let stream = stream::iter(v.into_iter().map(BytesMut::from)).prependable();
-                let mut stream = Box::pin(stream);
-                let mut stream = DataStream::new(stream.as_mut());
+                let mut stream = stream::iter(v.into_iter().map(BytesMut::from)).prependable();
+                let mut stream = DataStream::new(&mut stream);
                 let mut res = BytesMut::new();
                 while let Some(i) = stream.next().await {
                     res.unsplit(i);
