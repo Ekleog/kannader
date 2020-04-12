@@ -16,4 +16,4 @@ futures = "0.3.4"
 nom = "3.2" # TODO: (B) update to 4.0
 
 [dev-dependencies]
-quickcheck = "0.6.2"
+quickcheck = "0.9.2"
