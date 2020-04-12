@@ -176,7 +176,10 @@ where
 mod tests {
     use super::*;
 
-    use std::{self, cell::RefCell, rc::Rc};
+    use std::{
+        self,
+        sync::{Arc, Mutex},
+    };
 
     use futures::executor;
     use itertools::Itertools;
@@ -186,7 +189,7 @@ mod tests {
     use crate::decision::Refusal;
 
     struct TestConfig {
-        mails: Rc<RefCell<Vec<(Option<Email>, Vec<Email>, BytesMut)>>>,
+        mails: Arc<Mutex<Vec<(Option<Email>, Vec<Email>, BytesMut)>>>,
     }
 
     impl Config<()> for TestConfig {
@@ -198,7 +201,7 @@ mod tests {
             &'a mut self,
             addr: &'a mut Option<Email>,
             _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+        ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
             if *addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
                 Box::pin(future::ready(Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
@@ -214,7 +217,7 @@ mod tests {
             email: &'a mut Email,
             _meta: &'a mut MailMetadata,
             _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+        ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
             if email.localpart().bytes() == &b"baz"[..] {
                 Box::pin(future::ready(Decision::Reject(Refusal {
                     code: ReplyCode::MAILBOX_UNAVAILABLE,
@@ -225,12 +228,15 @@ mod tests {
             }
         }
 
-        fn handle_mail<'a, S: 'a + Stream<Item = BytesMut> + Unpin>(
+        fn handle_mail<'a, S>(
             &'a mut self,
             reader: &'a mut DataStream<S>,
             meta: MailMetadata,
             _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+        where
+            S: 'a + Unpin + Stream<Item = BytesMut>,
+        {
             Box::pin(async move {
                 let mail_text = reader.concat().await;
                 if let Err(_) = reader.complete() {
@@ -245,7 +251,8 @@ mod tests {
                     })
                 } else {
                     self.mails
-                        .borrow_mut()
+                        .lock()
+                        .expect("failed to load mutex")
                         .push((meta.from, meta.to, mail_text));
                     Decision::Accept
                 }
@@ -353,7 +360,7 @@ mod tests {
                     .collect::<Vec<&str>>()
             );
             let stream = stream::iter(inp.iter().map(|x| BytesMut::from(*x)));
-            let resp_mail = Rc::new(RefCell::new(Vec::new()));
+            let resp_mail = Arc::new(Mutex::new(Vec::new()));
             let mut cfg = TestConfig {
                 mails: resp_mail.clone(),
             };
@@ -366,7 +373,7 @@ mod tests {
             assert_eq!(resp, out);
             println!("Checking mails:");
             drop(cfg);
-            let resp_mail = Rc::try_unwrap(resp_mail).unwrap().into_inner();
+            let resp_mail = Arc::try_unwrap(resp_mail).unwrap().into_inner().unwrap();
             assert_eq!(resp_mail.len(), mail.len());
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
                 println!("Mail\n---");
@@ -397,7 +404,7 @@ mod tests {
                                 hello"];
         let stream = stream::iter(txt.iter().map(|x| BytesMut::from(*x)));
         let mut cfg = TestConfig {
-            mails: Rc::new(RefCell::new(Vec::new())),
+            mails: Arc::new(Mutex::new(Vec::new())),
         };
         let mut resp = Box::pin(Vec::new().sink_map_err(|_| ()));
         executor::block_on(interact(stream, resp.as_mut(), (), &mut cfg)).unwrap();
@@ -462,7 +469,7 @@ mod tests {
         let stream = stream::iter(txt.iter().map(|x| BytesMut::from(*x)));
         let mut resp = Box::pin(Vec::new().sink_map_err(|_| ()));
         let mut cfg = TestConfig {
-            mails: Rc::new(RefCell::new(Vec::new())),
+            mails: Arc::new(Mutex::new(Vec::new())),
         };
         executor::block_on(interact(stream, resp.as_mut(), (), &mut cfg)).unwrap();
     }

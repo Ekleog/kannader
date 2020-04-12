@@ -6,6 +6,7 @@ pub struct Refusal {
     pub msg: SmtpString,
 }
 
+#[must_use]
 pub enum Decision {
     Accept,
     Reject(Refusal),

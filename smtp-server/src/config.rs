@@ -12,7 +12,7 @@ use crate::{
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
 pub trait Config<U: 'static>: Sized + 'static {
-    fn new_mail<'a>(&'a mut self) -> Pin<Box<dyn 'a + Future<Output = ()>>> {
+    fn new_mail<'a>(&'a mut self) -> Pin<Box<dyn 'a + Send + Future<Output = ()>>> {
         Box::pin(future::ready(()))
     }
 
@@ -20,20 +20,20 @@ pub trait Config<U: 'static>: Sized + 'static {
         &'a mut self,
         from: &'a mut Option<Email>,
         conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>;
+    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>>;
 
     fn filter_to<'a>(
         &'a mut self,
         to: &'a mut Email,
         meta: &'a mut MailMetadata,
         conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>;
+    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>>;
 
     fn filter_data<'a>(
         &'a mut self,
         meta: &'a mut MailMetadata,
         conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
         let _ = (meta, conn_meta); // Silence unused variable warning to keep nice names in the doc
         Box::pin(future::ready(Decision::Accept))
     }
@@ -42,12 +42,14 @@ pub trait Config<U: 'static>: Sized + 'static {
     // method to check that the data stream was properly closed and did not just
     // EOF too early. Things will panic otherwise.
     // TODO: remove the Unpin bound?
-    fn handle_mail<'a, S: 'a + Stream<Item = BytesMut> + Unpin>(
+    fn handle_mail<'a, S>(
         &'a mut self,
         stream: &'a mut DataStream<S>,
         meta: MailMetadata,
         conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>;
+    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+    where
+        S: 'a + Unpin + Stream<Item = BytesMut>;
 
     fn hostname(&self) -> SmtpString;
 
