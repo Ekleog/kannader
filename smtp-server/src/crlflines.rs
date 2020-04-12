@@ -9,7 +9,7 @@ pub async fn next_crlf_line<S: Stream<Item = BytesMut>>(
     mut s: Pin<&mut Prependable<S>>,
 ) -> Option<BytesMut> {
     let mut buf = BytesMut::new();
-    while let Some(pkt) = await!(s.next()) {
+    while let Some(pkt) = s.next().await {
         buf.unsplit(pkt);
 
         // TODO: (B) implement line length limits id:line-length-limit

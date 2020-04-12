@@ -1,5 +1,5 @@
 #![type_length_limit = "4194304"]
-#![feature(async_await, await_macro, futures_api)]
+#![feature(async_closure)]
 
 // TODO: (B) add deadlines
 extern crate bytes;

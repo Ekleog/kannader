@@ -11,7 +11,7 @@ use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString};
 pub async fn send_reply<W>(
     mut writer: Pin<&mut W>,
     (code, text): (ReplyCode, SmtpString),
-) -> Result<(), W::SinkError>
+) -> Result<(), W::Error>
 where
     W: Sink<ReplyLine>,
 {
@@ -24,10 +24,11 @@ where
                 First(t) | Middle(t) => ReplyLine::build(code, IsLastLine::No, t).unwrap(),
                 Last(t) | Only(t) => ReplyLine::build(code, IsLastLine::Yes, t).unwrap(),
             }
-        });
+        })
+        .map(Ok);
     let mut reply_stream = stream::iter(replies);
 
-    await!(writer.send_all(&mut reply_stream))?;
+    writer.send_all(&mut reply_stream).await?;
 
     Ok(())
 }
