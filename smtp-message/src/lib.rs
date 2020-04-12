@@ -1,5 +1,3 @@
-#![feature(async_await, await_macro, futures_api)]
-
 extern crate bytes;
 #[macro_use]
 extern crate nom;

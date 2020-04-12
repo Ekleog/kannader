@@ -15,7 +15,7 @@ impl Parameters {
 }
 
 impl Sendable for Parameters {
-    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         for (k, v) in self.0.iter() {
             w.write_all(b" ")?;
             k.send_to(w)?;

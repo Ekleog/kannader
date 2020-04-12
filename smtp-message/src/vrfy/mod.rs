@@ -17,7 +17,7 @@ impl VrfyCommand {
         &self.name
     }
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(b"VRFY ")?;
         w.write_all(&self.name.bytes()[..])?;
         w.write_all(b"\r\n")

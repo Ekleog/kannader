@@ -9,5 +9,5 @@ pub trait Transport<M>: Sized + Sync + Send + 'static {
     fn send<S: Stream<Item = BytesMut, Error = ()>>(
         &self,
         mail: Mail<S, M>,
-    ) -> Box<Future<Item = (), Error = (ReplyCode, SmtpString)> + Send>;
+    ) -> Box<dyn Future<Item = (), Error = (ReplyCode, SmtpString)> + Send>;
 }

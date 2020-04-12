@@ -43,7 +43,7 @@ impl Command {
         nom_to_result(command(ByteSlice::from(&arg)))
     }
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         match self {
             &Command::Data(ref c) => c.send_to(w),
             &Command::Ehlo(ref c) => c.send_to(w),

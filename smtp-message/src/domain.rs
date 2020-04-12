@@ -30,7 +30,7 @@ impl Domain {
 }
 
 impl Sendable for Domain {
-    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         use self::{Domain::*, IpAddr::*};
         match self {
             Host(s) => w.write_all(&s.bytes()[..]),

@@ -10,7 +10,7 @@ pub fn send_queued_mail<M, QM, IM, FIM, Stor, Transp>(
     storage: Arc<Stor>,
     transport: Arc<Transp>,
     mail: QM,
-) -> Box<Future<Item = (), Error = ()> + Send>
+) -> Box<dyn Future<Item = (), Error = ()> + Send>
 where
     M: 'static,
     QM: QueuedMail<M>,

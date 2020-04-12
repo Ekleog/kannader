@@ -68,7 +68,7 @@ impl SmtpString {
 }
 
 impl Sendable for SmtpString {
-    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(&self.0[..])
     }
 }

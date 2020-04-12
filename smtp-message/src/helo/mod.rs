@@ -22,7 +22,7 @@ impl HeloCommand {
         &self.domain
     }
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(b"HELO ")?;
         self.domain.send_to(w)?;
         w.write_all(b"\r\n")

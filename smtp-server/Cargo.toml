@@ -9,7 +9,8 @@ description = "SMTP server library using tokio"
 edition = "2018"
 
 [dependencies]
-bytes = "0.4"
-itertools = "0.7"
+bytes = "0.4.6"
+futures = "0.3.4"
+itertools = "0.7.8"
+
 smtp-message = { path = "../smtp-message" }
-futures-preview = "0.3.0-alpha.14"

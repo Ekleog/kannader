@@ -248,7 +248,7 @@ mod tests {
                 DataStream::new(stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable());
             let output = block_on(async {
                 let mut res = BytesMut::new();
-                while let Some(i) = await!(stream.by_ref().next()) {
+                while let Some(i) = stream.by_ref().next().await {
                     res.unsplit(i);
                 }
                 res
@@ -257,7 +257,7 @@ mod tests {
             let remaining = block_on(async {
                 let mut res = BytesMut::new();
                 let mut stream = stream.into_inner().unwrap();
-                while let Some(i) = await!(stream.next()) {
+                while let Some(i) = stream.next().await {
                     res.unsplit(i);
                 }
                 res
@@ -279,7 +279,7 @@ mod tests {
             let r = block_on(async {
                 let mut stream = DataStream::new(stream::iter(v.into_iter().map(BytesMut::from)).prependable());
                 let mut res = BytesMut::new();
-                while let Some(i) = await!(stream.next()) {
+                while let Some(i) = stream.next().await {
                     res.unsplit(i);
                 }
                 res

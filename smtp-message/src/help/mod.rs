@@ -17,7 +17,7 @@ impl HelpCommand {
         &self.subject
     }
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(b"HELP ")?;
         w.write_all(&self.subject.bytes()[..])?;
         w.write_all(b"\r\n")

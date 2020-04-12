@@ -23,7 +23,7 @@ impl<S: Sink<Bytes> + Unpin> DataSink<S> {
         }
     }
 
-    pub async fn send(&mut self, mut item: Bytes) -> Result<(), S::SinkError> {
+    pub async fn send(&mut self, mut item: Bytes) -> Result<(), S::Error> {
         // TODO: (B) do not flush all the time
         use self::DataSinkState::*;
         loop {
@@ -43,12 +43,12 @@ impl<S: Sink<Bytes> + Unpin> DataSink<S> {
             }
             match breakat {
                 None => {
-                    await!(self.sink.send(item))?;
+                    self.sink.send(item).await?;
                     return Ok(());
                 }
                 Some(pos) => {
                     // Send everything until and including the '.'
-                    await!(self.sink.send(item.slice_to(pos + 1)))?;
+                    self.sink.send(item.slice_to(pos + 1)).await?;
                     // Now send all the remaining stuff by going through the loop again
                     // The escaping is done by the fact the '.' was already sent once, and yet left
                     // in `item` to be sent again.
@@ -58,14 +58,14 @@ impl<S: Sink<Bytes> + Unpin> DataSink<S> {
         }
     }
 
-    pub async fn end(mut self) -> Result<S, S::SinkError> {
+    pub async fn end(mut self) -> Result<S, S::Error> {
         use self::DataSinkState::*;
         let bytes = match self.state {
             Running => Bytes::from_static(b"\r\n.\r\n"),
             CrPassed => Bytes::from_static(b"\r\n.\r\n"),
             CrLfPassed => Bytes::from_static(b".\r\n"),
         };
-        await!(self.sink.send(bytes))?;
+        self.sink.send(bytes).await?;
         Ok(self.sink)
     }
 }
@@ -91,9 +91,9 @@ mod tests {
                 let mut sink = DataSink::new(&mut v);
                 block_on(async {
                     for i in inp.iter() {
-                        await!(sink.send(Bytes::from(*i))).unwrap();
+                        sink.send(Bytes::from(*i)).await.unwrap();
                     }
-                    await!(sink.end()).unwrap();
+                    sink.end().await.unwrap();
                 });
             }
             assert_eq!(

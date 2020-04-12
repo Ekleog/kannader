@@ -83,7 +83,7 @@ impl Email {
 
 impl Sendable for Email {
     // TODO: (B) only store the overall string and a pointer to the @
-    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(&self.localpart.bytes()[..])?;
         if let Some(ref host) = self.hostname {
             w.write_all(b"@")?;
@@ -94,7 +94,7 @@ impl Sendable for Email {
 }
 
 impl Sendable for Option<Email> {
-    fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         if let Some(e) = self {
             e.send_to(w)
         } else {

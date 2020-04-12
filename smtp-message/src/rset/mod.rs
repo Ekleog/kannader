@@ -14,7 +14,7 @@ impl RsetCommand {
         RsetCommand { _useless: () }
     }
 
-    pub fn send_to(&self, w: &mut io::Write) -> io::Result<()> {
+    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(b"RSET\r\n")
     }
 
