@@ -38,29 +38,29 @@ pub async fn next_crlf_line<S: Stream<Item = BytesMut>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use futures::{executor, stream};
+
     use smtp_message::StreamExt;
 
     #[test]
     fn crlflines_looks_good() {
-        let stream = CrlfLines::new(
-            stream::iter_ok(
-                vec![
-                    &b"MAIL FROM:<foo@bar.example.org>\r\n"[..],
-                    b"RCPT TO:<baz@quux.example.org>\r\n",
-                    b"RCPT TO:<foo2@bar.example.org>\r\n",
-                    b"DATA\r\n",
-                    b"Hello World\r\n",
-                    b".\r\n",
-                    b"QUIT\r\n",
-                ]
-                .into_iter()
-                .map(BytesMut::from),
-            )
-            .map_err(|()| ())
-            .prependable(),
-        );
+        let stream = stream::iter(
+            vec![
+                &b"MAIL FROM:<foo@bar.example.org>\r\n"[..],
+                b"RCPT TO:<baz@quux.example.org>\r\n",
+                b"RCPT TO:<foo2@bar.example.org>\r\n",
+                b"DATA\r\n",
+                b"Hello World\r\n",
+                b".\r\n",
+                b"QUIT\r\n",
+            ]
+            .into_iter()
+            .map(BytesMut::from),
+        )
+        .prependable();
 
-        assert_eq!(stream.collect().wait().unwrap(), vec![
+        assert_eq!(executor::block_on_stream(stream).collect::<Vec<_>>(), vec![
             b"MAIL FROM:<foo@bar.example.org>\r\n".to_vec(),
             b"RCPT TO:<baz@quux.example.org>\r\n".to_vec(),
             b"RCPT TO:<foo2@bar.example.org>\r\n".to_vec(),

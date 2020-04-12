@@ -16,18 +16,18 @@ use crate::{
 // TODO: (B) allow Reader and Writer to return errors?
 // TODO: (B) give up on having `Stream`s and `Sink`s until async streams and
 // async sinks land
-pub async fn interact<
-    'a,
-    Reader: 'a + Stream<Item = BytesMut>,
-    Writer: 'a + Sink<Bytes, Error = ()>,
-    UserProvidedMetadata: 'static,
-    Cfg: 'a + Config<UserProvidedMetadata>,
->(
+pub async fn interact<'a, Reader, Writer, UserProvidedMetadata, Cfg>(
     incoming: Reader,
     outgoing: Pin<&'a mut Writer>,
     metadata: UserProvidedMetadata,
     cfg: &'a mut Cfg,
-) -> Result<(), Writer::Error> {
+) -> Result<(), Writer::Error>
+where
+    Reader: 'a + Stream<Item = BytesMut> + Unpin, // TODO: consider removing this unpin
+    Writer: 'a + Sink<Bytes, Error = ()>,         // TODO: allow the user to set any error
+    UserProvidedMetadata: 'static,
+    Cfg: 'a + Config<UserProvidedMetadata>,
+{
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
     let mut writer = outgoing.with(async move |c: ReplyLine| -> Result<Bytes, Writer::Error> {
@@ -77,7 +77,7 @@ async fn handle_line<'a, U, W, R, Cfg>(
 where
     U: 'static,
     W: 'a + Sink<ReplyLine>,
-    R: 'a + Stream<Item = BytesMut>,
+    R: 'a + Stream<Item = BytesMut> + Unpin,
     Cfg: Config<U>,
 {
     let cmd = Command::parse(line.freeze());
@@ -176,11 +176,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itertools::Itertools;
-    use smtp_message::{Email, ReplyCode, SmtpString};
+
     use std::{self, cell::RefCell, rc::Rc};
 
-    use decision::Refusal;
+    use futures::executor;
+    use itertools::Itertools;
+
+    use smtp_message::{Email, ReplyCode, SmtpString};
+
+    use crate::decision::Refusal;
 
     struct TestConfig {
         mails: Rc<RefCell<Vec<(Option<Email>, Vec<Email>, BytesMut)>>>,
@@ -191,91 +195,62 @@ mod tests {
             SmtpString::from_static(b"test.example.org")
         }
 
-        fn filter_from(
-            self,
-            addr: Option<Email>,
-            conn_meta: ConnectionMetadata<()>,
-        ) -> Box<Future<Item = (Self, Option<Email>, ConnectionMetadata<()>, Decision), Error = ()>>
-        {
-            if addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
-                Box::new(future::ok((
-                    self,
-                    addr,
-                    conn_meta,
+        fn filter_from<'a>(
+            &'a mut self,
+            addr: &'a mut Option<Email>,
+            _conn_meta: &'a mut ConnectionMetadata<()>,
+        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+            if *addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
+                Box::pin(future::ready(Decision::Reject(Refusal {
+                    code: ReplyCode::POLICY_REASON,
+                    msg: "User 'bad' banned".into(),
+                })))
+            } else {
+                Box::pin(future::ready(Decision::Accept))
+            }
+        }
+
+        fn filter_to<'a>(
+            &'a mut self,
+            email: &'a mut Email,
+            _meta: &'a mut MailMetadata,
+            _conn_meta: &'a mut ConnectionMetadata<()>,
+        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+            if email.localpart().bytes() == &b"baz"[..] {
+                Box::pin(future::ready(Decision::Reject(Refusal {
+                    code: ReplyCode::MAILBOX_UNAVAILABLE,
+                    msg: "No user 'baz'".into(),
+                })))
+            } else {
+                Box::pin(future::ready(Decision::Accept))
+            }
+        }
+
+        fn handle_mail<'a, S: 'a + Stream<Item = BytesMut> + Unpin>(
+            &'a mut self,
+            reader: &'a mut DataStream<S>,
+            meta: MailMetadata,
+            _conn_meta: &'a mut ConnectionMetadata<()>,
+        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>> {
+            Box::pin(async move {
+                let mail_text = reader.concat().await;
+                if let Err(_) = reader.complete() {
+                    Decision::Reject(Refusal {
+                        code: ReplyCode::BAD_SEQUENCE,
+                        msg: "Closed the channel before end of message".into(),
+                    })
+                } else if mail_text.windows(5).position(|x| x == b"World").is_some() {
                     Decision::Reject(Refusal {
                         code: ReplyCode::POLICY_REASON,
-                        msg: "User 'bad' banned".into(),
-                    }),
-                )))
-            } else {
-                Box::new(future::ok((self, addr, conn_meta, Decision::Accept)))
-            }
-        }
-
-        fn filter_to(
-            self,
-            email: Email,
-            meta: MailMetadata,
-            conn_meta: ConnectionMetadata<()>,
-        ) -> Box<
-            Future<
-                Item = (Self, Email, MailMetadata, ConnectionMetadata<()>, Decision),
-                Error = (),
-            >,
-        > {
-            if email.localpart().bytes() == &b"baz"[..] {
-                Box::new(future::ok((
-                    self,
-                    email,
-                    meta,
-                    conn_meta,
-                    Decision::Reject(Refusal {
-                        code: ReplyCode::MAILBOX_UNAVAILABLE,
-                        msg: "No user 'baz'".into(),
-                    }),
-                )))
-            } else {
-                Box::new(future::ok((self, email, meta, conn_meta, Decision::Accept)))
-            }
-        }
-
-        fn handle_mail<'a, S: 'a + Stream<Item = BytesMut, Error = ()>>(
-            self,
-            reader: DataStream<S>,
-            meta: MailMetadata,
-            conn_meta: ConnectionMetadata<()>,
-        ) -> Box<
-            'a
-                + Future<
-                    Item = (
-                        Self,
-                        Option<Prependable<S>>,
-                        ConnectionMetadata<()>,
-                        Decision,
-                    ),
-                    Error = (),
-                >,
-        > {
-            Box::new(reader.concat_and_recover().map_err(|_| ()).and_then(
-                move |(mail_text, reader)| {
-                    if mail_text.windows(5).position(|x| x == b"World").is_some() {
-                        future::ok((
-                            self,
-                            Some(reader.into_inner()),
-                            conn_meta,
-                            Decision::Reject(Refusal {
-                                code: ReplyCode::POLICY_REASON,
-                                msg: "Don't you dare say 'World'!".into(),
-                            }),
-                        ))
-                    } else {
-                        self.mails
-                            .borrow_mut()
-                            .push((meta.from, meta.to, mail_text));
-                        future::ok((self, Some(reader.into_inner()), conn_meta, Decision::Accept))
-                    }
-                },
-            ))
+                        msg: "Don't you dare say 'World'!".into(),
+                    })
+                } else {
+                    self.mails
+                        .borrow_mut()
+                        .push((meta.from, meta.to, mail_text));
+                    Decision::Accept
+                }
+            })
         }
     }
 
@@ -378,18 +353,20 @@ mod tests {
                     .map(|x| std::str::from_utf8(x).unwrap())
                     .collect::<Vec<&str>>()
             );
-            let stream = stream::iter_ok(inp.iter().map(|x| BytesMut::from(*x)));
+            let stream = stream::iter(inp.iter().map(|x| BytesMut::from(*x)));
             let resp_mail = Rc::new(RefCell::new(Vec::new()));
             let mut cfg = TestConfig {
                 mails: resp_mail.clone(),
             };
             let mut resp = Vec::new();
-            interact(stream, &mut resp, (), cfg).wait().unwrap();
+            let mut resp_sink = Box::pin((&mut resp).sink_map_err(|_| ()));
+            executor::block_on(interact(stream, resp_sink.as_mut(), (), &mut cfg)).unwrap();
             let resp = resp.into_iter().concat();
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
             assert_eq!(resp, out);
             println!("Checking mails:");
+            drop(cfg);
             let resp_mail = Rc::try_unwrap(resp_mail).unwrap().into_inner();
             assert_eq!(resp_mail.len(), mail.len());
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
@@ -419,13 +396,12 @@ mod tests {
                                 RCPT TO:bar\r\n\
                                 DATA\r\n\
                                 hello"];
-        let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
-        let cfg = TestConfig {
+        let stream = stream::iter(txt.iter().map(|x| BytesMut::from(*x)));
+        let mut cfg = TestConfig {
             mails: Rc::new(RefCell::new(Vec::new())),
         };
-        let mut resp = Vec::new();
-        let res = interact(stream, &mut resp, (), cfg).wait();
-        assert!(res.is_err());
+        let mut resp = Box::pin(Vec::new().sink_map_err(|_| ()));
+        executor::block_on(interact(stream, resp.as_mut(), (), &mut cfg)).unwrap();
     }
 
     // Fuzzer-found
@@ -484,11 +460,11 @@ mod tests {
             b"\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r",
             b"\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r",
         ];
-        let stream = stream::iter_ok(txt.iter().map(|x| BytesMut::from(*x)));
-        let mut resp = Vec::new();
-        let cfg = TestConfig {
+        let stream = stream::iter(txt.iter().map(|x| BytesMut::from(*x)));
+        let mut resp = Box::pin(Vec::new().sink_map_err(|_| ()));
+        let mut cfg = TestConfig {
             mails: Rc::new(RefCell::new(Vec::new())),
         };
-        interact(stream, &mut resp, (), cfg).wait().unwrap();
+        executor::block_on(interact(stream, resp.as_mut(), (), &mut cfg)).unwrap();
     }
 }

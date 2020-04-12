@@ -9,4 +9,5 @@ pub struct Refusal {
 pub enum Decision {
     Accept,
     Reject(Refusal),
+    // TODO: add Kill option to cut the connection
 }
