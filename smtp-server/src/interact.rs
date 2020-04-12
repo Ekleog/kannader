@@ -23,9 +23,8 @@ pub async fn interact<'a, Reader, Writer, UserProvidedMetadata, Cfg>(
     cfg: &'a mut Cfg,
 ) -> Result<(), Writer::Error>
 where
-    Reader: 'a + Stream<Item = BytesMut> + Unpin, // TODO: consider removing this unpin
-    Writer: 'a + Sink<Bytes, Error = ()>,         // TODO: allow the user to set any error
-    UserProvidedMetadata: 'static,
+    Reader: 'a + Send + Unpin + Stream<Item = BytesMut>,
+    Writer: 'a + Sink<Bytes, Error = ()>, // TODO: allow the user to set any error they want
     Cfg: 'a + Config<UserProvidedMetadata>,
 {
     let mut conn_meta = ConnectionMetadata { user: metadata };
@@ -74,9 +73,8 @@ async fn handle_line<'a, U, W, R, Cfg>(
     mail_meta: &'a mut Option<MailMetadata>,
 ) -> Result<(), W::Error>
 where
-    U: 'static,
     W: 'a + Sink<ReplyLine>,
-    R: 'a + Stream<Item = BytesMut> + Unpin,
+    R: 'a + Send + Unpin + Stream<Item = BytesMut>,
     Cfg: Config<U>,
 {
     let cmd = Command::parse(line.freeze());

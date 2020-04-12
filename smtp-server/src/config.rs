@@ -11,7 +11,7 @@ use crate::{
 };
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
-pub trait Config<U: 'static>: Sized + 'static {
+pub trait Config<U> {
     fn new_mail<'a>(&'a mut self) -> Pin<Box<dyn 'a + Send + Future<Output = ()>>> {
         Box::pin(future::ready(()))
     }
@@ -48,6 +48,7 @@ pub trait Config<U: 'static>: Sized + 'static {
         meta: MailMetadata,
         conn_meta: &'a mut ConnectionMetadata<U>,
     ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+    // TODO: make Send
     where
         S: 'a + Unpin + Stream<Item = BytesMut>;
 
