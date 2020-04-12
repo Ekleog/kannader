@@ -1,12 +1,8 @@
 #![no_main]
 
-#[macro_use]
-extern crate libfuzzer_sys;
-
-extern crate bytes;
-extern crate smtp_message;
-
 use bytes::Bytes;
+use libfuzzer_sys::fuzz_target;
+
 use smtp_message::ReplyLine;
 
 fuzz_target!(|data: &[u8]| {

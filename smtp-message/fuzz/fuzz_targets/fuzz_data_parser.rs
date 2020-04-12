@@ -1,14 +1,8 @@
 #![no_main]
 
-#[macro_use]
-extern crate libfuzzer_sys;
-
-extern crate bytes;
-extern crate smtp_message;
-extern crate tokio;
-
 use bytes::BytesMut;
-use tokio::prelude::*;
+use futures::{executor, prelude::*};
+use libfuzzer_sys::fuzz_target;
 
 use smtp_message::{DataStream, StreamExt};
 
@@ -18,16 +12,14 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
     //  * None if the stream was not terminated
     //  * Some((output, remaining)) if the stream was terminated
     let result = {
-        let mut stream = DataStream::new(
-            stream::iter_ok(data.iter().map(|d| {
-                let res = BytesMut::from(&d[..]);
-                // println!("Sending chunk {:?}", res);
-                res
-            }))
-            .map_err(|()| ())
-            .prependable(),
-        );
-        let output = stream.by_ref().concat2().wait().ok();
+        let stream = stream::iter(data.iter().map(|d| {
+            let res = BytesMut::from(&d[..]);
+            // println!("Sending chunk {:?}", res);
+            res
+        })).prependable();
+        let fut = Box::pin(stream);
+        let mut stream = DataStream::new(fut.as_mut());
+        let output = executor::block(stream.by_ref().concat()).ok();
         output.map(|out| (out, stream.into_inner().concat2().wait().unwrap()))
     };
 

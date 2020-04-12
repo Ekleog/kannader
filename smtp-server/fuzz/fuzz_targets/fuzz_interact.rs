@@ -1,15 +1,8 @@
 #![no_main]
 
-#[macro_use]
-extern crate libfuzzer_sys;
-
-extern crate bytes;
-extern crate smtp_message;
-extern crate smtp_server;
-extern crate tokio;
-
 use bytes::{Bytes, BytesMut};
-use tokio::prelude::*;
+use futures::prelude::*;
+use libfuzzer_sys::fuzz_target;
 
 use smtp_message::{DataStream, Email, Prependable, ReplyCode, SmtpString, StreamExt};
 use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata, Refusal};

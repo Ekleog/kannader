@@ -1,11 +1,7 @@
 #![no_main]
 
-extern crate bytes;
-#[macro_use]
-extern crate libfuzzer_sys;
-extern crate smtp_message;
-
 use bytes::Bytes;
+use libfuzzer_sys::fuzz_target;
 
 use smtp_message::Command;
 

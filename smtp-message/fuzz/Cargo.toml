@@ -2,6 +2,7 @@
 name = "smtp-message-fuzz"
 version = "0.0.1"
 authors = ["Automatically generated"]
+edition = "2018"
 publish = false
 
 [package.metadata]
@@ -10,11 +11,10 @@ cargo-fuzz = true
 [dependencies]
 arbitrary = "0.1.1"
 bytes = "0.4.6"
-tokio = "0.1.5"
-[dependencies.smtp-message]
-path = ".."
-[dependencies.libfuzzer-sys]
-git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+futures = "0.3.4"
+libfuzzer-sys = "0.3.2"
+
+smtp-message = { path = ".." }
 
 [[bin]]
 name = "fuzz_command_parser"
