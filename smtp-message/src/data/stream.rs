@@ -244,19 +244,20 @@ mod tests {
                 SmtpString::from(out),
                 SmtpString::from(rem),
             );
-            let mut stream =
-                DataStream::new(stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable());
+            let stream = stream::iter(inp.iter().map(|x| BytesMut::from(*x))).prependable();
+            let mut stream = Box::pin(stream);
+            let mut data_stream = DataStream::new(stream.as_mut());
             let output = block_on(async {
                 let mut res = BytesMut::new();
-                while let Some(i) = stream.by_ref().next().await {
+                while let Some(i) = data_stream.by_ref().next().await {
                     res.unsplit(i);
                 }
                 res
             });
+            data_stream.complete().unwrap();
             println!("Now computing remaining stuff");
             let remaining = block_on(async {
                 let mut res = BytesMut::new();
-                let mut stream = stream.into_inner().unwrap();
                 while let Some(i) = stream.next().await {
                     res.unsplit(i);
                 }
@@ -277,7 +278,9 @@ mod tests {
             let mut v = v;
             v.extend_from_slice(&[vec![b'\r', b'\n', b'.', b'\r', b'\n']]);
             let r = block_on(async {
-                let mut stream = DataStream::new(stream::iter(v.into_iter().map(BytesMut::from)).prependable());
+                let stream = stream::iter(v.into_iter().map(BytesMut::from)).prependable();
+                let mut stream = Box::pin(stream);
+                let mut stream = DataStream::new(stream.as_mut());
                 let mut res = BytesMut::new();
                 while let Some(i) = stream.next().await {
                     res.unsplit(i);

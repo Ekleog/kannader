@@ -83,20 +83,18 @@ mod tests {
                 let mut sink = DataSink::new(&mut on_the_wire);
                 block_on(async {
                     for i in input.iter().cloned() {
-                        await!(sink.send(i)).unwrap();
+                        sink.send(i).await.unwrap();
                     }
-                    await!(sink.end()).unwrap();
+                    sink.end().await.unwrap();
                 });
             }
             eprintln!("Moving on the wire: {:?}", on_the_wire);
             let received = block_on(async {
-                let mut stream = DataStream::new(
-                    stream::iter(
-                        on_the_wire.into_iter().map(BytesMut::from)
-                    ).prependable()
-                );
+                let stream = stream::iter(on_the_wire.into_iter().map(BytesMut::from)).prependable();
+                let mut stream = Box::pin(stream);
+                let mut stream = DataStream::new(stream.as_mut());
                 let mut res = BytesMut::new();
-                while let Some(i) = await!(stream.next()) {
+                while let Some(i) = stream.next().await {
                     res.unsplit(i);
                 }
                 res
