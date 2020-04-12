@@ -15,7 +15,9 @@ pub trait QueuedMail<M>: 'static {}
 pub trait InflightMail<M>: Send + 'static {
     fn get_mail(
         &self,
-    ) -> Box<dyn Future<Item = Mail<Box<dyn Stream<Item = BytesMut, Error = ()>>, M>, Error = ()> + Send>;
+    ) -> Box<
+        dyn Future<Item = Mail<Box<dyn Stream<Item = BytesMut, Error = ()>>, M>, Error = ()> + Send,
+    >;
 }
 
 // TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait

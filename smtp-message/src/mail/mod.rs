@@ -12,7 +12,7 @@ use crate::{
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct MailCommand {
-    pub from:   Option<Email>,
+    pub from: Option<Email>,
     pub params: Parameters,
 }
 
@@ -69,28 +69,28 @@ mod tests {
             (
                 &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
                 MailCommand {
-                    from:   Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
+                    from: Some(Email::parse_slice(b"foo@bar.baz").unwrap()),
                     params: Parameters::none(),
                 },
             ),
             (
                 &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
                 MailCommand {
-                    from:   Some(Email::parse_slice(b"quux@example.net").unwrap()),
+                    from: Some(Email::parse_slice(b"quux@example.net").unwrap()),
                     params: Parameters::none(),
                 },
             ),
             (
                 &b"mail FROM:<>\r\n"[..],
                 MailCommand {
-                    from:   None,
+                    from: None,
                     params: Parameters::none(),
                 },
             ),
             (
                 &b"MAIL FROM:<> hello=world foo\r\n"[..],
                 MailCommand {
-                    from:   None,
+                    from: None,
                     params: Parameters(
                         vec![
                             ((&b"hello"[..]).into(), Some((&b"world"[..]).into())),

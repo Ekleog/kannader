@@ -14,7 +14,8 @@ use crate::{
 };
 
 // TODO: (B) allow Reader and Writer to return errors?
-// TODO: (B) give up on having `Stream`s and `Sink`s until async streams and async sinks land
+// TODO: (B) give up on having `Stream`s and `Sink`s until async streams and
+// async sinks land
 pub async fn interact<
     'a,
     Reader: 'a + Stream<Item = BytesMut>,
@@ -29,17 +30,15 @@ pub async fn interact<
 ) -> Result<(), Writer::Error> {
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
-    let mut writer = outgoing.with(
-        async move |c: ReplyLine| -> Result<Bytes, Writer::Error> {
-            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-            // TODO: (B) refactor Sendable to send to a sink instead of to a Write
-            c.send_to(&mut w).unwrap();
-            // By design of BytesMut::writer, this cannot fail so long as the buffer
-            // has sufficient capacity. As if this is not respected it is a clear
-            // programming error, there's no need to try and handle this cleanly.
-            Ok(w.into_inner().freeze())
-        },
-    );
+    let mut writer = outgoing.with(async move |c: ReplyLine| -> Result<Bytes, Writer::Error> {
+        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+        // TODO: (B) refactor Sendable to send to a sink instead of to a Write
+        c.send_to(&mut w).unwrap();
+        // By design of BytesMut::writer, this cannot fail so long as the buffer
+        // has sufficient capacity. As if this is not respected it is a clear
+        // programming error, there's no need to try and handle this cleanly.
+        Ok(w.into_inner().freeze())
+    });
     fn randomtest<Writer: Sink<Bytes>, S: Sink<ReplyLine, Error = Writer::Error>>(_: &S) {}
     randomtest::<Writer, _>(&writer);
     let mut writer = unsafe { Pin::new_unchecked(&mut writer) };
@@ -57,8 +56,9 @@ pub async fn interact<
             line,
             cfg,
             &mut conn_meta,
-            &mut mail_meta
-        ).await?;
+            &mut mail_meta,
+        )
+        .await?;
     }
     // TODO: (B) warn of unfinished commands?
 
@@ -128,8 +128,9 @@ where
                         Decision::Accept => {
                             send_reply(writer.as_mut(), cfg.data_okay()).await?;
                             let mut data_stream = DataStream::new(reader);
-                            let decision =
-                                cfg.handle_mail(&mut data_stream, mail_meta_unw, conn_meta).await;
+                            let decision = cfg
+                                .handle_mail(&mut data_stream, mail_meta_unw, conn_meta)
+                                .await;
                             // TODO: (B) fail more elegantly on configuration error
                             assert!(data_stream.was_completed());
                             match decision {
@@ -138,9 +139,12 @@ where
                                 }
                                 Decision::Reject(r) => {
                                     send_reply(writer, (r.code, r.msg.into())).await?;
-                                    // Other mail systems (at least postfix, OpenSMTPD and gmail)
-                                    // appear to drop the state on an unsuccessful DATA command
-                                    // (eg. too long). Couldn't find the RFC reference anywhere,
+                                    // Other mail systems (at least postfix,
+                                    // OpenSMTPD and gmail)
+                                    // appear to drop the state on an
+                                    // unsuccessful DATA command
+                                    // (eg. too long). Couldn't find the RFC
+                                    // reference anywhere,
                                     // though.
                                 }
                             }
@@ -200,7 +204,7 @@ mod tests {
                     conn_meta,
                     Decision::Reject(Refusal {
                         code: ReplyCode::POLICY_REASON,
-                        msg:  "User 'bad' banned".into(),
+                        msg: "User 'bad' banned".into(),
                     }),
                 )))
             } else {
@@ -227,7 +231,7 @@ mod tests {
                     conn_meta,
                     Decision::Reject(Refusal {
                         code: ReplyCode::MAILBOX_UNAVAILABLE,
-                        msg:  "No user 'baz'".into(),
+                        msg: "No user 'baz'".into(),
                     }),
                 )))
             } else {
@@ -261,7 +265,7 @@ mod tests {
                             conn_meta,
                             Decision::Reject(Refusal {
                                 code: ReplyCode::POLICY_REASON,
-                                msg:  "Don't you dare say 'World'!".into(),
+                                msg: "Don't you dare say 'World'!".into(),
                             }),
                         ))
                     } else {

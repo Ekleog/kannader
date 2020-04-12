@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug, Eq, PartialEq)]
 pub struct Email {
     localpart: SmtpString,
-    hostname:  Option<Domain>,
+    hostname: Option<Domain>,
 }
 
 impl Email {

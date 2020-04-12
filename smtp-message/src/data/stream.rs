@@ -39,7 +39,7 @@ pub struct DataStream<'a, S: Stream<Item = BytesMut>> {
     source: Pin<&'a mut Prependable<S>>,
     // state is the state of the state machine at the BEGINNING of `buf`
     state: DataStreamState,
-    buf:   BytesMut,
+    buf: BytesMut,
 }
 
 impl<'a, S: Stream<Item = BytesMut>> DataStream<'a, S> {

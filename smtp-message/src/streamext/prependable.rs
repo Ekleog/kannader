@@ -3,14 +3,14 @@ use std::{pin::Pin, task::Context};
 use futures::{prelude::*, task::Poll};
 
 pub struct Prependable<S: Stream> {
-    stream:    S,
+    stream: S,
     prepended: Option<S::Item>,
 }
 
 impl<S: Stream> Prependable<S> {
     pub fn new(s: S) -> Prependable<S> {
         Prependable {
-            stream:    s,
+            stream: s,
             prepended: None,
         }
     }

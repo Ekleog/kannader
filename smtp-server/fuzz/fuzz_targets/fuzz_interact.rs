@@ -47,7 +47,7 @@ impl smtp_server::Config<()> for FuzzConfig {
                     conn_meta,
                     Decision::Reject(Refusal {
                         code: ReplyCode::POLICY_REASON,
-                        msg:  (&"forbidden user"[..]).into(),
+                        msg: (&"forbidden user"[..]).into(),
                     }),
                 )))
             }
@@ -75,7 +75,7 @@ impl smtp_server::Config<()> for FuzzConfig {
                 conn_meta,
                 Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
-                    msg:  (&"forbidden user"[..]).into(),
+                    msg: (&"forbidden user"[..]).into(),
                 }),
             )))
         }
@@ -112,7 +112,7 @@ impl smtp_server::Config<()> for FuzzConfig {
                             conn_meta,
                             Decision::Reject(Refusal {
                                 code: ReplyCode::POLICY_REASON,
-                                msg:  (&"Too many recipients!"[..]).into(),
+                                msg: (&"Too many recipients!"[..]).into(),
                             }),
                         ))
                     } else {

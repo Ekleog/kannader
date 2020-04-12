@@ -63,9 +63,9 @@ pub enum IsLastLine {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug)]
 pub struct ReplyLine {
-    code:    ReplyCode,
+    code: ReplyCode,
     is_last: IsLastLine,
-    line:    SmtpString,
+    line: SmtpString,
 }
 
 impl ReplyLine {
@@ -79,14 +79,14 @@ impl ReplyLine {
         if line.byte_len() > Self::MAX_LEN {
             Err(BuildError::LineTooLong {
                 length: line.byte_len(),
-                limit:  Self::MAX_LEN,
+                limit: Self::MAX_LEN,
             })
         } else if let Some(p) = line
             .iter_bytes()
             .position(|&x| !(x == 9 || (x >= 32 && x <= 126)))
         {
             Err(BuildError::DisallowedByte {
-                b:   line.byte(p),
+                b: line.byte(p),
                 pos: p,
             })
         } else {
@@ -163,9 +163,9 @@ mod tests {
         assert_eq!(
             r,
             ReplyLine {
-                code:    ReplyCode { code: 220 },
+                code: ReplyCode { code: 220 },
                 is_last: IsLastLine::No,
-                line:    (&b"hello world!"[..]).into(),
+                line: (&b"hello world!"[..]).into(),
             }
         );
 
@@ -185,9 +185,9 @@ mod tests {
         assert_eq!(
             r,
             ReplyLine {
-                code:    ReplyCode { code: 502 },
+                code: ReplyCode { code: 502 },
                 is_last: IsLastLine::Yes,
-                line:    (&b"test"[..]).into(),
+                line: (&b"test"[..]).into(),
             }
         );
 
@@ -218,33 +218,33 @@ mod tests {
             (
                 b"250 All is well\r\n",
                 ReplyLine {
-                    code:    ReplyCode { code: 250 },
+                    code: ReplyCode { code: 250 },
                     is_last: IsLastLine::Yes,
-                    line:    (&b"All is well"[..]).into(),
+                    line: (&b"All is well"[..]).into(),
                 },
             ),
             (
                 b"450-Temporary\r\n",
                 ReplyLine {
-                    code:    ReplyCode { code: 450 },
+                    code: ReplyCode { code: 450 },
                     is_last: IsLastLine::No,
-                    line:    (&b"Temporary"[..]).into(),
+                    line: (&b"Temporary"[..]).into(),
                 },
             ),
             (
                 b"354-Please do start input now\r\n",
                 ReplyLine {
-                    code:    ReplyCode { code: 354 },
+                    code: ReplyCode { code: 354 },
                     is_last: IsLastLine::No,
-                    line:    (&b"Please do start input now"[..]).into(),
+                    line: (&b"Please do start input now"[..]).into(),
                 },
             ),
             (
                 b"550 Something is really very wrong!\r\n",
                 ReplyLine {
-                    code:    ReplyCode { code: 550 },
+                    code: ReplyCode { code: 550 },
                     is_last: IsLastLine::Yes,
-                    line:    (&b"Something is really very wrong!"[..]).into(),
+                    line: (&b"Something is really very wrong!"[..]).into(),
                 },
             ),
         ];

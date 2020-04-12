@@ -9,7 +9,7 @@ enum DataSinkState {
 }
 
 pub struct DataSink<S> {
-    sink:  S,
+    sink: S,
     state: DataSinkState,
 }
 

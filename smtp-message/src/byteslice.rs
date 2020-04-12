@@ -10,17 +10,17 @@ use std::{
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct ByteSlice<'a> {
-    buf:   &'a Bytes,
+    buf: &'a Bytes,
     start: usize,
-    end:   usize,
+    end: usize,
 }
 
 impl<'a> From<&'a Bytes> for ByteSlice<'a> {
     fn from(b: &'a Bytes) -> ByteSlice<'a> {
         ByteSlice {
-            buf:   b,
+            buf: b,
             start: 0,
-            end:   b.len(),
+            end: b.len(),
         }
     }
 }
@@ -62,9 +62,9 @@ impl<'a> Slice<Range<usize>> for ByteSlice<'a> {
     fn slice(&self, range: Range<usize>) -> Self {
         assert!(range.start <= range.end && range.end <= self.end);
         ByteSlice {
-            buf:   self.buf,
+            buf: self.buf,
             start: self.start + range.start,
-            end:   self.start + range.end,
+            end: self.start + range.end,
         }
     }
 }

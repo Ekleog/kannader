@@ -12,7 +12,7 @@ use crate::{
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct RcptCommand {
-    pub to:     Email,
+    pub to: Email,
     pub params: Parameters,
 }
 

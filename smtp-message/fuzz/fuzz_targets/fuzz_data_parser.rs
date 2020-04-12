@@ -16,7 +16,8 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
             let res = BytesMut::from(&d[..]);
             // println!("Sending chunk {:?}", res);
             res
-        })).prependable();
+        }))
+        .prependable();
         let fut = Box::pin(stream);
         let mut stream = DataStream::new(fut.as_mut());
         let output = executor::block(stream.by_ref().concat()).ok();
