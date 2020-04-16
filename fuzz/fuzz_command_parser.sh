@@ -1,5 +1,7 @@
 #!/bin/sh
 
-cd ../smtp-message
-exec cargo fuzz run --all-features --jobs 4 $* fuzz_command_parser \
-    -- -dict=../fuzz/smtp-command.dict
+exec env \
+    CRATE=smtp-message \
+    TARGET=fuzz_command_parser \
+    DICT=smtp-command.dict \
+    ./run-fuzzer.sh "$0" "$@"

@@ -1,5 +1,7 @@
 #!/bin/sh
 
-cd ../smtp-server
-exec cargo fuzz run --all-features --release $* fuzz_interact \
-    -- -dict=../fuzz/smtp-command.dict
+exec env \
+    CRATE=smtp-server \
+    TARGET=fuzz_interact \
+    DICT=smtp-command.dict \
+    ./run-fuzzer.sh "$0" "$@"
