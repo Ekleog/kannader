@@ -5,7 +5,7 @@ sudo: required
 os: [ linux ]
 
 rust:
-  - 1.26.0
+  - 1.41.0
   - stable
   - beta
   - nightly
