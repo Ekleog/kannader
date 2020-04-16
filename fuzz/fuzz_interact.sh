@@ -2,4 +2,4 @@
 
 cd ../smtp-server
 exec cargo fuzz run --all-features --release $* fuzz_interact \
-    -- -dict=../fuzz/smtp-command.dict -only_ascii=1
+    -- -dict=../fuzz/smtp-command.dict

@@ -16,12 +16,15 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
             let res = BytesMut::from(&d[..]);
             // println!("Sending chunk {:?}", res);
             res
-        }))
-        .prependable();
-        let fut = Box::pin(stream);
-        let mut stream = DataStream::new(fut.as_mut());
-        let output = executor::block(stream.by_ref().concat()).ok();
-        output.map(|out| (out, stream.into_inner().concat2().wait().unwrap()))
+        }));
+        let mut stream = stream.prependable();
+        let mut data_stream = DataStream::new(&mut stream);
+        let output = executor::block_on(data_stream.by_ref().concat());
+        if data_stream.complete().is_ok() {
+            Some((output, executor::block_on(stream.concat())))
+        } else {
+            None
+        }
     };
 
     // Compute with a naive algorithm
