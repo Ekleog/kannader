@@ -10,4 +10,4 @@ description = "Queue for SMTP messages using tokio"
 [dependencies]
 bytes = "0.4.6"
 smtp-message = { path = "../smtp-message" }
-tokio = "0.1.5"
+tokio = "0.2.18"
