@@ -29,14 +29,16 @@ where
 {
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
-    let mut writer = outgoing.with(async move |c: ReplyLine| -> Result<Bytes, Writer::Error> {
-        let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-        // TODO: (B) refactor Sendable to send to a sink instead of to a Write
-        c.send_to(&mut w).unwrap();
-        // By design of BytesMut::writer, this cannot fail so long as the buffer
-        // has sufficient capacity. As if this is not respected it is a clear
-        // programming error, there's no need to try and handle this cleanly.
-        Ok(w.into_inner().freeze())
+    let mut writer = outgoing.with(move |c: ReplyLine| {
+        async move { // TODO: (C) make this an async closure when stable
+            let mut w = BytesMut::with_capacity(c.byte_len()).writer();
+            // TODO: (B) refactor Sendable to send to a sink instead of to a Write
+            c.send_to(&mut w).unwrap();
+            // By design of BytesMut::writer, this cannot fail so long as the buffer
+            // has sufficient capacity. As if this is not respected it is a clear
+            // programming error, there's no need to try and handle this cleanly.
+            Ok::<_, Writer::Error>(w.into_inner().freeze())
+        }
     });
     fn randomtest<Writer: Sink<Bytes>, S: Sink<ReplyLine, Error = Writer::Error>>(_: &S) {}
     randomtest::<Writer, _>(&writer);
