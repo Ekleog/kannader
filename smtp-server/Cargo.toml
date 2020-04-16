@@ -5,7 +5,7 @@ authors = ["Léo Gaspard <leo@gaspard.io>"]
 license = "MIT"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
-description = "SMTP server library using tokio"
+description = "Asynchronous SMTP server library"
 edition = "2018"
 
 [dependencies]
