@@ -30,7 +30,8 @@ where
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
     let mut writer = outgoing.with(move |c: ReplyLine| {
-        async move { // TODO: (C) make this an async closure when stable
+        async move {
+            // TODO: (C) make this an async closure when stable
             let mut w = BytesMut::with_capacity(c.byte_len()).writer();
             // TODO: (B) refactor Sendable to send to a sink instead of to a Write
             c.send_to(&mut w).unwrap();
