@@ -1,47 +1,27 @@
-language: rust
-cache: cargo
+language: nix
+nix: 2.1
 
-sudo: required
-os: [ linux ]
-
-rust:
-  - 1.41.0
-  - stable
-  - beta
-  - nightly
-
-# TODO: (C) import interesting stuff from https://github.com/Geal/nom/blob/master/.travis.yml
-# (esp. the cargo-travis / coverage story)
+# TODO: (C) Add coverage reporting
 
 matrix:
   include:
-    # TODO: (C) reenable coverage hide:https://github.com/xd009642/tarpaulin/issues/101
-    #- rust: stable
-    #  env: TARPAULIN=1
-    - rust: nightly
-      env: CHECK_FORMAT=1
+    - name: cargo fmt
+      script: nix-shell --run 'cargo fmt --all -- --check'
+    - name: cargo build
+      script: nix-shell --run 'cargo build --all --all-features'
+    - name: cargo test
+      script: nix-shell --run 'cargo test --all --all-features'
+    - name: cargo doc
+      script: nix-shell --run 'cargo doc --all --all-features && mv target/doc doc/dev-doc'
+    - name: mdbook build
+      script: nix-shell --run 'mdbook build book && mv doc/book doc/'
+    - name: mdbook test
+      script: nix-shell --run 'mdbook test book'
 
-before_script: |
-  export PATH="$HOME/.cargo/bin:$PATH"
-  if [ -n "$TARPAULIN" ]; then
-    bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
-  elif [ -n "$CHECK_FORMAT" ]; then
-    rustup component add rustfmt-preview --toolchain nightly
-  fi
-
-# TODO: (C) auto-build doc and push it to github pages (cargo doc and mdBook?)
-script: |
-  if [ -n "$TARPAULIN" ]; then
-    cargo tarpaulin --out Xml
-  elif [ -n "$CHECK_FORMAT" ]; then
-    rustfmt --version
-    cargo +nightly fmt --all -- --check
-  else
-    cargo build --all --all-features
-    cargo test --all --all-features
-  fi
-
-after_success: |
-  if [ -n "$TARPAULIN" ]; then
-    bash <(curl -s https://codecov.io/bash)
-  fi
+deploy:
+  provider: pages
+  skip-cleanup: true
+  github-token: $GITHUB_TOKEN
+  local-dir: doc
+  on:
+    branch: master
