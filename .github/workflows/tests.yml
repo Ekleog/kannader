@@ -1,0 +1,36 @@
+name: Tests
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# TODO: add coverage reporting
+
+jobs:
+  cargo-fmt:
+    name: Cargo Fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v8
+      - run: nix-shell --run 'cargo fmt --all -- --check'
+
+  cargo-tests:
+    name: Cargo Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v8
+      - run: nix-shell --run 'cargo build --all --all-features'
+      - run: nix-shell --run 'cargo test --all --all-features'
+      - run: nix-shell --run 'cargo doc --all --all-features'
+
+  mdbook-tests:
+    name: Book Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v8
+      - run: nix-shell --run 'mdbook build book'
+      - run: nix-shell --run 'mdbook test book'

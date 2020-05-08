@@ -1,0 +1,24 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  pages:
+    name: Push documentation to pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v8
+      - run: nix-shell --run 'cargo doc --all --all-features'
+      - run: nix-shell --run 'mdbook build book'
+      - run: mv target/doc doc/dev-doc
+      - run: mv book/book doc/book
+      - name: Deploy to GitHub
+        env:
+          GITHUB_DEPLOY_KEY: ${{ secrets.GITHUB_DEPLOY_KEY }}
+        run: |
+          curl -LsSf https://raw.githubusercontent.com/rust-lang/simpleinfra/050e43e99c5f4f1c501f1cc773d1de8ebd8590f1/setup-deploy-keys/src/deploy.rs | nix-shell --run 'rustc - -o /tmp/deploy'
+          cd doc
+          /tmp/deploy
