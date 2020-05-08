@@ -20,6 +20,22 @@ jobs:
         env:
           GITHUB_DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
-          curl -LsSf https://raw.githubusercontent.com/rust-lang/simpleinfra/050e43e99c5f4f1c501f1cc773d1de8ebd8590f1/setup-deploy-keys/src/deploy.rs | nix-shell --run 'rustc - -o /tmp/deploy'
+          set -euo pipefail
+          
+          touch doc/.nojekyll
           cd doc
-          /tmp/deploy
+          rm -rf .git
+          git init
+          git config user.name 'Deploy from CI'
+          git config user.email ''
+          git add .
+          git commit -m "Deploy ${GITHUB_SHA} to gh-pages"
+          
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+          eval "$(ssh-agent)"
+          sleep 1
+          echo "$GITHUB_DEPLOY_KEY" | base64 -d > deploy_key
+          chmod 0600 deploy_key
+          ssh-add deploy_key
+          
+          git push -f git@github.com:Ekleog/yuubind master:gh-pages
