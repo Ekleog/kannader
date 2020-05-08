@@ -24,7 +24,7 @@ impl Domain {
     }
 
     pub fn parse_slice(b: &[u8]) -> Result<Domain, ParseError> {
-        let b = Bytes::from(b);
+        let b = Bytes::copy_from_slice(b);
         nom_to_result(hostname(ByteSlice::from(&b)))
     }
 }

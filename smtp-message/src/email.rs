@@ -29,7 +29,7 @@ impl Email {
     }
 
     pub fn parse_slice(b: &[u8]) -> Result<Email, ParseError> {
-        let b = Bytes::from(b);
+        let b = Bytes::copy_from_slice(b);
         nom_to_result(email(ByteSlice::from(&b)))
     }
 

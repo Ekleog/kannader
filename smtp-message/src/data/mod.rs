@@ -90,7 +90,7 @@ mod tests {
             }
             eprintln!("Moving on the wire: {:?}", on_the_wire);
             let received = block_on(async {
-                let mut stream = stream::iter(on_the_wire.into_iter().map(BytesMut::from)).prependable();
+                let mut stream = stream::iter(on_the_wire.into_iter().map(|b| BytesMut::from(&b[..]))).prependable();
                 let mut stream = DataStream::new(&mut stream);
                 let mut res = BytesMut::new();
                 while let Some(i) = stream.next().await {
@@ -102,7 +102,7 @@ mod tests {
             if !end_with_crlf && !raw_input.is_empty() {
                 raw_input.extend_from_slice(b"\r\n");
             }
-            eprintln!("Expected: {:?}", Bytes::from(&raw_input[..]));
+            eprintln!("Expected: {:?}", BytesMut::from(&raw_input[..]));
             received == raw_input
         }
     }

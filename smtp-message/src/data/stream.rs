@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use futures::prelude::*;
 
 use crate::streamext::Prependable;
@@ -172,7 +172,7 @@ where
 
             // Send the buffer if we have something to send
             match split {
-                BufSplit::Nowhere if self.buf.len() > 0 => return Ready(Some(self.buf.take())),
+                BufSplit::Nowhere if self.buf.len() > 0 => return Ready(Some(self.buf.split())),
                 BufSplit::Nowhere => (), // Continue to read more data if nothing to send
                 BufSplit::Eof(x) => {
                     let res = self.buf.split_to(x);
@@ -286,7 +286,7 @@ mod tests {
             let mut v = v;
             v.extend_from_slice(&[vec![b'\r', b'\n', b'.', b'\r', b'\n']]);
             let r = block_on(async {
-                let mut stream = stream::iter(v.into_iter().map(BytesMut::from)).prependable();
+                let mut stream = stream::iter(v.into_iter().map(|b| BytesMut::from(&b[..]))).prependable();
                 let mut stream = DataStream::new(&mut stream);
                 let mut res = BytesMut::new();
                 while let Some(i) = stream.next().await {

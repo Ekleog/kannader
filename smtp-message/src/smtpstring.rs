@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use std::{cmp::min, io, ops::Add, slice};
 
 use crate::sendable::Sendable;
@@ -21,14 +21,14 @@ impl From<Vec<u8>> for SmtpString {
 // TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a [u8]> for SmtpString {
     fn from(b: &'a [u8]) -> SmtpString {
-        SmtpString(Bytes::from(b))
+        SmtpString(Bytes::copy_from_slice(b))
     }
 }
 
 // TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a str> for SmtpString {
     fn from(s: &'a str) -> SmtpString {
-        SmtpString(Bytes::from(s.as_bytes()))
+        SmtpString(Bytes::copy_from_slice(s.as_bytes()))
     }
 }
 
@@ -63,7 +63,7 @@ impl SmtpString {
     pub fn byte_chunks(&self, bytes: usize) -> impl Iterator<Item = SmtpString> {
         let copy = self.0.clone();
         (0..(self.byte_len() + bytes - 1) / bytes)
-            .map(move |i| SmtpString(copy.slice(i * bytes, min(copy.len(), (i + 1) * bytes))))
+            .map(move |i| SmtpString(copy.slice((i * bytes)..min(copy.len(), (i + 1) * bytes))))
     }
 }
 
@@ -78,7 +78,9 @@ impl Add<SmtpString> for SmtpString {
     type Output = SmtpString;
 
     fn add(mut self, rhs: SmtpString) -> SmtpString {
-        self.0.extend_from_slice(&rhs.0);
+        let mut b = BytesMut::from(&self.0[..]);
+        b.extend_from_slice(&rhs.0);
+        self.0 = b.into();
         self
     }
 }

@@ -110,7 +110,7 @@ impl smtp_server::Config<()> for FuzzConfig {
 // easier for the fuzzer
 fuzz_target!(|data: Vec<Vec<u8>>| {
     let chunks = data.into_iter().map(|d| {
-        let res = BytesMut::from(d);
+        let res = BytesMut::from(&d[..]);
         // println!("Sending chunk {:?}", res);
         res
     });

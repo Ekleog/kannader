@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{buf::BufMutExt, Bytes, BytesMut};
 use futures::prelude::*;
 
 use smtp_message::{Command, DataStream, MailCommand, Prependable, RcptCommand, ReplyLine};
@@ -368,7 +368,7 @@ mod tests {
             let mut resp = Vec::new();
             let mut resp_sink = Box::pin((&mut resp).sink_map_err(|_| ()));
             executor::block_on(interact(stream, resp_sink.as_mut(), (), &mut cfg)).unwrap();
-            let resp = resp.into_iter().concat();
+            let resp = resp.into_iter().map(|b| BytesMut::from(&b[..])).concat();
             println!("Expecting\n---\n{}---", std::str::from_utf8(out).unwrap());
             println!("Got\n---\n{}---", std::str::from_utf8(&resp).unwrap());
             assert_eq!(resp, out);

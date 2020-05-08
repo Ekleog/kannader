@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use futures::prelude::*;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -48,7 +48,7 @@ impl<S: Sink<Bytes> + Unpin> DataSink<S> {
                 }
                 Some(pos) => {
                     // Send everything until and including the '.'
-                    self.sink.send(item.slice_to(pos + 1)).await?;
+                    self.sink.send(item.slice(0..(pos + 1))).await?;
                     // Now send all the remaining stuff by going through the loop again
                     // The escaping is done by the fact the '.' was already sent once, and yet left
                     // in `item` to be sent again.
