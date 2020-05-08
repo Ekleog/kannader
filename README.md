@@ -11,4 +11,9 @@ TODO: (A) list the RFCs and their status of implementation
 
 ## Community
 
-- IRC channel `#yuubind` on [Freenode](https://freenode.net/)
+### IRC 
+
+Join `#yuubind` on [Freenode](https://freenode.net/)
+
+- [online client](https://kiwiirc.com/nextclient/irc.freenode.net/#yuubind)),
+- `#freenode_#yuubind:matrix.org` to join from [Matrix](https://matrix.org/).

@@ -1,8 +1,6 @@
-# Design Principles
+# Security
 
-## Security
-
-### No high privilege - no root
+## No high privilege - no root
 
 For historical reasons smtpd servers required root privilege to run. This
 necessity was explained by several things:
@@ -39,7 +37,8 @@ to the user. Very likely the mail itself is stored in a virtual mailboxes, owned
 by one user (usually `vmail`)
 
 This practially obsoletes the necessity to support mbox or Maildir in SMTP
-server. Accepted mail should just be handed over to MDA via LMTP.
+server. Accepted mail can be handed over to MDA via LMTP or piped into another
+executable.
 
 One might argue that privilege separation is still necessary to ensure security
 and separation of concerns (even Rust might have volunerabilities discovered in
@@ -49,65 +48,19 @@ the tool that is designed to orchestrate processes.
 All this makes it possible to run SMTP server as a non-privileg user (or set of 
 non-privileged users)
 
-### Safe Programming Languate - Rust
+## Safe Programming Language - Rust
 
+TODO: (C) expand why Rust
 
-### Deprecate legacy interfaces - no mbox, .forward and alike
+## Deprecate legacy interfaces - no mbox, .forward and alike
 
+TODO: (C) expand why lagacy interfaces negaively impact security
 
-## Simplicity
+> I think several of these errata help demonstrate that principles like
+> eliminating legacy interfaces and reducing complexity are vital to
+> maintaining security. 
 
-Do not re-invent the wheel.
-
-- Do not orchestrate processes - offload this work to
-  the OS service manager.
-- Don't do MDA's work - let MDA deliver messages to users. Hand the mail to MDA
-  via LMTP
-
-## Configurability
-
-Present discoverable, structured and flexible configuration. 
-
-(ideas to expand: 
-- don't be like postfix's mess
-- don't force user into a limited config like OpenSMTPD to allow filters as
-  escape hatch later.
-- be more like awesomewm with lua
-)
-
-
-
-# High-Level Architecure
-
-## Tier 1
-
-`smtp-server` - exposes an `interact` function, that takes an input
-stream, an output sink (defined by the `futures` crate) that are assumed to be
-bound to an SMTP client, and handles the SMTP interaction with this single
-client.
-
-`smtp-message` - bytes-to-command parsing
-
-`smtp-queue`  - queue
-
-`smtp-client` - relaying 
-
-
-## Tier 2 
-
-`api` - expose API of Tier 1 crates
-
-`config` - interact with API with a scripted language (yet to be determined which one)
-
-
-## Tier 3
-
-- binary targets
-
-- library targets 
-
-
-
-
+[rethinking openbsd security](https://flak.tedunangst.com/post/rethinking-openbsd-security) 
+by Ted Unangst
 
 

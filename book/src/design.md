@@ -13,3 +13,11 @@ issue about that!
 And, on the other hand, if there is an aspect of the design of yuubind
 that you do not understand, it probably should have an answer in this
 section.
+
+
+## Guiding Principles
+
+- Security
+- Simplicity
+- Flexible Configuration
+
