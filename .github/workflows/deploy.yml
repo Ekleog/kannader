@@ -34,7 +34,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
           eval "$(ssh-agent)"
           sleep 1
-          echo "$GITHUB_DEPLOY_KEY" | base64 -d > deploy_key
+          echo "$GITHUB_DEPLOY_KEY" > deploy_key
           chmod 0600 deploy_key
           ssh-add deploy_key
           
