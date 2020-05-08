@@ -9,7 +9,7 @@ description = "Asynchronous SMTP server library"
 edition = "2018"
 
 [dependencies]
-bytes = "0.4.6"
+bytes = "0.5.4"
 futures = "0.3.4"
 itertools = "0.7.8"
 
