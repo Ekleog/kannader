@@ -41,10 +41,10 @@ considered in the first design of yuubind's configuration format.
 However, Lua has some big issues: the only good implementations that
 exist are all written in C, and running such code unsandboxed would go
 against yuubind's safety motto. It would be surprising if not a single
-security flaw was present in Lua. Another major issue of Lua is its
-exoticity. While other programs, like rspamd or nginx, already use or
-allow Lua scripting, system administrators usually are not fluent in
-Lua.
+security flaw was present in Lua[^security]. Another major issue of
+Lua is its exoticity. While other programs, like rspamd or nginx,
+already use or allow Lua scripting, system administrators usually are
+not fluent in Lua.
 
 This led to the research of another option. Option which arose with
 the idea of sandboxing a Lua VM: it is possible to run any kind of
@@ -93,11 +93,11 @@ instance, it is possible to have the wasm configuration blob read a
 Lua file, and then run it through a Lua interpreter, thus making the
 total flexibility available to the end-user like direct Lua hooks
 would have done, to the expense of some performance by running the Lua
-VM[^1].
+VM[^overhead].
 
 Or, another wasm configuration blob could read a Python file, and run
-it through MicroPython[^2]. This provides a language that will probably be
-more familiar to the sysadmin, yet usable for most
+it through MicroPython[^python]. This provides a language that will
+probably be more familiar to the sysadmin, yet usable for most
 non-maximal-performance use cases.
 
 But it is possible to do more than just have configuration blobs that
@@ -116,22 +116,27 @@ configuration blob, in order to make it much easier to write. It
 includes almost no flexibility, but should make the configuration as
 simple to write as possible.
 
-[^1]: The wasm sandbox's overhead is probably lower than LuaJIT's
-sandbox's overhead, while providing much better security, which makes
-it a tool of choice for flexibility and performance. However, the fact
-that LuaJIT is most likely very far from being available on wasm does
-mean that only a non-JIT version of a Lua VM can be run on top of
-wasm… which implies that Lua interpretation will be much slower.
-However, this should hopefully not be a problem, as for all
-non-intensive use cases the time spent in hooks will probably not be a
-concern, and intensive use cases whose use case is not covered by an
-existing configuration blob will probably write and compile their own.
+[^security]: Or in the configuration Lua code, vulnerability that the
+attacker could then exploit over the network, with this issue being
+more likely the less the configuration code is sandboxed.
 
-[^2]: While it may appear surprising to suggest MicroPython insted of
-a regular CPython instance, this is based on the fact that yuubind
-needs to have one interpreter instance per message in flight, to make
-sure there is no interference between two messages. As such, the
-CPython resident memory size would probably be prohibitive for use
+[^overhead]: The wasm sandbox's overhead is probably lower than
+LuaJIT's sandbox's overhead, while providing much better security,
+which makes it a tool of choice for flexibility and performance.
+However, the fact that LuaJIT is most likely very far from being
+available on wasm does mean that only a non-JIT version of a Lua VM
+can be run on top of wasm… which implies that Lua interpretation will
+be much slower. However, this should hopefully not be a problem, as
+for all non-intensive use cases the time spent in hooks will probably
+not be a concern, and intensive use cases whose use case is not
+covered by an existing configuration blob will probably write and
+compile their own.
+
+[^python]: While it may appear surprising to suggest MicroPython
+insted of a regular CPython instance, this is based on the fact that
+yuubind needs to have one interpreter instance per message in flight,
+to make sure there is no interference between two messages. As such,
+the CPython resident memory size would probably be prohibitive for use
 cases that see a high number of emails flow through. Use cases that
 only handle few emails would probably work well with CPython, but, the
 differences between CPython and MicroPython not being that important
