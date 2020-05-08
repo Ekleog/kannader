@@ -60,7 +60,7 @@ fuzz_target!(|data: Vec<Vec<u8>>| {
                     out.push(w[2]);
                 }
             }
-            (BytesMut::from(out), BytesMut::from(&raw_data[rem..]))
+            (BytesMut::from(&out[..]), BytesMut::from(&raw_data[rem..]))
         }
     });
 

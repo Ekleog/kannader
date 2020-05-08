@@ -9,7 +9,7 @@ description = "Line-oriented parser and builder for SMTP protocol messages"
 edition = "2018"
 
 [dependencies]
-bytes = "0.4"
+bytes = "0.5.4"
 failure = "0.1"
 failure_derive = "0.1"
 futures = "0.3.4"

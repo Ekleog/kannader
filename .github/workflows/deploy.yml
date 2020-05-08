@@ -1,0 +1,40 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  pages:
+    name: Push documentation to pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v8
+      - run: nix-shell --pure --run 'cargo doc --all --all-features'
+      - run: nix-shell --pure --run 'mdbook build book'
+      - run: mv target/doc doc/dev-doc
+      - run: mv book/book doc/book
+      - name: Deploy to GitHub
+        env:
+          GITHUB_DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          
+          touch doc/.nojekyll
+          cd doc
+          rm -rf .git
+          git init
+          git config user.name 'Deploy from CI'
+          git config user.email ''
+          git add .
+          git commit -m "Deploy ${GITHUB_SHA} to gh-pages"
+          
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+          eval "$(ssh-agent)"
+          sleep 1
+          echo "$GITHUB_DEPLOY_KEY" > deploy_key
+          chmod 0600 deploy_key
+          ssh-add deploy_key
+          
+          git push -f git@github.com:Ekleog/yuubind master:gh-pages
