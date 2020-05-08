@@ -9,4 +9,6 @@ TODO: (A) list the RFCs and their status of implementation
 
 - [Design overview](doc/design.md)
 
+## Community
 
+- IRC channel `#yuubind` on [Freenode](https://freenode.net/)

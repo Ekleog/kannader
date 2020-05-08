@@ -29,12 +29,12 @@ But all of the above are rudiments of the past.
 [Rise and Fall of the Operating System](http://www.fixup.fi/misc/usenix-login-2015/login_oct15_02_kantee.pdf)
 
 The very action of opening TCP port 25 can be delegated to a very small
-privileged program or service manager, that is runs with high privilege
-anyway(systemd) SMTP server can accept the passed descriptor and use it without
-ever having to escalate privilege.
+privileged program or OS service manager. OS service manager runs with root
+privilege anyway. SMTP server can accept the passed descriptor and use it
+without ever having to escalate privilege.
 
 Nowadays people are not logging in to the mail server via ssh to check mail.
-Modern mail servers are running MDAs like dovecot to present an IMAP iterface
+Modern mail servers are running MDAs like Dovecot to present an IMAP interface
 to the user. Very likely the mail itself is stored in a virtual mailboxes, owned 
 by one user (usually `vmail`)
 
