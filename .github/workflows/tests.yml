@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v8
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'cargo fmt --all -- --check'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= cargo fmt --all -- --check'
 
   cargo-tests:
     name: Cargo Tests
@@ -22,9 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v8
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'cargo build --all --all-features'
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'cargo test --all --all-features'
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'cargo doc --all --all-features'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= cargo build --all --all-features'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= cargo test --all --all-features'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= cargo doc --all --all-features'
 
   mdbook-tests:
     name: Book Tests
@@ -32,5 +32,5 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v8
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'mdbook build book'
-      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'mdbook test book'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= mdbook build book'
+      - run: nix-shell --pure --run 'SSL_CERT_FILE= mdbook test book'
