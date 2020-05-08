@@ -11,8 +11,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v8
-      - run: nix-shell --pure --run 'cargo doc --all --all-features'
-      - run: nix-shell --pure --run 'mdbook build book'
+      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'cargo doc --all --all-features'
+      - run: nix-shell --pure --keep SSL_CERT_FILE --run 'mdbook build book'
       - run: mv target/doc doc/dev-doc
       - run: mv book/book doc/book
       - name: Deploy to GitHub
