@@ -36,7 +36,7 @@ Modern mail servers are running MDAs like Dovecot to present an IMAP interface
 to the user. Very likely the mail itself is stored in a virtual mailboxes, owned 
 by one user (usually `vmail`)
 
-This practially obsoletes the necessity to support mbox or Maildir in SMTP
+This practically obsoletes the necessity to support mbox or Maildir in the SMTP
 server. Accepted mail can be handed over to MDA via LMTP or piped into another
 executable.
 
