@@ -31,7 +31,7 @@ privileged program or OS service manager. OS service managers run with root
 privilege anyway. The SMTP server can accept the passed descriptor and use it
 without ever having to escalate privilege.
 
-Nowadays people are not logging in to the mail server via ssh to check mail.
+Nowadays people are do not usually login to their mail server via ssh to check their mail.
 Modern mail servers are running MDAs like Dovecot to present an IMAP interface
 to the user. Very likely the mail itself is stored in a virtual mailboxes, owned 
 by one user (usually `vmail`)
