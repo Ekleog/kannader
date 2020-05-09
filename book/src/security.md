@@ -27,7 +27,7 @@ But all of the above are rudiments of the past.
 [Rise and Fall of the Operating System](http://www.fixup.fi/misc/usenix-login-2015/login_oct15_02_kantee.pdf)
 
 The very action of opening TCP port 25 can be delegated to a very small
-privileged program or OS service manager. OS service manager runs with root
+privileged program or OS service manager. OS service managers run with root
 privilege anyway. SMTP server can accept the passed descriptor and use it
 without ever having to escalate privilege.
 
