@@ -225,31 +225,22 @@ where
 
     async fn scan_inflight(&self) {
         let mut found_inflight_stream = self.q.storage.find_inflight().await;
-        while let Some(found_inflight) = found_inflight_stream.next().await {
+        while let Some(inflight) = found_inflight_stream.next().await {
             let this = self.clone();
             smol::Task::spawn(async move {
                 smol::Timer::after(this.q.config.found_inflight_check_delay()).await;
-                io_retry_loop!(
-                    this,
-                    found_inflight,
-                    |i| match this.q.storage.send_cancel(i).await {
-                        // Mail is still waiting, probably was inflight
-                        // during a crash
-                        Ok(Some(queued)) => {
-                            this.send(queued).await;
-                            Ok(())
-                        }
+                let queued =
+                    io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
+                match queued {
+                    // Mail is still waiting, probably was inflight
+                    // during a crash
+                    Some(queued) => this.send(queued).await,
 
-                        // Mail is no longer waiting, probably was
-                        // inflight because another process was currently
-                        // sending it
-                        Ok(None) => Ok(()),
-
-                        // Didn't manage to cancel, the mail is still
-                        // inflight, try again to cancel
-                        Err((inflight, e)) => Err((inflight, e)),
-                    }
-                );
+                    // Mail is no longer waiting, probably was
+                    // inflight because another process was currently
+                    // sending it
+                    None => (),
+                }
             })
             .detach();
         }
