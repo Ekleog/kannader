@@ -1,4 +1,4 @@
-# High-Level Architecure Overview
+# High-Level Architecture Overview
 
 `smtp-server` - exposes an `interact` function, that takes an input
 stream, an output sink (defined by the `futures` crate) that are assumed to be
@@ -14,5 +14,4 @@ client.
 `api` - expose API to consumers
 
 `config` - interact with API with a scripted language (yet to be determined which one)
-
 
