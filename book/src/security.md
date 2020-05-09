@@ -5,7 +5,7 @@
 For historical reasons smtpd servers required root privilege to run. This
 necessity was explained by several things:
 
-- the ability to use TCP port 25 on Unix-like systems requires root privilge.
+- the ability to use TCP port 25 on Unix-like systems requires root privilege.
   (on modern Linux at least `CAP_NET_BIND_SERVICE` capability is requred)
 
 - the ability to ignore DAC and write mail to user's directory requries root
@@ -62,5 +62,4 @@ TODO: (C) expand why lagacy interfaces negaively impact security
 
 [rethinking openbsd security](https://flak.tedunangst.com/post/rethinking-openbsd-security) 
 by Ted Unangst
-
 
