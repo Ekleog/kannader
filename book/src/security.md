@@ -41,7 +41,7 @@ server. Accepted mail can be handed over to MDA via LMTP or piped into another
 executable.
 
 One might argue that privilege separation is still necessary to ensure security
-and separation of concerns (even Rust might have volunerabilities discovered in
+and separation of concerns (even Rust might have vulnerabilities discovered in
 the future). But this also can be delegated to the OS's service managers - it 
 is a tool that is designed to orchestrate processes.
 
