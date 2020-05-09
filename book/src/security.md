@@ -13,7 +13,7 @@ necessity was explained by several things:
 
 - amusingly, the ability to drop privilege requires root too. 
   (to employ privilege separation techniques, e.g. spawn child
-  processes and set their UID and GID to a non-privileged user root or `CAP_SETUID`
+  processes and set their UID and GID to a non-privileged user, root or `CAP_SETUID`
   and `CAP_SETGID` capabilities are needed)
 
 
