@@ -27,7 +27,6 @@ pub fn nom_to_result<T>(d: nom::IResult<ByteSlice, T>) -> Result<T, ParseError> 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::ParseError::*;
-        // TODO: (B) make error display nicer with nom
         match self {
             &DidNotConsumeEverything(rem) => {
                 write!(f, "Input contains {} trailing characters", rem)

@@ -61,7 +61,6 @@ where
     // If there has been an early EOF in the incoming stream, return Err(()).
     pub fn complete(&mut self) -> Result<(), ()> {
         if self.state == DataStreamState::EarlyFin {
-            // TODO: (B) distinguish from successful completion?
             self.state = DataStreamState::Completed;
             return Err(());
         }
@@ -84,7 +83,6 @@ where
     }
 }
 
-// TODO: (B) remove unpin marker hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
 impl<'a, S> Stream for DataStream<'a, S>
 where
     S: Unpin + Stream<Item = BytesMut>,
@@ -216,7 +214,7 @@ where
                     self.state = DataStreamState::EarlyFin;
                     return Ready(None);
                 }
-                Ready(Some(b)) => self.buf.unsplit(b), // TODO: (B) optimize with `self.buf = b`?
+                Ready(Some(b)) => self.buf.unsplit(b),
             }
         }
     }

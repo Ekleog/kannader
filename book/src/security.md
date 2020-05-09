@@ -11,7 +11,7 @@ necessity was explained by several things:
 - the ability to ignore DAC and write mail to user's directory requries root
   (`CAP_CHOWN` and `CAP_DAC_OVERRIDE`)
 
-- amusingly, the ability to drop privilege requires root too. 
+- amusingly, the ability to drop privilege requires root too.
   (to employ privilege separation techniques, e.g. spawn child
   processes and set their UID and GID to a non-privileged user, root or `CAP_SETUID`
   and `CAP_SETGID` capabilities are needed)
@@ -33,7 +33,7 @@ without ever having to escalate privilege.
 
 Nowadays people are do not usually login to their mail server via ssh to check their mail.
 Modern mail servers are running MDAs like Dovecot to present an IMAP interface
-to the user. Very likely the mail itself is stored in a virtual mailboxes, owned 
+to the user. Very likely the mail itself is stored in a virtual mailboxes, owned
 by one user (usually `vmail`)
 
 This practically obsoletes the necessity to support mbox or Maildir in the SMTP
@@ -42,23 +42,19 @@ executable.
 
 One might argue that privilege separation is still necessary to ensure security
 and separation of concerns (even Rust might have vulnerabilities discovered in
-the future). But this also can be delegated to the OS's service managers - it 
+the future). But this also can be delegated to the OS's service managers - it
 is a tool that is designed to orchestrate processes.
 
-All this makes it possible to run the SMTP server as a non-privileged user (or set of 
+All this makes it possible to run the SMTP server as a non-privileged user (or set of
 non-privileged users)
 
 ## Safe Programming Language - Rust
 
-TODO: (C) expand why Rust
-
 ## Deprecate legacy interfaces - no mbox, .forward and alike
-
-TODO: (C) expand why lagacy interfaces negaively impact security
 
 > I think several of these errata help demonstrate that principles like
 > eliminating legacy interfaces and reducing complexity are vital to
-> maintaining security. 
+> maintaining security.
 
-[rethinking openbsd security](https://flak.tedunangst.com/post/rethinking-openbsd-security) 
+[rethinking openbsd security](https://flak.tedunangst.com/post/rethinking-openbsd-security)
 by Ted Unangst

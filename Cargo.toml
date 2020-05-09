@@ -8,6 +8,3 @@ lto = true
 
 [profile.bench]
 lto = true
-
-# TODO: (C) setup clippy
-# TODO: (C) setup cargo-bench

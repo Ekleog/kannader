@@ -106,8 +106,6 @@ impl smtp_server::Config<()> for FuzzConfig {
     }
 }
 
-// TODO: (B) Take in a list of commands instead of raw bytes, should make it
-// easier for the fuzzer
 fuzz_target!(|data: Vec<Vec<u8>>| {
     let chunks = data.into_iter().map(|d| {
         let res = BytesMut::from(&d[..]);

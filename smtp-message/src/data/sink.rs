@@ -13,8 +13,6 @@ pub struct DataSink<S> {
     state: DataSinkState,
 }
 
-// TODO: (A) remove Unpin bound hide:https://github.com/rust-lang-nursery/futures-rs/issues/1547
-// TODO: (B) make that a Sink impl once the API is no longer stupidly complex
 impl<S: Sink<Bytes> + Unpin> DataSink<S> {
     pub fn new(sink: S) -> DataSink<S> {
         DataSink {
@@ -24,12 +22,10 @@ impl<S: Sink<Bytes> + Unpin> DataSink<S> {
     }
 
     pub async fn send(&mut self, mut item: Bytes) -> Result<(), S::Error> {
-        // TODO: (B) do not flush all the time
         use self::DataSinkState::*;
         loop {
             let mut breakat = None;
             for (pos, c) in item.iter().enumerate() {
-                // TODO: (B) using some search function might be faster
                 match (self.state, c) {
                     (_, b'\r') => self.state = CrPassed,
                     (CrPassed, b'\n') => self.state = CrLfPassed,

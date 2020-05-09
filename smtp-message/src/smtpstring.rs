@@ -18,14 +18,12 @@ impl From<Vec<u8>> for SmtpString {
     }
 }
 
-// TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a [u8]> for SmtpString {
     fn from(b: &'a [u8]) -> SmtpString {
         SmtpString(Bytes::copy_from_slice(b))
     }
 }
 
-// TODO: (C) specialize for 'static or remove?
 impl<'a> From<&'a str> for SmtpString {
     fn from(s: &'a str) -> SmtpString {
         SmtpString(Bytes::copy_from_slice(s.as_bytes()))
@@ -37,7 +35,6 @@ impl SmtpString {
         SmtpString(Bytes::from_static(b))
     }
 
-    // TODO: (C) add hint for length in Sendable
     pub fn from_sendable<T: Sendable>(t: &T) -> io::Result<SmtpString> {
         let mut v = Vec::new();
         t.send_to(&mut v)?;
@@ -73,7 +70,6 @@ impl Sendable for SmtpString {
     }
 }
 
-// TODO: (C) either remove or optimize
 impl Add<SmtpString> for SmtpString {
     type Output = SmtpString;
 

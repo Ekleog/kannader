@@ -24,7 +24,6 @@ impl HelpCommand {
     }
 }
 
-// TODO: (B) this opt!(…) allows HELPfoo, which is wrong, like other commands
 named!(pub command_help_args(ByteSlice) -> HelpCommand, do_parse!(
     tag_no_case!("HELP") >> opt!(one_of!(spaces!())) >>
     res: take_until!("\r\n") >>

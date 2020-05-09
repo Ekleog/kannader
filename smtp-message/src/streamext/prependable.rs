@@ -15,7 +15,6 @@ impl<S: Stream> Prependable<S> {
         }
     }
 
-    // TODO: have an actual error instead of ()
     pub fn prepend(self: &mut Self, item: S::Item) -> Result<(), ()> {
         if self.prepended.is_some() {
             Err(())
@@ -30,10 +29,9 @@ impl<S: Stream> Stream for Prependable<S> {
     type Item = S::Item;
 
     fn poll_next(mut self: Pin<&mut Self>, lw: &mut Context) -> Poll<Option<S::Item>> {
-        // TODO: (A) check that this get_unchecked_mut is safe
-        // As `self.prepended` is never taken out of a `Pin<>`, it should be OK, but
-        // that would definitely need checking.
-        // If it isn't, `S::Item` would have to be asserted `Unpin`.
+        // As `self.prepended` is never taken out of a `Pin<>`, this
+        // should be OK, but that would definitely need checking. If
+        // it weren't, `S::Item` would have to be asserted `Unpin`.
         let try_take = unsafe { self.as_mut().get_unchecked_mut().prepended.take() };
         if let Some(item) = try_take {
             Poll::Ready(Some(item))

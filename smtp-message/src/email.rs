@@ -9,7 +9,6 @@ use crate::{
     smtpstring::SmtpString,
 };
 
-// TODO: (C) Make equivalent emails (modulo escaping) be equal?
 #[derive(Debug, Eq, PartialEq)]
 pub struct Email {
     localpart: SmtpString,
@@ -82,7 +81,6 @@ impl Email {
 }
 
 impl Sendable for Email {
-    // TODO: (B) only store the overall string and a pointer to the @
     fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
         w.write_all(&self.localpart.bytes()[..])?;
         if let Some(ref host) = self.hostname {

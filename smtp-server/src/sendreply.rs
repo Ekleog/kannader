@@ -5,9 +5,7 @@ use itertools::Itertools;
 
 use smtp_message::{IsLastLine, ReplyCode, ReplyLine, SmtpString};
 
-// TODO: (B) move to smtp_message's Reply builder id:tcHW
 // Panics if `text` has a byte not in {9} \union [32; 126]
-// TODO: (B) move sending logic to smtp_message::Reply
 pub async fn send_reply<W>(
     mut writer: Pin<&mut W>,
     (code, text): (ReplyCode, SmtpString),

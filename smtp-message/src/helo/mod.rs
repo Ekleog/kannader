@@ -49,8 +49,6 @@ mod tests {
 
     use crate::smtpstring::SmtpString;
 
-    // TODO: (B) merge implementation and tests for EHLO/HELO, NOOP/VRFY, etc.
-
     #[test]
     fn valid_command_helo_args() {
         let tests = vec![

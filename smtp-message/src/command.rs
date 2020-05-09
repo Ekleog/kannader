@@ -7,7 +7,6 @@ use crate::{
     sendable::Sendable,
 };
 
-// TODO: (C) factor code over all these with a macro or similar
 use crate::{
     data::{command_data_args, DataCommand},
     ehlo::{command_ehlo_args, EhloCommand},

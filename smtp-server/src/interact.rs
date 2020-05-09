@@ -13,9 +13,6 @@ use crate::{
     sendreply::send_reply,
 };
 
-// TODO: (B) allow Reader and Writer to return errors?
-// TODO: (B) give up on having `Stream`s and `Sink`s until async streams and
-// async sinks land
 pub async fn interact<'a, Reader, Writer, UserProvidedMetadata, Cfg>(
     incoming: Reader,
     outgoing: Pin<&'a mut Writer>,
@@ -24,16 +21,14 @@ pub async fn interact<'a, Reader, Writer, UserProvidedMetadata, Cfg>(
 ) -> Result<(), Writer::Error>
 where
     Reader: 'a + Send + Unpin + Stream<Item = BytesMut>,
-    Writer: 'a + Sink<Bytes, Error = ()>, // TODO: allow the user to set any error they want
+    Writer: 'a + Sink<Bytes, Error = ()>,
     Cfg: 'a + Config<UserProvidedMetadata>,
 {
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
     let mut writer = outgoing.with(move |c: ReplyLine| {
         async move {
-            // TODO: (C) make this an async closure when stable
             let mut w = BytesMut::with_capacity(c.byte_len()).writer();
-            // TODO: (B) refactor Sendable to send to a sink instead of to a Write
             c.send_to(&mut w).unwrap();
             // By design of BytesMut::writer, this cannot fail so long as the buffer
             // has sufficient capacity. As if this is not respected it is a clear
@@ -47,9 +42,6 @@ where
     let mut reader = Prependable::new(incoming);
 
     send_reply(writer.as_mut(), cfg.welcome_banner()).await?;
-    // TODO: (C) optimize by trying parsing directly and not buffering until crlf
-    // Rationale: it allows to make parsing 1-pass in most cases, which is more
-    // efficient
     while let Some(line) = next_crlf_line(&mut reader).await {
         handle_line(
             &mut reader,
@@ -61,12 +53,10 @@ where
         )
         .await?;
     }
-    // TODO: (B) warn of unfinished commands?
 
     Ok(())
 }
 
-// TODO: (A) allow for errors in sinks & streams
 async fn handle_line<'a, U, W, R, Cfg>(
     reader: &'a mut Prependable<R>,
     mut writer: Pin<&'a mut W>,
@@ -84,11 +74,10 @@ where
     match cmd {
         Ok(Command::Mail(MailCommand {
             mut from,
-            params: _params, // TODO: (C) this should be used
+            params: _params,
         })) => {
             if mail_meta.is_some() {
                 send_reply(writer, cfg.already_in_mail()).await?;
-            // TODO: (B) check we're not supposed to drop mail_meta
             } else {
                 cfg.new_mail().await;
                 match cfg.filter_from(&mut from, conn_meta).await {
@@ -105,7 +94,7 @@ where
         }
         Ok(Command::Rcpt(RcptCommand {
             mut to,
-            params: _params, // TODO: (C) this should be used
+            params: _params,
         })) => {
             if let Some(ref mut mail_meta_unw) = *mail_meta {
                 match cfg.filter_to(&mut to, mail_meta_unw, conn_meta).await {
@@ -131,7 +120,6 @@ where
                             let decision = cfg
                                 .handle_mail(&mut data_stream, mail_meta_unw, conn_meta)
                                 .await;
-                            // TODO: (B) fail more elegantly on configuration error
                             assert!(data_stream.was_completed());
                             match decision {
                                 Decision::Accept => {
@@ -162,7 +150,6 @@ where
                 send_reply(writer, cfg.data_before_mail()).await?;
             }
         }
-        // TODO: (B) implement all the parsed commands and remove this case
         Ok(_) => {
             send_reply(writer, cfg.command_unimplemented()).await?;
         }

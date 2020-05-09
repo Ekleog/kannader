@@ -77,6 +77,4 @@ mod tests {
             assert_eq!(res.0, res_reference);
         }
     }
-
-    // TODO: (B) quickcheck build -> parse is a noop
 }

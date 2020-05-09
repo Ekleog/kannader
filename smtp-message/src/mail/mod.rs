@@ -108,7 +108,6 @@ mod tests {
         assert!(command_mail_args(ByteSlice::from(&b)).is_incomplete());
     }
 
-    // TODO: (B) quickcheck parse = generate for all
     #[test]
     fn valid_send_to() {
         let mut v = Vec::new();

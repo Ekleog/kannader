@@ -1,6 +1,4 @@
-# Simplicity 
-
-TODO: (C) expand on simplicity rationale
+# Simplicity
 
 Do not re-invent the wheel.
 

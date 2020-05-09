@@ -1,6 +1,5 @@
 #![type_length_limit = "4194304"]
 
-// TODO: (B) add deadlines
 extern crate bytes;
 extern crate futures;
 extern crate itertools;

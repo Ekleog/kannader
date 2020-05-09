@@ -10,7 +10,6 @@ use crate::{
     metadata::{ConnectionMetadata, MailMetadata},
 };
 
-// TODO: (B) replace all these Box by impl Trait syntax hide:impl-trait-in-trait
 pub trait Config<U> {
     fn new_mail<'a>(&'a mut self) -> Pin<Box<dyn 'a + Send + Future<Output = ()>>> {
         Box::pin(future::ready(()))
@@ -41,14 +40,12 @@ pub trait Config<U> {
     // Note: handle_mail *must* consume all of `stream` and call its `complete`
     // method to check that the data stream was properly closed and did not just
     // EOF too early. Things will panic otherwise.
-    // TODO: remove the Unpin bound?
     fn handle_mail<'a, S>(
         &'a mut self,
         stream: &'a mut DataStream<S>,
         meta: MailMetadata,
         conn_meta: &'a mut ConnectionMetadata<U>,
     ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
-    // TODO: make Send
     where
         S: 'a + Unpin + Stream<Item = BytesMut>;
 
@@ -58,8 +55,6 @@ pub trait Config<U> {
         SmtpString::from_static(b"Service ready")
     }
 
-    // TODO: (B) avoid concatenation here id:XIP2
-    // Technique: Have Reply take mutliple strings
     fn welcome_banner(&self) -> (ReplyCode, SmtpString) {
         (
             ReplyCode::SERVICE_READY,
@@ -67,7 +62,6 @@ pub trait Config<U> {
         )
     }
 
-    // TODO: (B) return Reply when it is a thing (and same for below) id:E4tJ
     fn okay(&self) -> (ReplyCode, SmtpString) {
         (ReplyCode::OKAY, SmtpString::from_static(b"Okay"))
     }
