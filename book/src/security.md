@@ -28,7 +28,7 @@ But all of the above are rudiments of the past.
 
 The very action of opening TCP port 25 can be delegated to a very small
 privileged program or OS service manager. OS service managers run with root
-privilege anyway. SMTP server can accept the passed descriptor and use it
+privilege anyway. The SMTP server can accept the passed descriptor and use it
 without ever having to escalate privilege.
 
 Nowadays people are not logging in to the mail server via ssh to check mail.
