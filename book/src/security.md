@@ -11,7 +11,7 @@ necessity was explained by several things:
 - the ability to ignore DAC and write mail to user's directory requries root
   (`CAP_CHOWN` and `CAP_DAC_OVERRIDE`)
 
-- amusingly, the ability to drop privilege requies root too. 
+- amusingly, the ability to drop privilege requires root too. 
   (to employ privilege separation techniques, e.g. spawn child
   processes and set their UID and GID to a non-privileged user root or `CAP_SETUID`
   and `CAP_SETGID` capabilities are needed)
