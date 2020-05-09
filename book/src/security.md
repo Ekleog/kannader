@@ -45,7 +45,7 @@ and separation of concerns (even Rust might have volunerabilities discovered in
 the future). But this also can be delegated to the OS's service managers - it 
 the tool that is designed to orchestrate processes.
 
-All this makes it possible to run SMTP server as a non-privileg user (or set of 
+All this makes it possible to run the SMTP server as a non-privileged user (or set of 
 non-privileged users)
 
 ## Safe Programming Language - Rust
