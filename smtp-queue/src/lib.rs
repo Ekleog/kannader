@@ -47,6 +47,7 @@ pub trait Config<U>: 'static + Send + Sync {
     async fn log_permanent_error(&self, id: QueueId, c: ReplyCode, err: &io::Error);
     async fn log_transient_error(&self, id: QueueId, c: ReplyCode, err: io::Error);
     async fn log_io_error(&self, id: QueueId, err: io::Error);
+    async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
     async fn log_too_big_duration(&self, id: QueueId, interval: Duration);
 
@@ -86,7 +87,7 @@ pub trait Storage<U>: 'static + Send + Sync {
     async fn send_start(
         &self,
         mail: Self::QueuedMail,
-    ) -> Result<Self::InflightMail, (Self::QueuedMail, io::Error)>;
+    ) -> Result<Option<Self::InflightMail>, (Self::QueuedMail, io::Error)>;
 
     async fn send_done(
         &self,
@@ -284,7 +285,15 @@ where
     }
 
     async fn try_send(&self, mail: S::QueuedMail) -> Result<(), S::QueuedMail> {
+        let id = mail.id();
         let inflight = io_retry_loop!(self, mail, |m| self.q.storage.send_start(m).await);
+        let inflight = match inflight {
+            Some(inflight) => inflight,
+            None => {
+                self.q.config.log_queued_mail_vanished(id).await;
+                return Ok(());
+            }
+        };
 
         let (inflight, meta, reader) =
             io_retry_loop!(self, inflight, |i| self.q.storage.read_inflight(i).await);
