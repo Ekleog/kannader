@@ -5,9 +5,13 @@ authors = ["Léo Gaspard <leo@gaspard.io>"]
 license = "MIT"
 categories = ["email", "network-programming"]
 keywords = ["queue", "smtp", "email"]
-description = "Queue for SMTP messages using tokio"
+description = "Queue for SMTP messages using smol"
+edition = "2018"
 
 [dependencies]
-bytes = "0.4.6"
+async-trait = "0.1.30"
+bytes = "0.5.4"
+chrono = "0.4.11"
+futures = "0.3.4"
 smtp-message = { path = "../smtp-message" }
-tokio = "0.1.5"
+smol = "0.1.4"
