@@ -1,7 +1,5 @@
 # Simplicity 
 
-Alternative names to section: UNIX-way apporach, KISS
-
 TODO: (C) expand on simplicity rationale
 
 Do not re-invent the wheel.
