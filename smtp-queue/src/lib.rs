@@ -49,7 +49,7 @@ pub trait Config<U>: 'static + Send + Sync {
     async fn log_io_error(&self, id: QueueId, err: io::Error);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
-    async fn log_too_big_duration(&self, id: QueueId, interval: Duration);
+    async fn log_too_big_duration(&self, id: QueueId, too_big: Duration, new: Duration);
 
     // The important thing is it must be longer than the time between
     // switching a mail to inflight and either completing it or
@@ -139,7 +139,7 @@ pub trait Transport<U>: 'static + Send + Sync {
         Reader: AsyncRead;
 }
 
-const INTERVAL_ON_TOO_BIG_DURATION_HR: i64 = 4;
+const INTERVAL_ON_TOO_BIG_DURATION: Duration = Duration::from_secs(4 * 3600);
 
 struct QueueImpl<C, S, T> {
     config: C,
@@ -273,11 +273,12 @@ where
             let interval = match chrono::Duration::from_std(interval) {
                 Ok(i) => i,
                 Err(_) => {
+                    let new_interval = INTERVAL_ON_TOO_BIG_DURATION;
                     self.q
                         .config
-                        .log_too_big_duration(mail.id(), interval)
+                        .log_too_big_duration(mail.id(), interval, new_interval)
                         .await;
-                    chrono::Duration::hours(INTERVAL_ON_TOO_BIG_DURATION_HR)
+                    chrono::Duration::from_std(INTERVAL_ON_TOO_BIG_DURATION).unwrap()
                 }
             };
             io_retry_loop_raw!(self, mail.id(), mail.schedule(Utc::now() + interval).await);
