@@ -1,6 +1,0 @@
-#!/bin/sh
-
-git ls-files | grep -v '^collect-todo$' | while read f; do
-    < "$f" grep -n TODO |
-        sed 's#\([0-9]*\):.*TODO[^ ]* \(.*\)$#\2 file:'"$f"' line:\1#'
-done > todo.txt
