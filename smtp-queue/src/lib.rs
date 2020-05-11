@@ -115,17 +115,18 @@ pub trait Storage<U>: 'static + Send + Sync {
 pub trait QueuedMail: Send + Sync {
     fn id(&self) -> QueueId;
 
-    async fn schedule(&self, at: DateTime<Utc>) -> Result<(), io::Error>;
+    async fn reschedule(
+        &self,
+        at: DateTime<Utc>,
+        last_attempt: Option<DateTime<Utc>>,
+    ) -> Result<(), io::Error>;
 
     fn scheduled_at(&self) -> DateTime<Utc>;
-    fn last_interval(&self) -> Duration;
+    fn last_attempt(&self) -> Option<DateTime<Utc>>;
 }
 
 pub trait InflightMail: Send + Sync {
     fn id(&self) -> QueueId;
-
-    fn was_scheduled_at(&self) -> DateTime<Utc>;
-    fn last_interval(&self) -> Duration;
 }
 
 #[async_trait]
@@ -280,27 +281,38 @@ where
     async fn send(&self, mail: S::QueuedMail) {
         let mut mail = mail;
         loop {
-            let interval = (mail.scheduled_at() - Utc::now())
+            let wait_time = (mail.scheduled_at() - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::from_secs(0));
-            smol::Timer::after(interval).await;
+            smol::Timer::after(wait_time).await;
             match self.try_send(mail).await {
                 Ok(()) => break,
                 Err(m) => mail = m,
             }
-            let interval = self.q.config.next_interval(mail.last_interval());
-            let interval = match chrono::Duration::from_std(interval) {
+            let this_attempt = Utc::now();
+            let last_interval = match mail.last_attempt() {
+                Some(last_attempt) => last_attempt - this_attempt,
+                None => chrono::Duration::seconds(0),
+            };
+            let last_interval = last_interval.to_std().unwrap_or(Duration::from_secs(0));
+            let next_interval = self.q.config.next_interval(last_interval);
+            let next_interval = match chrono::Duration::from_std(next_interval) {
                 Ok(i) => i,
                 Err(_) => {
-                    let new_interval = INTERVAL_ON_TOO_BIG_DURATION;
+                    let new_next_interval = INTERVAL_ON_TOO_BIG_DURATION;
                     self.q
                         .config
-                        .log_too_big_duration(mail.id(), interval, new_interval)
+                        .log_too_big_duration(mail.id(), next_interval, new_next_interval)
                         .await;
-                    chrono::Duration::from_std(INTERVAL_ON_TOO_BIG_DURATION).unwrap()
+                    chrono::Duration::from_std(next_interval).unwrap()
                 }
             };
-            io_retry_loop_raw!(self, mail.id(), mail.schedule(Utc::now() + interval).await);
+            let next_attempt = this_attempt + next_interval;
+            io_retry_loop_raw!(
+                self,
+                mail.id(),
+                mail.reschedule(next_attempt, Some(this_attempt)).await
+            );
         }
     }
 
