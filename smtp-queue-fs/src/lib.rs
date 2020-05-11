@@ -76,19 +76,25 @@ pub struct FsStorage<U> {
     phantom: PhantomData<U>,
 }
 
+// TODO: remove all these clone() that are required only due to
+// https://github.com/stjepang/blocking/issues/1
 impl<U> FsStorage<U> {
     pub async fn new(path: PathBuf) -> io::Result<FsStorage<U>> {
-        let queue = {
-            let path = path.join(QUEUE_DIR);
+        let main_dir = {
+            let path = path.clone();
             Arc::new(blocking!(Dir::open(&path))?)
+        };
+        let queue = {
+            let main_dir = main_dir.clone();
+            Arc::new(blocking!(main_dir.sub_dir(QUEUE_DIR))?)
         };
         let inflight = {
-            let path = path.join(INFLIGHT_DIR);
-            Arc::new(blocking!(Dir::open(&path))?)
+            let main_dir = main_dir.clone();
+            Arc::new(blocking!(main_dir.sub_dir(INFLIGHT_DIR))?)
         };
         let cleanup = {
-            let path = path.join(CLEANUP_DIR);
-            Arc::new(blocking!(Dir::open(&path))?)
+            let main_dir = main_dir.clone();
+            Arc::new(blocking!(main_dir.sub_dir(CLEANUP_DIR))?)
         };
         Ok(FsStorage {
             path,
@@ -157,22 +163,21 @@ where
         &self,
         mail: &FsInflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
-        let metadata = {
+        let mail = {
             let this = self.clone();
             let mail = mail.id.0.clone();
+            Arc::new(blocking!(this.inflight.sub_dir(&*mail))?)
+        };
+        let metadata = {
+            let mail = mail.clone();
             blocking!(
-                this.inflight
-                    .open_file(&Path::new(&*mail).join(METADATA_FILE))
+                mail.open_file(METADATA_FILE)
                     .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
             )?
         };
         let reader = {
-            let this = self.clone();
-            let mail = mail.id.0.clone();
-            let contents = blocking!(
-                this.inflight
-                    .open_file(&Path::new(&*mail).join(CONTENTS_FILE))
-            )?;
+            let mail = mail.clone();
+            let contents = blocking!(mail.open_file(CONTENTS_FILE))?;
             Box::pin(smol::reader(contents))
         };
         Ok((metadata, reader))
@@ -196,8 +201,13 @@ where
 
     async fn reschedule(&self, mail: &mut FsQueuedMail, schedule: ScheduleInfo) -> io::Result<()> {
         mail.schedule = schedule;
-        let this = self.clone();
-        let id = mail.id.clone();
+
+        let mail_dir = {
+            let this = self.clone();
+            let id = mail.id.clone();
+            blocking!(this.queue.sub_dir(&*id.0))?
+        };
+
         smol::Task::blocking(async move {
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
@@ -205,11 +215,12 @@ where
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
-            let tmp_rel_path = Path::new(&*id.0).join(tmp_sched_file);
-            let tmp_file = this.queue.new_file(&tmp_rel_path, 0600)?;
+
+            let tmp_file = mail_dir.new_file(&tmp_sched_file, 0600)?;
             serde_json::to_writer(tmp_file, &schedule).map_err(io::Error::from)?;
-            let rel_path = Path::new(&*id.0).join(SCHEDULE_FILE);
-            this.queue.local_rename(&tmp_rel_path, &rel_path)?;
+
+            mail_dir.local_rename(&tmp_sched_file, SCHEDULE_FILE)?;
+
             Ok::<_, io::Error>(())
         })
         .await?;
@@ -294,19 +305,14 @@ where
                 if !p.path_is_symlink() {
                     Ok(None)
                 } else {
-                    let path = p
-                        .path()
-                        .to_str()
-                        .ok_or((
-                            io::Error::new(io::ErrorKind::InvalidData, "file path is not utf-8"),
-                            None,
-                        ))?
-                        .to_owned();
-                    let id = QueueId::new(&path);
-                    // Note: if rust's type system knew that blocking!() is well-scoped, it'd
-                    // probably make it possible to avoid the `to_owned` above
+                    let path = p.path().to_str().ok_or((
+                        io::Error::new(io::ErrorKind::InvalidData, "file path is not utf-8"),
+                        None,
+                    ))?;
+                    let id = QueueId::new(path);
+                    let schedule_path = Path::new(path).join(SCHEDULE_FILE);
                     let schedule = blocking!(
-                        dir.open_file(&Path::new(&path).join(SCHEDULE_FILE))
+                        dir.open_file(&schedule_path)
                             .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
                     )
                     .map_err(|e| (e, Some(id.clone())))?;
