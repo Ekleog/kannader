@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{io::IoSlice, prelude::*};
 use openat::Dir;
-use serde::{Deserialize, Serialize};
 use smol::blocking;
 use smtp_queue::{MailMetadata, QueueId};
 use uuid::Uuid;
@@ -86,7 +85,7 @@ impl<U> Clone for FsStorage<U> {
 #[async_trait]
 impl<U> smtp_queue::Storage<U> for FsStorage<U>
 where
-    U: 'static + Send + Sync + for<'a> Deserialize<'a> + Serialize,
+    U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer;
     type InflightMail = FsInflightMail;
