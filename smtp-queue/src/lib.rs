@@ -80,8 +80,13 @@ pub trait Storage<U>: 'static + Send + Sync {
     type Enqueuer: StorageEnqueuer<Self::QueuedMail>;
     type Reader: Send + AsyncRead;
 
-    async fn list_queue(&self) -> Pin<Box<dyn Send + Stream<Item = Self::QueuedMail>>>;
-    async fn find_inflight(&self) -> Pin<Box<dyn Send + Stream<Item = Self::InflightMail>>>;
+    async fn list_queue(
+        &self,
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::QueuedMail, io::Error>>>>;
+
+    async fn find_inflight(
+        &self,
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::InflightMail, io::Error>>>>;
 
     async fn read_inflight(
         &self,
@@ -236,17 +241,22 @@ where
             let this = self.clone();
             smol::Task::spawn(async move {
                 smol::Timer::after(this.q.config.found_inflight_check_delay()).await;
-                let queued =
-                    io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
-                match queued {
-                    // Mail is still waiting, probably was inflight
-                    // during a crash
-                    Some(queued) => this.send(queued).await,
+                match inflight {
+                    Err(e) => this.q.config.log_io_error(e, None).await,
+                    Ok(inflight) => {
+                        let queued =
+                            io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
+                        match queued {
+                            // Mail is still waiting, probably was inflight
+                            // during a crash
+                            Some(queued) => this.send(queued).await,
 
-                    // Mail is no longer waiting, probably was
-                    // inflight because another process was currently
-                    // sending it
-                    None => (),
+                            // Mail is no longer waiting, probably was
+                            // inflight because another process was currently
+                            // sending it
+                            None => (),
+                        }
+                    }
                 }
             })
             .detach();
@@ -258,7 +268,10 @@ where
         while let Some(queued) = queued_stream.next().await {
             let this = self.clone();
             smol::Task::spawn(async move {
-                this.send(queued).await;
+                match queued {
+                    Ok(queued) => this.send(queued).await,
+                    Err(e) => this.q.config.log_io_error(e, None).await,
+                }
             })
             .detach();
         }
