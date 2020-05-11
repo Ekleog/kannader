@@ -3,7 +3,6 @@ use std::{marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{io, prelude::*};
-
 use smtp_message::{Email, ReplyCode};
 
 // Use cases to take into account:
@@ -29,6 +28,7 @@ use smtp_message::{Email, ReplyCode};
 //       re-scheduled and put back in the in-progress directory, it would have a
 //       new name).
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct MailMetadata<U> {
     pub from: Option<Email>,
     pub to: Vec<Email>,
