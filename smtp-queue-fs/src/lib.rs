@@ -88,9 +88,13 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer;
+    type InflightLister =
+        Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
     type InflightMail = FsInflightMail;
+    type QueueLister =
+        Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>;
     type QueuedMail = FsQueuedMail;
-    type Reader = FsReader;
+    type Reader = Pin<Box<dyn Send + AsyncRead>>;
 
     async fn list_queue(
         &self,

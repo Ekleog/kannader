@@ -1,8 +1,8 @@
-use std::{marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::{io, prelude::*};
+use futures::{io, pin_mut, prelude::*};
 use smtp_message::{Email, ReplyCode};
 
 // Use cases to take into account:
@@ -77,16 +77,16 @@ pub trait Config<U>: 'static + Send + Sync {
 pub trait Storage<U>: 'static + Send + Sync {
     type QueuedMail: QueuedMail;
     type InflightMail: InflightMail;
+
+    type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>;
+    type InflightLister: Send
+        + Stream<Item = Result<Self::InflightMail, (io::Error, Option<QueueId>)>>;
+
     type Enqueuer: StorageEnqueuer<Self::QueuedMail>;
     type Reader: Send + AsyncRead;
 
-    async fn list_queue(
-        &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>>>;
-
-    async fn find_inflight(
-        &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::InflightMail, (io::Error, Option<QueueId>)>>>>;
+    async fn list_queue(&self) -> Self::QueueLister;
+    async fn find_inflight(&self) -> Self::InflightLister;
 
     async fn read_inflight(
         &self,
@@ -236,7 +236,8 @@ where
     }
 
     async fn scan_inflight(&self) {
-        let mut found_inflight_stream = self.q.storage.find_inflight().await;
+        let found_inflight_stream = self.q.storage.find_inflight().await;
+        pin_mut!(found_inflight_stream);
         while let Some(inflight) = found_inflight_stream.next().await {
             let this = self.clone();
             smol::Task::spawn(async move {
@@ -264,7 +265,8 @@ where
     }
 
     async fn scan_queue(&self) {
-        let mut queued_stream = self.q.storage.list_queue().await;
+        let queued_stream = self.q.storage.list_queue().await;
+        pin_mut!(queued_stream);
         while let Some(queued) = queued_stream.next().await {
             let this = self.clone();
             smol::Task::spawn(async move {
