@@ -3,7 +3,7 @@ use std::{cmp::min, io, ops::Add, slice};
 
 use crate::sendable::Sendable;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SmtpString(Bytes);
 
 impl From<Bytes> for SmtpString {

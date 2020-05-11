@@ -12,7 +12,7 @@ use crate::{
     smtpstring::SmtpString,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum Domain {
     Host(SmtpString),
     Addr(IpAddr),

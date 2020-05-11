@@ -9,7 +9,7 @@ use crate::{
     smtpstring::SmtpString,
 };
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Email {
     localpart: SmtpString,
     hostname: Option<Domain>,
