@@ -90,8 +90,8 @@ pub trait Storage<U>: 'static + Send + Sync {
 
     async fn read_inflight(
         &self,
-        mail: Self::InflightMail,
-    ) -> Result<(Self::InflightMail, MailMetadata<U>, Self::Reader), (Self::InflightMail, io::Error)>;
+        mail: &Self::InflightMail,
+    ) -> Result<(MailMetadata<U>, Self::Reader), io::Error>;
 
     async fn enqueue(&self, meta: MailMetadata<U>) -> Result<Self::Enqueuer, io::Error>;
 
@@ -315,8 +315,15 @@ where
             }
         };
 
-        let (inflight, meta, reader) =
-            io_retry_loop!(self, inflight, |i| self.q.storage.read_inflight(i).await);
+        let (inflight, meta, reader) = io_retry_loop!(self, inflight, |i| match self
+            .q
+            .storage
+            .read_inflight(&i)
+            .await
+        {
+            Ok((m, r)) => Ok((i, m, r)),
+            Err(e) => Err((i, e)),
+        });
 
         match self.q.transport.send(&meta, reader).await {
             Ok(()) => {
