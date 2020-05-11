@@ -52,7 +52,7 @@ pub trait Config<U>: 'static + Send + Sync {
 
     async fn log_permanent_error(&self, id: QueueId, c: ReplyCode, err: &io::Error);
     async fn log_transient_error(&self, id: QueueId, c: ReplyCode, err: io::Error);
-    async fn log_io_error(&self, id: QueueId, err: io::Error);
+    async fn log_io_error(&self, err: io::Error, id: Option<QueueId>);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
     async fn log_too_big_duration(&self, id: QueueId, too_big: Duration, new: Duration);
@@ -168,7 +168,7 @@ macro_rules! io_retry_loop {
                     break v;
                 }
                 Err((mail, e)) => {
-                    $this.q.config.log_io_error(mail.id(), e).await;
+                    $this.q.config.log_io_error(e, Some(mail.id())).await;
                     $mail = mail;
                 }
             }
@@ -187,7 +187,7 @@ macro_rules! io_retry_loop_raw {
                     break v;
                 }
                 Err(e) => {
-                    $this.q.config.log_io_error($id, e).await;
+                    $this.q.config.log_io_error(e, Some($id)).await;
                 }
             }
             smol::Timer::after(delay).await;
@@ -319,7 +319,7 @@ where
                 return Ok(());
             }
             Err(TransportFailure::Local(e)) => {
-                self.q.config.log_io_error(inflight.id(), e).await;
+                self.q.config.log_io_error(e, Some(inflight.id())).await;
             }
             Err(TransportFailure::RemoteTransient(c, e)) => {
                 self.q.config.log_transient_error(inflight.id(), c, e).await;
