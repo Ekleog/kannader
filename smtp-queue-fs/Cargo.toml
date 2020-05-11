@@ -1,0 +1,21 @@
+[package]
+name = "smtp-queue-fs"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["queue", "smtp", "email"]
+description = "Storage handler for smtp-queue based on the local filesystem"
+edition = "2018"
+
+[dependencies]
+async-trait = "0.1.30"
+chrono = { version = "0.4.11", features = ["serde"] }
+futures = "0.3.4"
+openat = "0.1.18"
+serde = "1.0.110"
+serde_json = "1.0.53"
+smtp-queue = { path = "../smtp-queue" }
+smol = "0.1.4"
+uuid = { version = "0.8.1", features = ["v4"] }
+walkdir = "2.3.1"
