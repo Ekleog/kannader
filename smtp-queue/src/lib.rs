@@ -35,6 +35,28 @@ pub struct MailMetadata<U> {
     pub metadata: U,
 }
 
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub struct ScheduleInfo {
+    pub at: DateTime<Utc>,
+    pub last_attempt: Option<DateTime<Utc>>,
+}
+
+impl ScheduleInfo {
+    pub fn last_interval(&self) -> Option<Duration> {
+        match self.last_attempt {
+            None => None,
+            Some(last_attempt) => {
+                let chrono_interval = last_attempt - self.at;
+
+                // If the interval is negative, let's just say there's no interval yet, because
+                // things are weird enough.
+                // TODO: return a Result<> instead?
+                chrono_interval.to_std().ok()
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct QueueId(pub Arc<String>);
 
@@ -46,7 +68,9 @@ impl QueueId {
 
 #[async_trait]
 pub trait Config<U>: 'static + Send + Sync {
-    fn next_interval(&self, i: Duration) -> Duration;
+    // Returning None means dropping the email from the queue. If it does so, this
+    // function probably should bounce!
+    async fn next_interval(&self, s: ScheduleInfo) -> Option<Duration>;
 
     async fn bounce(&self, id: QueueId, meta: MailMetadata<U>, code: ReplyCode, err: io::Error);
 
@@ -55,6 +79,7 @@ pub trait Config<U>: 'static + Send + Sync {
     async fn log_io_error(&self, err: io::Error, id: Option<QueueId>);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
+    async fn log_indrop_mail_vanished(&self, id: QueueId);
     async fn log_too_big_duration(&self, id: QueueId, too_big: Duration, new: Duration);
 
     // The important thing is it must be longer than the time between
@@ -73,10 +98,14 @@ pub trait Config<U>: 'static + Send + Sync {
     }
 }
 
+// TODO: add a callback for the Storage to cleanup InDrop mails that might be
+// pending following a crash
+
 #[async_trait]
 pub trait Storage<U>: 'static + Send + Sync {
     type QueuedMail: QueuedMail;
     type InflightMail: InflightMail;
+    type InDropMail: InDropMail;
 
     type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>;
     type InflightLister: Send
@@ -93,13 +122,16 @@ pub trait Storage<U>: 'static + Send + Sync {
         mail: &Self::InflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error>;
 
-    async fn enqueue(&self, meta: MailMetadata<U>) -> Result<Self::Enqueuer, io::Error>;
+    async fn enqueue(
+        &self,
+        meta: MailMetadata<U>,
+        s: ScheduleInfo,
+    ) -> Result<Self::Enqueuer, io::Error>;
 
     async fn reschedule(
         &self,
         mail: &mut Self::QueuedMail,
-        at: DateTime<Utc>,
-        last_attempt: Option<DateTime<Utc>>,
+        schedule: ScheduleInfo,
     ) -> Result<(), io::Error>;
 
     async fn send_start(
@@ -116,15 +148,28 @@ pub trait Storage<U>: 'static + Send + Sync {
         &self,
         mail: Self::InflightMail,
     ) -> Result<Option<Self::QueuedMail>, (Self::InflightMail, io::Error)>;
+
+    async fn drop_start(
+        &self,
+        mail: Self::QueuedMail,
+    ) -> Result<Option<Self::InDropMail>, (Self::QueuedMail, io::Error)>;
+
+    async fn drop_confirm(
+        &self,
+        mail: Self::InDropMail,
+    ) -> Result<bool, (Self::InDropMail, io::Error)>;
 }
 
 pub trait QueuedMail: Send + Sync {
     fn id(&self) -> QueueId;
-    fn scheduled_at(&self) -> DateTime<Utc>;
-    fn last_attempt(&self) -> Option<DateTime<Utc>>;
+    fn schedule(&self) -> ScheduleInfo;
 }
 
 pub trait InflightMail: Send + Sync {
+    fn id(&self) -> QueueId;
+}
+
+pub trait InDropMail: Send + Sync {
     fn id(&self) -> QueueId;
 }
 
@@ -228,10 +273,14 @@ where
         this
     }
 
-    pub async fn enqueue(&self, meta: MailMetadata<U>) -> Result<Enqueuer<U, C, S, T>, io::Error> {
+    pub async fn enqueue(
+        &self,
+        meta: MailMetadata<U>,
+        s: ScheduleInfo,
+    ) -> Result<Enqueuer<U, C, S, T>, io::Error> {
         Ok(Enqueuer {
             queue: self.clone(),
-            enqueuer: Some(self.q.storage.enqueue(meta).await?),
+            enqueuer: Some(self.q.storage.enqueue(meta, s).await?),
         })
     }
 
@@ -282,41 +331,59 @@ where
     async fn send(&self, mail: S::QueuedMail) {
         let mut mail = mail;
         loop {
-            let wait_time = (mail.scheduled_at() - Utc::now())
+            let wait_time = (mail.schedule().at - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::from_secs(0));
             smol::Timer::after(wait_time).await;
             match self.try_send(mail).await {
-                Ok(()) => break,
+                Ok(()) => return,
                 Err(m) => mail = m,
             }
             let this_attempt = Utc::now();
-            let last_interval = match mail.last_attempt() {
-                Some(last_attempt) => last_attempt - this_attempt,
-                None => chrono::Duration::seconds(0),
-            };
-            let last_interval = last_interval.to_std().unwrap_or(Duration::from_secs(0));
-            let next_interval = self.q.config.next_interval(last_interval);
-            let next_interval = match chrono::Duration::from_std(next_interval) {
-                Ok(i) => i,
-                Err(_) => {
-                    let new_next_interval = INTERVAL_ON_TOO_BIG_DURATION;
-                    self.q
-                        .config
-                        .log_too_big_duration(mail.id(), next_interval, new_next_interval)
-                        .await;
-                    chrono::Duration::from_std(next_interval).unwrap()
+            match self.q.config.next_interval(mail.schedule()).await {
+                Some(next_interval) => {
+                    let next_interval = match chrono::Duration::from_std(next_interval) {
+                        Ok(i) => i,
+                        Err(_) => {
+                            let new_next_interval = INTERVAL_ON_TOO_BIG_DURATION;
+                            self.q
+                                .config
+                                .log_too_big_duration(mail.id(), next_interval, new_next_interval)
+                                .await;
+                            chrono::Duration::from_std(next_interval).unwrap()
+                        }
+                    };
+                    let next_attempt = this_attempt + next_interval;
+                    let schedule = ScheduleInfo {
+                        at: next_attempt,
+                        last_attempt: Some(this_attempt),
+                    };
+                    io_retry_loop_raw!(
+                        self,
+                        mail.id(),
+                        self.q.storage.reschedule(&mut mail, schedule).await
+                    );
                 }
-            };
-            let next_attempt = this_attempt + next_interval;
-            io_retry_loop_raw!(
-                self,
-                mail.id(),
-                self.q
-                    .storage
-                    .reschedule(&mut mail, next_attempt, Some(this_attempt))
-                    .await
-            );
+                None => {
+                    let id = mail.id();
+                    let indrop = io_retry_loop!(self, mail, |m| self.q.storage.drop_start(m).await);
+                    let indrop = match indrop {
+                        Some(indrop) => indrop,
+                        None => {
+                            self.q.config.log_queued_mail_vanished(id).await;
+                            return;
+                        }
+                    };
+
+                    let id = indrop.id();
+                    let cleanup_successful =
+                        io_retry_loop!(self, indrop, |i| self.q.storage.drop_confirm(i).await);
+                    if !cleanup_successful {
+                        self.q.config.log_indrop_mail_vanished(id).await;
+                    }
+                    return;
+                }
+            }
         }
     }
 

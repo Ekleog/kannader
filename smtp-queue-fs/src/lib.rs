@@ -9,11 +9,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use futures::{io::IoSlice, prelude::*};
 use openat::Dir;
 use smol::blocking;
-use smtp_queue::{MailMetadata, QueueId};
+use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -37,9 +36,9 @@ use walkdir::WalkDir;
 // Each email in <queue>/data is a folder, that is constituted of:
 //  - <mail>/contents: the RFC5322 content of the email
 //  - <mail>/metadata: the JSON-encoded MailMetadata<U>
-//  - <mail>/schedule: the JSON-encoded (scheduled, last_attempt) couple. This
-//    one is the only one that could change over time, and it gets written by
-//    writing a `schedule.{{random}}` then renaming it in-place
+//  - <mail>/schedule: the JSON-encoded ScheduleInfo couple. This one is the
+//    only one that could change over time, and it gets written by writing a
+//    `schedule.{{random}}` then renaming it in-place
 //
 // When enqueuing, the process is:
 //  - Create <queue>/data/<uuid>, thereafter named <mail>
@@ -105,6 +104,7 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer;
+    type InDropMail = FsInDropMail;
     type InflightLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
     type InflightMail = FsInflightMail;
@@ -162,24 +162,24 @@ where
         Ok((metadata, reader))
     }
 
-    fn enqueue<'s, 'a>(
-        &'s self,
+    async fn enqueue(
+        &self,
         meta: MailMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = io::Result<FsEnqueuer>>>>
-    where
-        's: 'a,
-    {
+        schedule: ScheduleInfo,
+    ) -> io::Result<FsEnqueuer> {
+        smol::Task::blocking(async move {
+            let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
+            let uuid = Uuid::new_v4()
+                .to_hyphenated_ref()
+                .encode_lower(&mut uuid_buf);
+            unimplemented!() // TODO
+        })
+        .await;
         unimplemented!() // TODO
     }
 
-    async fn reschedule(
-        &self,
-        mail: &mut FsQueuedMail,
-        at: DateTime<Utc>,
-        last_attempt: Option<DateTime<Utc>>,
-    ) -> io::Result<()> {
-        mail.scheduled = at;
-        mail.last_attempt = last_attempt;
+    async fn reschedule(&self, mail: &mut FsQueuedMail, schedule: ScheduleInfo) -> io::Result<()> {
+        mail.schedule = schedule;
         let this = self.clone();
         let id = mail.id.clone();
         smol::Task::blocking(async move {
@@ -191,7 +191,7 @@ where
             tmp_sched_file.push_str(uuid);
             let tmp_rel_path = Path::new(QUEUE_DIR).join(&*id.0).join(tmp_sched_file);
             let tmp_file = this.s.queue.new_file(&tmp_rel_path, 0600)?;
-            serde_json::to_writer(tmp_file, &(at, last_attempt)).map_err(io::Error::from)?;
+            serde_json::to_writer(tmp_file, &schedule).map_err(io::Error::from)?;
             let rel_path = Path::new(QUEUE_DIR).join(&*id.0).join(SCHEDULE_FILE);
             this.s.queue.local_rename(&tmp_rel_path, &rel_path)?;
             Ok::<_, io::Error>(())
@@ -241,12 +241,22 @@ where
     {
         unimplemented!() // TODO
     }
+
+    async fn drop_start(
+        &self,
+        mail: FsQueuedMail,
+    ) -> Result<Option<FsInDropMail>, (FsQueuedMail, io::Error)> {
+        unimplemented!() // TODO
+    }
+
+    async fn drop_confirm(&self, mail: FsInDropMail) -> Result<bool, (FsInDropMail, io::Error)> {
+        unimplemented!() // TODO
+    }
 }
 
 struct FoundMail {
     id: QueueId,
-    scheduled: DateTime<Utc>,
-    last_attempt: Option<DateTime<Utc>>,
+    schedule: ScheduleInfo,
 }
 
 // TODO: handle dangling symlinks
@@ -286,18 +296,14 @@ where
                     let id = QueueId::new(&path);
                     // Note: if rust's type system knew that blocking!() is well-scoped, it'd
                     // probably make it possible to avoid the `to_owned` above
-                    let (scheduled, last_attempt) = blocking!(
+                    let schedule = blocking!(
                         this.s
                             .queue
                             .open_file(&dir.join(path).join(SCHEDULE_FILE))
                             .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
                     )
                     .map_err(|e| (e, Some(id.clone())))?;
-                    Ok(Some(FoundMail {
-                        id,
-                        scheduled,
-                        last_attempt,
-                    }))
+                    Ok(Some(FoundMail { id, schedule }))
                 }
             }
         })
@@ -306,16 +312,14 @@ where
 
 pub struct FsQueuedMail {
     id: QueueId,
-    scheduled: DateTime<Utc>,
-    last_attempt: Option<DateTime<Utc>>,
+    schedule: ScheduleInfo,
 }
 
 impl FsQueuedMail {
     fn found(f: FoundMail) -> FsQueuedMail {
         FsQueuedMail {
             id: f.id,
-            scheduled: f.scheduled,
-            last_attempt: f.last_attempt,
+            schedule: f.schedule,
         }
     }
 
@@ -324,8 +328,7 @@ impl FsQueuedMail {
     fn clone(&self) -> FsQueuedMail {
         FsQueuedMail {
             id: self.id.clone(),
-            scheduled: self.scheduled.clone(),
-            last_attempt: self.last_attempt.clone(),
+            schedule: self.schedule.clone(),
         }
     }
 }
@@ -335,32 +338,36 @@ impl smtp_queue::QueuedMail for FsQueuedMail {
         self.id.clone()
     }
 
-    fn scheduled_at(&self) -> DateTime<Utc> {
-        self.scheduled
-    }
-
-    fn last_attempt(&self) -> Option<DateTime<Utc>> {
-        self.last_attempt
+    fn schedule(&self) -> ScheduleInfo {
+        self.schedule
     }
 }
 
 pub struct FsInflightMail {
     id: QueueId,
-    scheduled: DateTime<Utc>,
-    last_attempt: Option<DateTime<Utc>>,
+    schedule: ScheduleInfo,
 }
 
 impl FsInflightMail {
     fn found(f: FoundMail) -> FsInflightMail {
         FsInflightMail {
             id: f.id,
-            scheduled: f.scheduled,
-            last_attempt: f.last_attempt,
+            schedule: f.schedule,
         }
     }
 }
 
 impl smtp_queue::InflightMail for FsInflightMail {
+    fn id(&self) -> QueueId {
+        self.id.clone()
+    }
+}
+
+pub struct FsInDropMail {
+    id: QueueId,
+}
+
+impl smtp_queue::InDropMail for FsInDropMail {
     fn id(&self) -> QueueId {
         self.id.clone()
     }

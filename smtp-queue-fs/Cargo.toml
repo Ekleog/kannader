@@ -10,7 +10,6 @@ edition = "2018"
 
 [dependencies]
 async-trait = "0.1.30"
-chrono = { version = "0.4.11", features = ["serde"] }
 futures = "0.3.4"
 openat = "0.1.18"
 serde = "1.0.110"
