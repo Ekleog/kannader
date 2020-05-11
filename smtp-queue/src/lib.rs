@@ -38,6 +38,12 @@ pub struct MailMetadata<U> {
 #[derive(Clone)]
 pub struct QueueId(pub Arc<String>);
 
+impl QueueId {
+    pub fn new<S: ToString>(s: S) -> QueueId {
+        QueueId(Arc::new(s.to_string()))
+    }
+}
+
 #[async_trait]
 pub trait Config<U>: 'static + Send + Sync {
     fn next_interval(&self, i: Duration) -> Duration;
