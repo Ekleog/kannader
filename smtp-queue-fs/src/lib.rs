@@ -68,33 +68,47 @@ pub const METADATA_FILE: &'static str = "metadata";
 pub const SCHEDULE_FILE: &'static str = "schedule";
 pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
 
-struct FsStorageImpl<U> {
-    path: PathBuf,
-    queue: Dir,
-    phantom: PhantomData<U>,
-}
-
 pub struct FsStorage<U> {
-    s: Arc<FsStorageImpl<U>>,
+    path: PathBuf,
+    queue: Arc<Dir>,
+    inflight: Arc<Dir>,
+    cleanup: Arc<Dir>,
+    phantom: PhantomData<U>,
 }
 
 impl<U> FsStorage<U> {
     pub async fn new(path: PathBuf) -> io::Result<FsStorage<U>> {
-        let path2 = path.clone();
-        let queue = blocking!(Dir::open(&path2))?;
+        let queue = {
+            let path = path.join(QUEUE_DIR);
+            Arc::new(blocking!(Dir::open(&path))?)
+        };
+        let inflight = {
+            let path = path.join(INFLIGHT_DIR);
+            Arc::new(blocking!(Dir::open(&path))?)
+        };
+        let cleanup = {
+            let path = path.join(CLEANUP_DIR);
+            Arc::new(blocking!(Dir::open(&path))?)
+        };
         Ok(FsStorage {
-            s: Arc::new(FsStorageImpl {
-                path,
-                queue,
-                phantom: PhantomData,
-            }),
+            path,
+            queue,
+            inflight,
+            cleanup,
+            phantom: PhantomData,
         })
     }
 }
 
 impl<U> Clone for FsStorage<U> {
     fn clone(&self) -> FsStorage<U> {
-        FsStorage { s: self.s.clone() }
+        FsStorage {
+            path: self.path.clone(),
+            queue: self.queue.clone(),
+            inflight: self.inflight.clone(),
+            cleanup: self.cleanup.clone(),
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -118,7 +132,7 @@ where
     ) -> Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>
     {
         Box::pin(
-            scan_queue(self.clone(), QUEUE_DIR)
+            scan_queue(self.path.join(QUEUE_DIR), self.queue.clone())
                 .await
                 .map(|r| r.map(FsQueuedMail::found)),
         )
@@ -129,7 +143,7 @@ where
     ) -> Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>
     {
         Box::pin(
-            scan_queue(self.clone(), INFLIGHT_DIR)
+            scan_queue(self.path.join(INFLIGHT_DIR), self.inflight.clone())
                 .await
                 .map(|r| r.map(FsInflightMail::found)),
         )
@@ -143,20 +157,22 @@ where
         &self,
         mail: &FsInflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
-        let mail = Arc::new(Path::new(INFLIGHT_DIR).join(&*mail.id.0));
         let metadata = {
             let this = self.clone();
-            let mail = mail.clone();
+            let mail = mail.id.0.clone();
             blocking!(
-                this.s
-                    .queue
-                    .open_file(&mail.join(METADATA_FILE))
+                this.inflight
+                    .open_file(&Path::new(&*mail).join(METADATA_FILE))
                     .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
             )?
         };
         let reader = {
             let this = self.clone();
-            let contents = blocking!(this.s.queue.open_file(&mail.join(CONTENTS_FILE)))?;
+            let mail = mail.id.0.clone();
+            let contents = blocking!(
+                this.inflight
+                    .open_file(&Path::new(&*mail).join(CONTENTS_FILE))
+            )?;
             Box::pin(smol::reader(contents))
         };
         Ok((metadata, reader))
@@ -189,11 +205,11 @@ where
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
-            let tmp_rel_path = Path::new(QUEUE_DIR).join(&*id.0).join(tmp_sched_file);
-            let tmp_file = this.s.queue.new_file(&tmp_rel_path, 0600)?;
+            let tmp_rel_path = Path::new(&*id.0).join(tmp_sched_file);
+            let tmp_file = this.queue.new_file(&tmp_rel_path, 0600)?;
             serde_json::to_writer(tmp_file, &schedule).map_err(io::Error::from)?;
-            let rel_path = Path::new(QUEUE_DIR).join(&*id.0).join(SCHEDULE_FILE);
-            this.s.queue.local_rename(&tmp_rel_path, &rel_path)?;
+            let rel_path = Path::new(&*id.0).join(SCHEDULE_FILE);
+            this.queue.local_rename(&tmp_rel_path, &rel_path)?;
             Ok::<_, io::Error>(())
         })
         .await?;
@@ -260,25 +276,18 @@ struct FoundMail {
 }
 
 // TODO: handle dangling symlinks
-async fn scan_queue<U, P>(
-    this: FsStorage<U>,
-    dir: P,
+async fn scan_queue<P>(
+    path: P,
+    dir: Arc<Dir>,
 ) -> impl 'static + Send + Stream<Item = Result<FoundMail, (io::Error, Option<QueueId>)>>
 where
-    U: 'static + Send + Sync,
     P: 'static + Send + AsRef<Path>,
 {
-    let dir = Arc::new(dir.as_ref().to_owned());
     // TODO: should use openat, not raw walkdir that'll do non-openat calls
     // (once that's done, `self.path` can probably be removed)
-    let it = {
-        let this = this.clone();
-        let dir = dir.clone();
-        blocking!(WalkDir::new(this.s.path.join(&*dir)).into_iter())
-    };
+    let it = blocking!(WalkDir::new(path).into_iter());
     smol::iter(it)
         .then(move |p| {
-            let this = this.clone();
             let dir = dir.clone();
             async move {
                 let p = p.map_err(|e| (io::Error::from(e), None))?;
@@ -297,9 +306,7 @@ where
                     // Note: if rust's type system knew that blocking!() is well-scoped, it'd
                     // probably make it possible to avoid the `to_owned` above
                     let schedule = blocking!(
-                        this.s
-                            .queue
-                            .open_file(&dir.join(path).join(SCHEDULE_FILE))
+                        dir.open_file(&Path::new(&path).join(SCHEDULE_FILE))
                             .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
                     )
                     .map_err(|e| (e, Some(id.clone())))?;
