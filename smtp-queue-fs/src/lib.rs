@@ -325,8 +325,12 @@ impl smtp_queue::InflightMail for FsInflightMail {
     }
 }
 
-pub struct FsReader {
-    // TODO
+pub struct FsReader(Pin<Box<dyn Send + Unpin + AsyncRead>>);
+
+impl FsReader {
+    fn new<S: 'static + Send + Unpin + AsyncRead>(s: S) -> FsReader {
+        FsReader(Box::pin(s))
+    }
 }
 
 impl AsyncRead for FsReader {
