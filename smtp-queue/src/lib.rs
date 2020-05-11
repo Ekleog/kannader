@@ -82,11 +82,11 @@ pub trait Storage<U>: 'static + Send + Sync {
 
     async fn list_queue(
         &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::QueuedMail, io::Error>>>>;
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>>>;
 
     async fn find_inflight(
         &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::InflightMail, io::Error>>>>;
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<Self::InflightMail, (io::Error, Option<QueueId>)>>>>;
 
     async fn read_inflight(
         &self,
@@ -243,7 +243,7 @@ where
             smol::Task::spawn(async move {
                 smol::Timer::after(this.q.config.found_inflight_check_delay()).await;
                 match inflight {
-                    Err(e) => this.q.config.log_io_error(e, None).await,
+                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
                     Ok(inflight) => {
                         let queued =
                             io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
@@ -271,7 +271,7 @@ where
             smol::Task::spawn(async move {
                 match queued {
                     Ok(queued) => this.send(queued).await,
-                    Err(e) => this.q.config.log_io_error(e, None).await,
+                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
                 }
             })
             .detach();
