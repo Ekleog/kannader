@@ -118,11 +118,31 @@ where
         )
     }
 
+    // TODO: ideally this'd return a *future* to MailMetadata<U> as well as a
+    // FsReader, so that it's possible to select() on the two or even spawn them to
+    // run in parallel. That's probably an optimization not worth doing right now,
+    // though
     async fn read_inflight(
         &self,
         mail: &FsInflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
-        unimplemented!() // TODO
+        let mail = Arc::new(Path::new(INFLIGHT_DIR).join(&*mail.id.0));
+        let metadata = {
+            let this = self.clone();
+            let mail = mail.clone();
+            blocking!(
+                this.s
+                    .queue
+                    .open_file(&mail.join(METADATA_FILE))
+                    .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
+            )?
+        };
+        let reader = {
+            let this = self.clone();
+            let contents = blocking!(this.s.queue.open_file(&mail.join(CONTENTS_FILE)))?;
+            Box::pin(smol::reader(contents))
+        };
+        Ok((metadata, reader))
     }
 
     fn enqueue<'s, 'a>(
