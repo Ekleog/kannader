@@ -95,6 +95,13 @@ pub trait Storage<U>: 'static + Send + Sync {
 
     async fn enqueue(&self, meta: MailMetadata<U>) -> Result<Self::Enqueuer, io::Error>;
 
+    async fn reschedule(
+        &self,
+        mail: &mut Self::QueuedMail,
+        at: DateTime<Utc>,
+        last_attempt: Option<DateTime<Utc>>,
+    ) -> Result<(), io::Error>;
+
     async fn send_start(
         &self,
         mail: Self::QueuedMail,
@@ -111,16 +118,8 @@ pub trait Storage<U>: 'static + Send + Sync {
     ) -> Result<Option<Self::QueuedMail>, (Self::InflightMail, io::Error)>;
 }
 
-#[async_trait]
 pub trait QueuedMail: Send + Sync {
     fn id(&self) -> QueueId;
-
-    async fn reschedule(
-        &self,
-        at: DateTime<Utc>,
-        last_attempt: Option<DateTime<Utc>>,
-    ) -> Result<(), io::Error>;
-
     fn scheduled_at(&self) -> DateTime<Utc>;
     fn last_attempt(&self) -> Option<DateTime<Utc>>;
 }
@@ -311,7 +310,10 @@ where
             io_retry_loop_raw!(
                 self,
                 mail.id(),
-                mail.reschedule(next_attempt, Some(this_attempt)).await
+                self.q
+                    .storage
+                    .reschedule(&mut mail, next_attempt, Some(this_attempt))
+                    .await
             );
         }
     }
