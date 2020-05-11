@@ -121,7 +121,7 @@ where
     async fn read_inflight(
         &self,
         mail: &FsInflightMail,
-    ) -> Result<(MailMetadata<U>, FsReader), io::Error> {
+    ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
         unimplemented!() // TODO
     }
 
@@ -326,24 +326,6 @@ impl FsInflightMail {
 impl smtp_queue::InflightMail for FsInflightMail {
     fn id(&self) -> QueueId {
         self.id.clone()
-    }
-}
-
-pub struct FsReader(Pin<Box<dyn Send + Unpin + AsyncRead>>);
-
-impl FsReader {
-    fn new<S: 'static + Send + Unpin + AsyncRead>(s: S) -> FsReader {
-        FsReader(Box::pin(s))
-    }
-}
-
-impl AsyncRead for FsReader {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        unimplemented!() // TODO
     }
 }
 
