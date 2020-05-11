@@ -40,17 +40,34 @@ use walkdir::WalkDir;
 //  - <mail>/schedule: the JSON-encoded (scheduled, last_attempt) couple. This
 //    one is the only one that could change over time, and it gets written by
 //    writing a `schedule.{{random}}` then renaming it in-place
+//
+// When enqueuing, the process is:
+//  - Create <queue>/data/<uuid>, thereafter named <mail>
+//  - Write <mail>/schedule and <mail>/metadata
+//  - Give out the Enqueuer to the user for writing <mail>/contents
+//  - Wait for the user to commit the Enqueuer
+//  - Create a symlink from <queue>/queue/<uuid> to <mail>
+//
+// When starting to send / cancelling sends, the process is:
+//  - Move <queue>/queue/<id> to <queue>/inflight/<id> (or back)
+//
+// When done with sending a mail and it thus needs to be removed from disk, the
+// process is.
+//  - Move <queue>/inflight/<id> to <queue>/cleanup/<id>
+//  - Remove <queue>/cleanup/<id>/* (which actually are in <queue>/data/<id>/*)
+//  - Remove the target of <queue>/cleanup/<id> (the folder in <queue>/data)
+//  - Remove the <queue>/cleanup/<id> symlink
 
-// TODO: make those configurable
-const DATA_DIR: &'static str = "data";
-const QUEUE_DIR: &'static str = "queue";
-const INFLIGHT_DIR: &'static str = "inflight";
-const CLEANUP_DIR: &'static str = "cleanup";
+// TODO: make those configurable?
+pub const DATA_DIR: &'static str = "data";
+pub const QUEUE_DIR: &'static str = "queue";
+pub const INFLIGHT_DIR: &'static str = "inflight";
+pub const CLEANUP_DIR: &'static str = "cleanup";
 
-const CONTENTS_FILE: &'static str = "contents";
-const METADATA_FILE: &'static str = "metadata";
-const SCHEDULE_FILE: &'static str = "schedule";
-const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
+pub const CONTENTS_FILE: &'static str = "contents";
+pub const METADATA_FILE: &'static str = "metadata";
+pub const SCHEDULE_FILE: &'static str = "schedule";
+pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
 
 struct FsStorageImpl<U> {
     path: PathBuf,
