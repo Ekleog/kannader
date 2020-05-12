@@ -16,10 +16,13 @@ use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+// TODO: turn this into a section of the book
+//
 // Assumptions:
 //  - Moving a symlink to another folder is atomic between <queue>/queue,
 //    <queue>/inflight and <queue>/cleanup
 //  - Moving a file is atomic between files in the same <mail> folder
+//  - Creating a symlink in the <queue> folder is atomic
 //  - Once a write is flushed without error, it is guaranteed not to be changed
 //    by something other than a yuubind instance (or another system aware of
 //    yuubind's protocol and guarantees)
@@ -70,6 +73,7 @@ pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
 
 pub struct FsStorage<U> {
     path: PathBuf,
+    data: Arc<Dir>,
     queue: Arc<Dir>,
     inflight: Arc<Dir>,
     cleanup: Arc<Dir>,
@@ -83,6 +87,10 @@ impl<U> FsStorage<U> {
         let main_dir = {
             let path = path.clone();
             Arc::new(blocking!(Dir::open(&path))?)
+        };
+        let data = {
+            let main_dir = main_dir.clone();
+            Arc::new(blocking!(main_dir.sub_dir(DATA_DIR))?)
         };
         let queue = {
             let main_dir = main_dir.clone();
@@ -98,6 +106,7 @@ impl<U> FsStorage<U> {
         };
         Ok(FsStorage {
             path,
+            data,
             queue,
             inflight,
             cleanup,
@@ -110,6 +119,7 @@ impl<U> Clone for FsStorage<U> {
     fn clone(&self) -> FsStorage<U> {
         FsStorage {
             path: self.path.clone(),
+            data: self.data.clone(),
             queue: self.queue.clone(),
             inflight: self.inflight.clone(),
             cleanup: self.cleanup.clone(),
