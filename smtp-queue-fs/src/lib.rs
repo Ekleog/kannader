@@ -195,18 +195,31 @@ where
 
     async fn enqueue(
         &self,
-        meta: MailMetadata<U>,
+        metadata: MailMetadata<U>,
         schedule: ScheduleInfo,
     ) -> io::Result<FsEnqueuer> {
-        smol::Task::blocking(async move {
+        let data = self.data.clone();
+
+        // TODO: the two files could be written concurrently (being concurrent with the
+        // FsEnqueuer is going to lose the early-failure property it currently has)
+        blocking!({
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
-            unimplemented!() // TODO
+
+            data.create_dir(&*uuid, 0600)?;
+            let mail_dir = data.sub_dir(&*uuid)?;
+
+            let schedule_file = mail_dir.new_file(SCHEDULE_FILE, 0600)?;
+            serde_json::to_writer(schedule_file, &schedule)?;
+
+            let metadata_file = mail_dir.new_file(METADATA_FILE, 0600)?;
+            serde_json::to_writer(metadata_file, &metadata)?;
+
+            let contents_file = mail_dir.new_file(CONTENTS_FILE, 0600)?;
+            Ok(FsEnqueuer::new(smol::writer(contents_file)))
         })
-        .await;
-        unimplemented!() // TODO
     }
 
     async fn reschedule(&self, mail: &mut FsQueuedMail, schedule: ScheduleInfo) -> io::Result<()> {
@@ -396,7 +409,16 @@ impl smtp_queue::InDropMail for FsInDropMail {
 }
 
 pub struct FsEnqueuer {
-    // TODO
+    w: Pin<Box<dyn 'static + Send + AsyncWrite>>,
+}
+
+impl FsEnqueuer {
+    fn new<W>(w: W) -> FsEnqueuer
+    where
+        W: 'static + Send + AsyncWrite,
+    {
+        FsEnqueuer { w: Box::pin(w) }
+    }
 }
 
 #[async_trait]
