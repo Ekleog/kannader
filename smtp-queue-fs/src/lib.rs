@@ -17,6 +17,8 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 // TODO: turn this into a section of the book
+// TODO: the data folder should probably be split in like 256 sub-folders, to
+// allow the sysadmin to share it across many partitions
 //
 // Assumptions:
 //  - Moving a symlink to another folder is atomic between <queue>/queue,
@@ -199,6 +201,7 @@ where
         schedule: ScheduleInfo,
     ) -> io::Result<FsEnqueuer> {
         let data = self.data.clone();
+        let queue = self.queue.clone();
 
         // TODO: the two files could be written concurrently (being concurrent with the
         // FsEnqueuer is going to lose the early-failure property it currently has)
@@ -218,7 +221,12 @@ where
             serde_json::to_writer(metadata_file, &metadata)?;
 
             let contents_file = mail_dir.new_file(CONTENTS_FILE, 0600)?;
-            Ok(FsEnqueuer::new(smol::writer(contents_file)))
+            Ok(FsEnqueuer {
+                queue,
+                uuid: uuid.to_owned(),
+                writer: Box::pin(smol::writer(contents_file)),
+                schedule,
+            })
         })
     }
 
@@ -409,36 +417,41 @@ impl smtp_queue::InDropMail for FsInDropMail {
 }
 
 pub struct FsEnqueuer {
-    w: Pin<Box<dyn 'static + Send + AsyncWrite>>,
-}
-
-impl FsEnqueuer {
-    fn new<W>(w: W) -> FsEnqueuer
-    where
-        W: 'static + Send + AsyncWrite,
-    {
-        FsEnqueuer { w: Box::pin(w) }
-    }
+    queue: Arc<Dir>,
+    uuid: String,
+    writer: Pin<Box<dyn 'static + Send + AsyncWrite>>,
+    schedule: ScheduleInfo,
 }
 
 #[async_trait]
 impl smtp_queue::StorageEnqueuer<FsQueuedMail> for FsEnqueuer {
-    async fn commit(self) -> io::Result<FsQueuedMail> {
-        unimplemented!() // TODO
+    async fn commit(mut self) -> io::Result<FsQueuedMail> {
+        self.flush().await?;
+        blocking!({
+            let mut symlink_value = String::from("../");
+            symlink_value.push_str(DATA_DIR);
+            symlink_value.push_str(&self.uuid);
+            self.queue.symlink(&self.uuid, symlink_value)?;
+
+            Ok(FsQueuedMail::found(FoundMail {
+                id: QueueId(Arc::new(self.uuid)),
+                schedule: self.schedule,
+            }))
+        })
     }
 }
 
 impl AsyncWrite for FsEnqueuer {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        unimplemented!() // TODO
+        unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write(cx, buf)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        unimplemented!() // TODO
+        unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        unimplemented!() // TODO
+        unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_close(cx)
     }
 
     fn poll_write_vectored(
@@ -446,6 +459,6 @@ impl AsyncWrite for FsEnqueuer {
         cx: &mut Context,
         bufs: &[IoSlice],
     ) -> Poll<io::Result<usize>> {
-        unimplemented!() // TODO
+        unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write_vectored(cx, bufs)
     }
 }
