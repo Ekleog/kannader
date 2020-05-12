@@ -218,7 +218,7 @@ where
             blocking!(this.queue.sub_dir(&*id.0))?
         };
 
-        smol::Task::blocking(async move {
+        blocking!({
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
@@ -227,13 +227,12 @@ where
             tmp_sched_file.push_str(uuid);
 
             let tmp_file = mail_dir.new_file(&tmp_sched_file, 0600)?;
-            serde_json::to_writer(tmp_file, &schedule).map_err(io::Error::from)?;
+            serde_json::to_writer(tmp_file, &schedule)?;
 
             mail_dir.local_rename(&tmp_sched_file, SCHEDULE_FILE)?;
 
             Ok::<_, io::Error>(())
-        })
-        .await?;
+        })?;
         Ok(())
     }
 
