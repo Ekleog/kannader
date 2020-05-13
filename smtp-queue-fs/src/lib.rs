@@ -123,10 +123,10 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer;
-    type InDropMail = FsInDropMail;
     type InflightLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
     type InflightMail = FsInflightMail;
+    type PendingCleanupMail = FsPendingCleanupMail;
     type QueueLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>;
     type QueuedMail = FsQueuedMail;
@@ -260,14 +260,19 @@ where
         })
     }
 
-    fn send_done<'s, 'a>(
-        &'s self,
+    async fn send_done(
+        &self,
         mail: FsInflightMail,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Result<(), (FsInflightMail, io::Error)>>>>
-    where
-        's: 'a,
-    {
-        unimplemented!() // TODO
+    ) -> Result<Option<FsPendingCleanupMail>, (FsInflightMail, io::Error)> {
+        let inflight = self.inflight.clone();
+        let cleanup = self.cleanup.clone();
+        blocking!({
+            match openat::rename(&*inflight, &*mail.id.0, &*cleanup, &*mail.id.0) {
+                Ok(()) => Ok(Some(mail.into_indrop())),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err((mail, e)),
+            }
+        })
     }
 
     fn send_cancel<'s, 'a>(
@@ -286,14 +291,17 @@ where
         unimplemented!() // TODO
     }
 
-    async fn drop_start(
+    async fn drop(
         &self,
         mail: FsQueuedMail,
-    ) -> Result<Option<FsInDropMail>, (FsQueuedMail, io::Error)> {
+    ) -> Result<Option<FsPendingCleanupMail>, (FsQueuedMail, io::Error)> {
         unimplemented!() // TODO
     }
 
-    async fn drop_confirm(&self, mail: FsInDropMail) -> Result<bool, (FsInDropMail, io::Error)> {
+    async fn cleanup(
+        &self,
+        mail: FsPendingCleanupMail,
+    ) -> Result<bool, (FsPendingCleanupMail, io::Error)> {
         unimplemented!() // TODO
     }
 }
@@ -383,6 +391,10 @@ impl FsInflightMail {
             schedule: f.schedule,
         }
     }
+
+    fn into_indrop(self) -> FsPendingCleanupMail {
+        FsPendingCleanupMail { id: self.id }
+    }
 }
 
 impl smtp_queue::InflightMail for FsInflightMail {
@@ -391,11 +403,11 @@ impl smtp_queue::InflightMail for FsInflightMail {
     }
 }
 
-pub struct FsInDropMail {
+pub struct FsPendingCleanupMail {
     id: QueueId,
 }
 
-impl smtp_queue::InDropMail for FsInDropMail {
+impl smtp_queue::PendingCleanupMail for FsPendingCleanupMail {
     fn id(&self) -> QueueId {
         self.id.clone()
     }
