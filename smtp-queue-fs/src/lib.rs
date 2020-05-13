@@ -268,27 +268,26 @@ where
         let cleanup = self.cleanup.clone();
         blocking!({
             match openat::rename(&*inflight, &*mail.id.0, &*cleanup, &*mail.id.0) {
-                Ok(()) => Ok(Some(mail.into_indrop())),
+                Ok(()) => Ok(Some(mail.into_pending_cleanup())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
                 Err(e) => Err((mail, e)),
             }
         })
     }
 
-    fn send_cancel<'s, 'a>(
-        &'s self,
+    async fn send_cancel(
+        &self,
         mail: FsInflightMail,
-    ) -> Pin<
-        Box<
-            dyn 'a
-                + Send
-                + Future<Output = Result<Option<FsQueuedMail>, (FsInflightMail, io::Error)>>,
-        >,
-    >
-    where
-        's: 'a,
-    {
-        unimplemented!() // TODO
+    ) -> Result<Option<FsQueuedMail>, (FsInflightMail, io::Error)> {
+        let inflight = self.inflight.clone();
+        let queue = self.queue.clone();
+        blocking!({
+            match openat::rename(&*inflight, &*mail.id.0, &*queue, &*mail.id.0) {
+                Ok(()) => Ok(Some(mail.into_queued())),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err((mail, e)),
+            }
+        })
     }
 
     async fn drop(
@@ -392,7 +391,14 @@ impl FsInflightMail {
         }
     }
 
-    fn into_indrop(self) -> FsPendingCleanupMail {
+    fn into_queued(self) -> FsQueuedMail {
+        FsQueuedMail {
+            id: self.id,
+            schedule: self.schedule,
+        }
+    }
+
+    fn into_pending_cleanup(self) -> FsPendingCleanupMail {
         FsPendingCleanupMail { id: self.id }
     }
 }
