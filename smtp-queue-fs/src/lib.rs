@@ -127,6 +127,9 @@ where
     type InflightLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
     type InflightMail = FsInflightMail;
+    type PendingCleanupLister = Pin<
+        Box<dyn Send + Stream<Item = Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>>,
+    >;
     type PendingCleanupMail = FsPendingCleanupMail;
     type QueueLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>;
@@ -152,6 +155,18 @@ where
             scan_queue(self.path.join(INFLIGHT_DIR), self.inflight.clone())
                 .await
                 .map(|r| r.map(FsInflightMail::found)),
+        )
+    }
+
+    async fn find_pending_cleanup(
+        &self,
+    ) -> Pin<
+        Box<dyn Send + Stream<Item = Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>>,
+    > {
+        Box::pin(
+            scan_folder(self.path.join(CLEANUP_DIR))
+                .await
+                .map(|r| r.map(FsPendingCleanupMail::found)),
         )
     }
 
@@ -373,10 +388,9 @@ struct FoundMail {
 }
 
 // TODO: handle dangling symlinks
-async fn scan_queue<P>(
+async fn scan_folder<P>(
     path: P,
-    dir: Arc<Dir>,
-) -> impl 'static + Send + Stream<Item = Result<FoundMail, (io::Error, Option<QueueId>)>>
+) -> impl 'static + Send + Stream<Item = Result<QueueId, (io::Error, Option<QueueId>)>>
 where
     P: 'static + Send + AsRef<Path>,
 {
@@ -384,29 +398,41 @@ where
     // (once that's done, `self.path` can probably be removed)
     let it = blocking!(WalkDir::new(path).into_iter());
     smol::iter(it)
-        .then(move |p| {
-            let dir = dir.clone();
-            async move {
-                let p = p.map_err(|e| (io::Error::from(e), None))?;
-                if !p.path_is_symlink() {
-                    Ok(None)
-                } else {
-                    let path = p.path().to_str().ok_or((
-                        io::Error::new(io::ErrorKind::InvalidData, "file path is not utf-8"),
-                        None,
-                    ))?;
-                    let id = QueueId::new(path);
-                    let schedule_path = Path::new(path).join(SCHEDULE_FILE);
-                    let schedule = blocking!(
-                        dir.open_file(&schedule_path)
-                            .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
-                    )
-                    .map_err(|e| (e, Some(id.clone())))?;
-                    Ok(Some(FoundMail { id, schedule }))
-                }
+        .then(move |p| async move {
+            let p = p.map_err(|e| (io::Error::from(e), None))?;
+            if !p.path_is_symlink() {
+                Ok(None)
+            } else {
+                let path = p.path().to_str().ok_or((
+                    io::Error::new(io::ErrorKind::InvalidData, "file path is not utf-8"),
+                    None,
+                ))?;
+                Ok(Some(QueueId::new(path)))
             }
         })
         .filter_map(|r| async move { r.transpose() })
+}
+
+async fn scan_queue<P>(
+    path: P,
+    dir: Arc<Dir>,
+) -> impl 'static + Send + Stream<Item = Result<FoundMail, (io::Error, Option<QueueId>)>>
+where
+    P: 'static + Send + AsRef<Path>,
+{
+    scan_folder(path).await.then(move |id| {
+        let dir = dir.clone();
+        async move {
+            let id = id?;
+            let schedule_path = Path::new(&*id.0).join(SCHEDULE_FILE);
+            let schedule = blocking!(
+                dir.open_file(&schedule_path)
+                    .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
+            )
+            .map_err(|e| (e, Some(id.clone())))?;
+            Ok(FoundMail { id, schedule })
+        }
+    })
 }
 
 pub struct FsQueuedMail {
@@ -479,6 +505,12 @@ pub struct FsPendingCleanupMail {
     id: QueueId,
 }
 
+impl FsPendingCleanupMail {
+    fn found(id: QueueId) -> FsPendingCleanupMail {
+        FsPendingCleanupMail { id }
+    }
+}
+
 impl smtp_queue::PendingCleanupMail for FsPendingCleanupMail {
     fn id(&self) -> QueueId {
         self.id.clone()
@@ -530,3 +562,5 @@ impl AsyncWrite for FsEnqueuer {
         unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write_vectored(cx, bufs)
     }
 }
+
+// TODO: test, fuzz

@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::{io, pin_mut, prelude::*};
+use futures::{io, join, pin_mut, prelude::*};
 use smtp_message::{Email, ReplyCode};
 
 // Use cases to take into account:
@@ -110,12 +110,15 @@ pub trait Storage<U>: 'static + Send + Sync {
     type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>;
     type InflightLister: Send
         + Stream<Item = Result<Self::InflightMail, (io::Error, Option<QueueId>)>>;
+    type PendingCleanupLister: Send
+        + Stream<Item = Result<Self::PendingCleanupMail, (io::Error, Option<QueueId>)>>;
 
     type Enqueuer: StorageEnqueuer<Self::QueuedMail>;
     type Reader: Send + AsyncRead;
 
     async fn list_queue(&self) -> Self::QueueLister;
     async fn find_inflight(&self) -> Self::InflightLister;
+    async fn find_pending_cleanup(&self) -> Self::PendingCleanupLister;
 
     async fn read_inflight(
         &self,
@@ -279,7 +282,7 @@ where
             phantom: PhantomData,
         };
 
-        this.scan_inflight().await;
+        join!(this.scan_inflight(), this.scan_pending_cleanup());
 
         {
             let this = this.clone();
@@ -337,6 +340,21 @@ where
             smol::Task::spawn(async move {
                 match queued {
                     Ok(queued) => this.send(queued).await,
+                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
+                }
+            })
+            .detach();
+        }
+    }
+
+    async fn scan_pending_cleanup(&self) {
+        let pcm_stream = self.q.storage.find_pending_cleanup().await;
+        pin_mut!(pcm_stream);
+        while let Some(pcm) = pcm_stream.next().await {
+            let this = self.clone();
+            smol::Task::spawn(async move {
+                match pcm {
+                    Ok(pcm) => this.cleanup(pcm).await,
                     Err((e, id)) => this.q.config.log_io_error(e, id).await,
                 }
             })
