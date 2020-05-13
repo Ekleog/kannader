@@ -11,14 +11,14 @@ function matchesFilterElement(i, elt) {
     }
     const colonPos = elt.indexOf(':');
     if (colonPos === -1) {
-        return false; // TODO: implement keyword filtering
+        return false;
     } else {
         const type = elt.slice(0, colonPos);
         const value = elt.slice(colonPos + 1);
         if (type === 'label') {
             return i.labels.some(l => l.name === value);
         } else {
-            return false; // TODO: support other match types
+            return false;
         }
     }
 }

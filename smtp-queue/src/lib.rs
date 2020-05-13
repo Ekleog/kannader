@@ -50,7 +50,6 @@ impl ScheduleInfo {
 
                 // If the interval is negative, let's just say there's no interval yet, because
                 // things are weird enough.
-                // TODO: return a Result<> instead?
                 chrono_interval.to_std().ok()
             }
         }

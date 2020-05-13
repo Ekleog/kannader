@@ -16,8 +16,6 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 // TODO: turn this into a section of the book
-// TODO: the data folder should probably be split in like 256 sub-folders, to
-// allow the sysadmin to share it across many partitions
 //
 // Assumptions:
 //  - Moving a symlink to another folder is atomic between <queue>/queue,
@@ -61,7 +59,6 @@ use walkdir::WalkDir;
 //  - Remove the target of <queue>/cleanup/<id> (the folder in <queue>/data)
 //  - Remove the <queue>/cleanup/<id> symlink
 
-// TODO: make those configurable?
 pub const DATA_DIR: &'static str = "data";
 pub const QUEUE_DIR: &'static str = "queue";
 pub const INFLIGHT_DIR: &'static str = "inflight";
@@ -83,8 +80,6 @@ pub struct FsStorage<U> {
     phantom: PhantomData<U>,
 }
 
-// TODO: remove all these clone() that are required only due to
-// https://github.com/stjepang/blocking/issues/1
 impl<U> FsStorage<U> {
     pub async fn new(path: Arc<PathBuf>) -> io::Result<FsStorage<U>> {
         let main_dir = {
@@ -170,10 +165,6 @@ where
         )
     }
 
-    // TODO: ideally this'd return a *future* to MailMetadata<U> as well as a
-    // FsReader, so that it's possible to select() on the two or even spawn them to
-    // run in parallel. That's probably an optimization not worth doing right now,
-    // though
     async fn read_inflight(
         &self,
         mail: &FsInflightMail,
@@ -207,8 +198,6 @@ where
         let data = self.data.clone();
         let queue = self.queue.clone();
 
-        // TODO: the two files could be written concurrently (being concurrent with the
-        // FsEnqueuer is going to lose the early-failure property it currently has)
         blocking!({
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
@@ -387,15 +376,12 @@ struct FoundMail {
     schedule: ScheduleInfo,
 }
 
-// TODO: handle dangling symlinks
 async fn scan_folder<P>(
     path: P,
 ) -> impl 'static + Send + Stream<Item = Result<QueueId, (io::Error, Option<QueueId>)>>
 where
     P: 'static + Send + AsRef<Path>,
 {
-    // TODO: should use openat, not raw walkdir that'll do non-openat calls
-    // (once that's done, `self.path` can probably be removed)
     let it = blocking!(WalkDir::new(path).into_iter());
     smol::iter(it)
         .then(move |p| async move {
@@ -562,5 +548,3 @@ impl AsyncWrite for FsEnqueuer {
         unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write_vectored(cx, bufs)
     }
 }
-
-// TODO: test, fuzz
