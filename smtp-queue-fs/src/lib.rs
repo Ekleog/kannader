@@ -117,19 +117,6 @@ impl<U> FsStorage<U> {
     }
 }
 
-impl<U> Clone for FsStorage<U> {
-    fn clone(&self) -> FsStorage<U> {
-        FsStorage {
-            path: self.path.clone(),
-            data: self.data.clone(),
-            queue: self.queue.clone(),
-            inflight: self.inflight.clone(),
-            cleanup: self.cleanup.clone(),
-            phantom: PhantomData,
-        }
-    }
-}
-
 #[async_trait]
 impl<U> smtp_queue::Storage<U> for FsStorage<U>
 where
@@ -175,21 +162,22 @@ where
         &self,
         mail: &FsInflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
-        let mail = {
-            let this = self.clone();
+        let mail_dir = {
+            let inflight = self.inflight.clone();
             let mail = mail.id.0.clone();
-            Arc::new(blocking!(this.inflight.sub_dir(&*mail))?)
+            Arc::new(blocking!(inflight.sub_dir(&*mail))?)
         };
         let metadata = {
-            let mail = mail.clone();
+            let mail_dir = mail_dir.clone();
             blocking!(
-                mail.open_file(METADATA_FILE)
+                mail_dir
+                    .open_file(METADATA_FILE)
                     .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
             )?
         };
         let reader = {
-            let mail = mail.clone();
-            let contents = blocking!(mail.open_file(CONTENTS_FILE))?;
+            let mail_dir = mail_dir.clone();
+            let contents = blocking!(mail_dir.open_file(CONTENTS_FILE))?;
             Box::pin(smol::reader(contents))
         };
         Ok((metadata, reader))
@@ -234,9 +222,9 @@ where
         mail.schedule = schedule;
 
         let mail_dir = {
-            let this = self.clone();
-            let id = mail.id.clone();
-            blocking!(this.queue.sub_dir(&*id.0))?
+            let queue = self.queue.clone();
+            let id = mail.id.0.clone();
+            blocking!(queue.sub_dir(&*id))?
         };
 
         blocking!({
@@ -257,20 +245,11 @@ where
         Ok(())
     }
 
-    fn send_start<'s, 'a>(
-        &'s self,
+    async fn send_start(
+        &self,
         mail: FsQueuedMail,
-    ) -> Pin<
-        Box<
-            dyn 'a
-                + Send
-                + Future<Output = Result<Option<FsInflightMail>, (FsQueuedMail, io::Error)>>,
-        >,
-    >
-    where
-        's: 'a,
-    {
-        unimplemented!() // TODO
+    ) -> Result<Option<FsInflightMail>, (FsQueuedMail, io::Error)> {
+        blocking!({ unimplemented!() })
     }
 
     fn send_done<'s, 'a>(
@@ -363,15 +342,6 @@ impl FsQueuedMail {
         FsQueuedMail {
             id: f.id,
             schedule: f.schedule,
-        }
-    }
-
-    // Not public, so that it doesn't encourage cloning -- cloning should work, but
-    // will result in unexpected behavior
-    fn clone(&self) -> FsQueuedMail {
-        FsQueuedMail {
-            id: self.id.clone(),
-            schedule: self.schedule.clone(),
         }
     }
 }
