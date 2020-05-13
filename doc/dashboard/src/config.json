@@ -2,109 +2,118 @@
     "repo": "Ekleog/yuubind",
     "defaultTab": "Code",
     "tabs": {
-        "Code": [
-            {
-                "name": "Critical",
-                "lists": [
-                    {
-                        "search": "-label:n:blocked -label:a:doc label:p:critical",
-                        "order": [ "label:c:easy", "label:c:medium", "label:c:hard" ]
-                    }
-                ]
-            },
-            {
-                "name": "High-priority",
-                "lists": [
-                    { "search": "-label:n:blocked -label:a:doc label:p:high label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-High-priority",
-                "lists": [
-                    { "search": "-label:n:blocked -label:a:doc label:p:high label:c:medium" },
-                    { "search": "-label:n:blocked -label:a:doc label:p:medium label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-priority",
-                "lists": [
-                    { "search": "-label:n:blocked -label:a:doc label:p:high label:c:hard" },
-                    { "search": "-label:n:blocked -label:a:doc label:p:medium label:c:medium" },
-                    { "search": "-label:n:blocked -label:a:doc label:p:low label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-Low-priority",
-                "lists": [
-                    { "search": "-label:n:blocked -label:a:doc label:p:medium label:c:hard" },
-                    { "search": "-label:n:blocked -label:a:doc label:p:low label:c:medium" }
-                ]
-            },
-            {
-                "name": "Low-priority",
-                "lists": [
-                    { "search": "-label:n:blocked -label:a:doc label:p:low label:c:hard" }
-                ]
-            }
-        ],
-        "Documentation": [
-            {
-                "name": "Critical",
-                "lists": [
-                    {
-                        "search": "-label:n:blocked label:a:doc label:p:critical",
-                        "order": [ "label:c:easy", "label:c:medium", "label:c:hard" ]
-                    }
-                ]
-            },
-            {
-                "name": "High-priority",
-                "lists": [
-                    { "search": "-label:n:blocked label:a:doc label:p:high label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-High-priority",
-                "lists": [
-                    { "search": "-label:n:blocked label:a:doc label:p:high label:c:medium" },
-                    { "search": "-label:n:blocked label:a:doc label:p:medium label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-priority",
-                "lists": [
-                    { "search": "-label:n:blocked label:a:doc label:p:high label:c:hard" },
-                    { "search": "-label:n:blocked label:a:doc label:p:medium label:c:medium" },
-                    { "search": "-label:n:blocked label:a:doc label:p:low label:c:easy" }
-                ]
-            },
-            {
-                "name": "Medium-Low-priority",
-                "lists": [
-                    { "search": "-label:n:blocked label:a:doc label:p:medium label:c:hard" },
-                    { "search": "-label:n:blocked label:a:doc label:p:low label:c:medium" }
-                ]
-            },
-            {
-                "name": "Low-priority",
-                "lists": [
-                    { "search": "-label:n:blocked label:a:doc label:p:low label:c:hard" }
-                ]
-            }
-        ],
-        "Triage": [
-            {
-                "name": "To triage",
-                "lists": [
-                    { "search": "label:n:triage" }
-                ]
-            },
-            {
-                "name": "Blocked",
-                "lists": [
-                    { "search": "label:n:blocked" }
-                ]
-            }
-        ]
+        "Code": {
+            "search": "-label:n:blocked -label:a:doc",
+            "blocks": [
+                {
+                    "name": "Critical",
+                    "lists": [
+                        {
+                            "search": "label:p:critical",
+                            "order": [ "label:c:easy", "label:c:medium", "label:c:hard" ]
+                        }
+                    ]
+                },
+                {
+                    "name": "High-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-High-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:medium" },
+                        { "search": "label:p:medium label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:hard" },
+                        { "search": "label:p:medium label:c:medium" },
+                        { "search": "label:p:low label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-Low-priority",
+                    "lists": [
+                        { "search": "label:p:medium label:c:hard" },
+                        { "search": "label:p:low label:c:medium" }
+                    ]
+                },
+                {
+                    "name": "Low-priority",
+                    "lists": [
+                        { "search": "label:p:low label:c:hard" }
+                    ]
+                }
+            ]
+        },
+        "Documentation": {
+            "search": "-label:n:blocked label:a:doc",
+            "blocks": [
+                {
+                    "name": "Critical",
+                    "lists": [
+                        {
+                            "search": "label:p:critical",
+                            "order": [ "label:c:easy", "label:c:medium", "label:c:hard" ]
+                        }
+                    ]
+                },
+                {
+                    "name": "High-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-High-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:medium" },
+                        { "search": "label:p:medium label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-priority",
+                    "lists": [
+                        { "search": "label:p:high label:c:hard" },
+                        { "search": "label:p:medium label:c:medium" },
+                        { "search": "label:p:low label:c:easy" }
+                    ]
+                },
+                {
+                    "name": "Medium-Low-priority",
+                    "lists": [
+                        { "search": "label:p:medium label:c:hard" },
+                        { "search": "label:p:low label:c:medium" }
+                    ]
+                },
+                {
+                    "name": "Low-priority",
+                    "lists": [
+                        { "search": "label:p:low label:c:hard" }
+                    ]
+                }
+            ]
+        },
+        "Triage": {
+            "search": "",
+            "blocks": [
+                {
+                    "name": "To triage",
+                    "lists": [
+                        { "search": "label:n:triage" }
+                    ]
+                },
+                {
+                    "name": "Blocked",
+                    "lists": [
+                        { "search": "label:n:blocked" }
+                    ]
+                }
+            ]
+        }
     }
 }

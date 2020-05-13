@@ -140,17 +140,31 @@ class Block extends React.Component {
 
 class Tab extends React.Component {
     render() {
+        const filtered_issues = this.props.issues.filter(i => {
+            return matchesFilter(i, this.props.search);
+        });
         const blocks = this.props.blocks.map((b, i) => {
             return (
                 <Block key={i}
                        name={b.name}
                        lists={b.lists}
-                       onSearchChange={(l, s) => this.props.onSearchChange(i, l, s)}
-                       issues={this.props.issues} />
+                       onSearchChange={(l, s) => this.props.onListSearchChange(i, l, s)}
+                       issues={filtered_issues} />
             );
         });
         return (
             <div className="container-fluid">
+                <form>
+                    <div className="input-group">
+                        <div className="input-group-prepend">
+                            <div className="input-group-text">Search</div>
+                        </div>
+                        <input type="text"
+                               className="form-control"
+                               value={this.props.search}
+                               onChange={(s) => this.props.onTabSearchChange(s.target.value)} />
+                    </div>
+                </form>
                 {blocks}
             </div>
         );
@@ -179,14 +193,25 @@ class Dashboard extends React.Component {
         });
     }
 
-    changeSearch(tab, block, list, search) {
+    changeListSearch(tab, block, list, search) {
         const config = Object.assign({}, this.state.config);
         config.tabs = Object.assign({}, config.tabs);
         config.tabs[tab] = config.tabs[tab].slice();
-        config.tabs[tab][block] = Object.assign({}, config.tabs[tab][block]);
-        config.tabs[tab][block].lists = config.tabs[tab][block].lists.slice();
-        config.tabs[tab][block].lists[list] = Object.assign({}, config.tabs[tab][block].lists[list]);
-        config.tabs[tab][block].lists[list].search = search;
+        config.tabs[tab].blocks[block] = Object.assign({}, config.tabs[tab].blocks[block]);
+        config.tabs[tab].blocks[block].lists = config.tabs[tab].blocks[block].lists.slice();
+        config.tabs[tab].blocks[block].lists[list] = Object.assign({}, config.tabs[tab].blocks[block].lists[list]);
+        config.tabs[tab].blocks[block].lists[list].search = search;
+        this.setState({
+            currentTab: this.state.currentTab,
+            config: config,
+            issues: this.state.issues
+        });
+    }
+
+    changeTabSearch(tab, search) {
+        const config = Object.assign({}, this.state.config);
+        config.tabs = Object.assign({}, config.tabs);
+        config.tabs[tab].search = search;
         this.setState({
             currentTab: this.state.currentTab,
             config: config,
@@ -253,8 +278,10 @@ class Dashboard extends React.Component {
                     </button>
                 </nav>
                 <div className="mt-2">
-                    <Tab blocks={this.state.config.tabs[this.state.currentTab]}
-                         onSearchChange={(b, l, s) => this.changeSearch(this.state.currentTab, b, l, s)}
+                    <Tab blocks={this.state.config.tabs[this.state.currentTab].blocks}
+                         search={this.state.config.tabs[this.state.currentTab].search}
+                         onListSearchChange={(b, l, s) => this.changeListSearch(this.state.currentTab, b, l, s)}
+                         onTabSearchChange={(s) => this.changeTabSearch(this.state.currentTab, s)}
                          issues={this.state.issues} />
                 </div>
             </div>
