@@ -142,7 +142,7 @@ pub trait Storage<U>: 'static + Send + Sync {
     async fn send_done(
         &self,
         mail: Self::InflightMail,
-    ) -> Result<(), (Self::InflightMail, io::Error)>;
+    ) -> Result<Option<Self::InDropMail>, (Self::InflightMail, io::Error)>;
 
     async fn send_cancel(
         &self,
@@ -244,6 +244,23 @@ macro_rules! io_retry_loop_raw {
             delay = $this.q.config.io_error_next_retry_delay(delay);
         }
     }};
+}
+
+impl<U, C, S, T> Queue<U, C, S, T>
+where
+    U: 'static + Send + Sync,
+    C: Config<U>,
+    S: Storage<U>,
+    T: Transport<U>,
+{
+    async fn cleanup_indrop_mail(&self, indrop: S::InDropMail) {
+        let id = indrop.id();
+        let cleanup_successful =
+            io_retry_loop!(self, indrop, |i| self.q.storage.drop_confirm(i).await);
+        if !cleanup_successful {
+            self.q.config.log_indrop_mail_vanished(id).await;
+        }
+    }
 }
 
 impl<U, C, S, T> Queue<U, C, S, T>
@@ -375,12 +392,7 @@ where
                         }
                     };
 
-                    let id = indrop.id();
-                    let cleanup_successful =
-                        io_retry_loop!(self, indrop, |i| self.q.storage.drop_confirm(i).await);
-                    if !cleanup_successful {
-                        self.q.config.log_indrop_mail_vanished(id).await;
-                    }
+                    self.cleanup_indrop_mail(indrop).await;
                     return;
                 }
             }
@@ -410,7 +422,15 @@ where
 
         match self.q.transport.send(&meta, reader).await {
             Ok(()) => {
-                io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
+                let indrop = io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
+                match indrop {
+                    Some(indrop) => {
+                        self.cleanup_indrop_mail(indrop).await;
+                    }
+                    None => {
+                        self.q.config.log_queued_mail_vanished(id).await;
+                    }
+                };
                 return Ok(());
             }
             Err(TransportFailure::RemotePermanent(c, e)) => {
