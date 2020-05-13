@@ -249,7 +249,15 @@ where
         &self,
         mail: FsQueuedMail,
     ) -> Result<Option<FsInflightMail>, (FsQueuedMail, io::Error)> {
-        blocking!({ unimplemented!() })
+        let queue = self.queue.clone();
+        let inflight = self.inflight.clone();
+        blocking!({
+            match openat::rename(&*queue, &*mail.id.0, &*inflight, &*mail.id.0) {
+                Ok(()) => Ok(Some(mail.into_inflight())),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err((mail, e)),
+            }
+        })
     }
 
     fn send_done<'s, 'a>(
@@ -342,6 +350,13 @@ impl FsQueuedMail {
         FsQueuedMail {
             id: f.id,
             schedule: f.schedule,
+        }
+    }
+
+    fn into_inflight(self) -> FsInflightMail {
+        FsInflightMail {
+            id: self.id,
+            schedule: self.schedule,
         }
     }
 }
