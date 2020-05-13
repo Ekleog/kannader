@@ -79,7 +79,7 @@ pub trait Config<U>: 'static + Send + Sync {
     async fn log_io_error(&self, err: io::Error, id: Option<QueueId>);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
-    async fn log_indrop_mail_vanished(&self, id: QueueId);
+    async fn log_pending_cleanup_mail_vanished(&self, id: QueueId);
     async fn log_too_big_duration(&self, id: QueueId, too_big: Duration, new: Duration);
 
     // The important thing is it must be longer than the time between
@@ -98,14 +98,14 @@ pub trait Config<U>: 'static + Send + Sync {
     }
 }
 
-// TODO: add a callback for the Storage to cleanup InDrop mails that might be
-// pending following a crash
+// TODO: add a callback for the Storage to cleanup PendingCleanup mails that
+// might be pending following a crash
 
 #[async_trait]
 pub trait Storage<U>: 'static + Send + Sync {
     type QueuedMail: QueuedMail;
     type InflightMail: InflightMail;
-    type InDropMail: InDropMail;
+    type PendingCleanupMail: PendingCleanupMail;
 
     type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>;
     type InflightLister: Send
@@ -142,22 +142,22 @@ pub trait Storage<U>: 'static + Send + Sync {
     async fn send_done(
         &self,
         mail: Self::InflightMail,
-    ) -> Result<Option<Self::InDropMail>, (Self::InflightMail, io::Error)>;
+    ) -> Result<Option<Self::PendingCleanupMail>, (Self::InflightMail, io::Error)>;
 
     async fn send_cancel(
         &self,
         mail: Self::InflightMail,
     ) -> Result<Option<Self::QueuedMail>, (Self::InflightMail, io::Error)>;
 
-    async fn drop_start(
+    async fn drop(
         &self,
         mail: Self::QueuedMail,
-    ) -> Result<Option<Self::InDropMail>, (Self::QueuedMail, io::Error)>;
+    ) -> Result<Option<Self::PendingCleanupMail>, (Self::QueuedMail, io::Error)>;
 
-    async fn drop_confirm(
+    async fn cleanup(
         &self,
-        mail: Self::InDropMail,
-    ) -> Result<bool, (Self::InDropMail, io::Error)>;
+        mail: Self::PendingCleanupMail,
+    ) -> Result<bool, (Self::PendingCleanupMail, io::Error)>;
 }
 
 pub trait QueuedMail: Send + Sync {
@@ -169,7 +169,7 @@ pub trait InflightMail: Send + Sync {
     fn id(&self) -> QueueId;
 }
 
-pub trait InDropMail: Send + Sync {
+pub trait PendingCleanupMail: Send + Sync {
     fn id(&self) -> QueueId;
 }
 
@@ -253,12 +253,11 @@ where
     S: Storage<U>,
     T: Transport<U>,
 {
-    async fn cleanup_indrop_mail(&self, indrop: S::InDropMail) {
-        let id = indrop.id();
-        let cleanup_successful =
-            io_retry_loop!(self, indrop, |i| self.q.storage.drop_confirm(i).await);
+    async fn cleanup_pending_cleanup_mail(&self, pcm: S::PendingCleanupMail) {
+        let id = pcm.id();
+        let cleanup_successful = io_retry_loop!(self, pcm, |p| self.q.storage.cleanup(p).await);
         if !cleanup_successful {
-            self.q.config.log_indrop_mail_vanished(id).await;
+            self.q.config.log_pending_cleanup_mail_vanished(id).await;
         }
     }
 }
@@ -383,16 +382,16 @@ where
                 }
                 None => {
                     let id = mail.id();
-                    let indrop = io_retry_loop!(self, mail, |m| self.q.storage.drop_start(m).await);
-                    let indrop = match indrop {
-                        Some(indrop) => indrop,
+                    let pcm = io_retry_loop!(self, mail, |m| self.q.storage.drop(m).await);
+                    let pcm = match pcm {
+                        Some(pcm) => pcm,
                         None => {
                             self.q.config.log_queued_mail_vanished(id).await;
                             return;
                         }
                     };
 
-                    self.cleanup_indrop_mail(indrop).await;
+                    self.cleanup_pending_cleanup_mail(pcm).await;
                     return;
                 }
             }
@@ -422,10 +421,10 @@ where
 
         match self.q.transport.send(&meta, reader).await {
             Ok(()) => {
-                let indrop = io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
-                match indrop {
-                    Some(indrop) => {
-                        self.cleanup_indrop_mail(indrop).await;
+                let pcm = io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
+                match pcm {
+                    Some(pcm) => {
+                        self.cleanup_pending_cleanup_mail(pcm).await;
                     }
                     None => {
                         self.q.config.log_queued_mail_vanished(id).await;
