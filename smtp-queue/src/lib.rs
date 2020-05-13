@@ -253,7 +253,7 @@ where
     S: Storage<U>,
     T: Transport<U>,
 {
-    async fn cleanup_pending_cleanup_mail(&self, pcm: S::PendingCleanupMail) {
+    async fn cleanup(&self, pcm: S::PendingCleanupMail) {
         let id = pcm.id();
         let cleanup_successful = io_retry_loop!(self, pcm, |p| self.q.storage.cleanup(p).await);
         if !cleanup_successful {
@@ -391,7 +391,7 @@ where
                         }
                     };
 
-                    self.cleanup_pending_cleanup_mail(pcm).await;
+                    self.cleanup(pcm).await;
                     return;
                 }
             }
@@ -424,7 +424,7 @@ where
                 let pcm = io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
                 match pcm {
                     Some(pcm) => {
-                        self.cleanup_pending_cleanup_mail(pcm).await;
+                        self.cleanup(pcm).await;
                     }
                     None => {
                         self.q.config.log_queued_mail_vanished(id).await;
