@@ -67,6 +67,8 @@ pub const QUEUE_DIR: &'static str = "queue";
 pub const INFLIGHT_DIR: &'static str = "inflight";
 pub const CLEANUP_DIR: &'static str = "cleanup";
 
+pub const DATA_DIR_FROM_OTHER_QUEUE: &'static str = "../data";
+
 pub const CONTENTS_FILE: &'static str = "contents";
 pub const METADATA_FILE: &'static str = "metadata";
 pub const SCHEDULE_FILE: &'static str = "schedule";
@@ -308,7 +310,60 @@ where
         &self,
         mail: FsPendingCleanupMail,
     ) -> Result<bool, (FsPendingCleanupMail, io::Error)> {
-        unimplemented!() // TODO
+        let cleanup = self.cleanup.clone();
+        let data = self.data.clone();
+        blocking!({
+            match cleanup.sub_dir(&*mail.id.0) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => (), // already removed
+                Err(e) => return Err((mail, e)),
+                Ok(mail_dir) => {
+                    match mail_dir.remove_file(CONTENTS_FILE) {
+                        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                        _ => (),
+                    }
+
+                    match mail_dir.remove_file(METADATA_FILE) {
+                        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                        _ => (),
+                    }
+
+                    match mail_dir.remove_file(SCHEDULE_FILE) {
+                        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                        _ => (),
+                    }
+                }
+            };
+
+            let symlink_target = match cleanup.read_link(&*mail.id.0) {
+                Ok(t) => t,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(e) => return Err((mail, e)),
+            };
+
+            let path_in_data_dir = match symlink_target.strip_prefix(DATA_DIR_FROM_OTHER_QUEUE) {
+                Ok(p) => p,
+                Err(_) => {
+                    return Err((
+                        mail,
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "message symlink is outside the queue",
+                        ),
+                    ));
+                }
+            };
+
+            match data.remove_dir(path_in_data_dir) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                _ => (),
+            }
+
+            match cleanup.remove_file(&*mail.id.0) {
+                Ok(()) => Ok(true),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err((mail, e)),
+            }
+        })
     }
 }
 
@@ -442,8 +497,7 @@ impl smtp_queue::StorageEnqueuer<FsQueuedMail> for FsEnqueuer {
     async fn commit(mut self) -> io::Result<FsQueuedMail> {
         self.flush().await?;
         blocking!({
-            let mut symlink_value = String::from("../");
-            symlink_value.push_str(DATA_DIR);
+            let mut symlink_value = String::from(DATA_DIR_FROM_OTHER_QUEUE);
             symlink_value.push_str(&self.uuid);
             self.queue.symlink(&self.uuid, symlink_value)?;
 
