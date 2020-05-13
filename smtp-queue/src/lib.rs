@@ -98,9 +98,6 @@ pub trait Config<U>: 'static + Send + Sync {
     }
 }
 
-// TODO: add a callback for the Storage to cleanup PendingCleanup mails that
-// might be pending following a crash
-
 #[async_trait]
 pub trait Storage<U>: 'static + Send + Sync {
     type QueuedMail: QueuedMail;
