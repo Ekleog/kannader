@@ -1,5 +1,4 @@
 use std::{
-    future::Future,
     io,
     marker::PhantomData,
     path::{Path, PathBuf},
@@ -294,7 +293,15 @@ where
         &self,
         mail: FsQueuedMail,
     ) -> Result<Option<FsPendingCleanupMail>, (FsQueuedMail, io::Error)> {
-        unimplemented!() // TODO
+        let queue = self.queue.clone();
+        let cleanup = self.cleanup.clone();
+        blocking!({
+            match openat::rename(&*queue, &*mail.id.0, &*cleanup, &*mail.id.0) {
+                Ok(()) => Ok(Some(mail.into_pending_cleanup())),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err((mail, e)),
+            }
+        })
     }
 
     async fn cleanup(
@@ -365,6 +372,10 @@ impl FsQueuedMail {
             id: self.id,
             schedule: self.schedule,
         }
+    }
+
+    fn into_pending_cleanup(self) -> FsPendingCleanupMail {
+        FsPendingCleanupMail { id: self.id }
     }
 }
 
