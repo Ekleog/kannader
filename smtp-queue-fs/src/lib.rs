@@ -73,7 +73,7 @@ pub const SCHEDULE_FILE: &'static str = "schedule";
 pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
 
 pub struct FsStorage<U> {
-    path: PathBuf,
+    path: Arc<PathBuf>,
     data: Arc<Dir>,
     queue: Arc<Dir>,
     inflight: Arc<Dir>,
@@ -84,10 +84,10 @@ pub struct FsStorage<U> {
 // TODO: remove all these clone() that are required only due to
 // https://github.com/stjepang/blocking/issues/1
 impl<U> FsStorage<U> {
-    pub async fn new(path: PathBuf) -> io::Result<FsStorage<U>> {
+    pub async fn new(path: Arc<PathBuf>) -> io::Result<FsStorage<U>> {
         let main_dir = {
             let path = path.clone();
-            Arc::new(blocking!(Dir::open(&path))?)
+            Arc::new(blocking!(Dir::open(&*path))?)
         };
         let data = {
             let main_dir = main_dir.clone();
