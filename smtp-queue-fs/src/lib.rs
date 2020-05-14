@@ -15,50 +15,6 @@ use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-// TODO: turn this into a section of the book
-//
-// Assumptions:
-//  - Moving a symlink to another folder is atomic between <queue>/queue,
-//    <queue>/inflight and <queue>/cleanup
-//  - Moving a file is atomic between files in the same <mail> folder
-//  - Creating a symlink in the <queue> folder is atomic
-//  - Once a write is flushed without error, it is guaranteed not to be changed
-//    by something other than a yuubind instance (or another system aware of
-//    yuubind's protocol and guarantees)
-//
-// File structure:
-//  - <queue>/data: location for the contents and metadata of the emails in the
-//    queue
-//  - <queue>/queue: folder for holding symlinks to the emails
-//  - <queue>/inflight: folder for holding symlinks to the emails that are
-//    currently in flight
-//  - <queue>/cleanup: folder for holding symlinks to the emails that are
-//    currently being deleted after being successfully sent
-//
-// Each email in <queue>/data is a folder, that is constituted of:
-//  - <mail>/contents: the RFC5322 content of the email
-//  - <mail>/metadata: the JSON-encoded MailMetadata<U>
-//  - <mail>/schedule: the JSON-encoded ScheduleInfo couple. This one is the
-//    only one that could change over time, and it gets written by writing a
-//    `schedule.{{random}}` then renaming it in-place
-//
-// When enqueuing, the process is:
-//  - Create <queue>/data/<uuid>, thereafter named <mail>
-//  - Write <mail>/schedule and <mail>/metadata
-//  - Give out the Enqueuer to the user for writing <mail>/contents
-//  - Wait for the user to commit the Enqueuer
-//  - Create a symlink from <queue>/queue/<uuid> to <mail>
-//
-// When starting to send / cancelling sends, the process is:
-//  - Move <queue>/queue/<id> to <queue>/inflight/<id> (or back)
-//
-// When done with sending a mail and it thus needs to be removed from disk, the
-// process is.
-//  - Move <queue>/inflight/<id> to <queue>/cleanup/<id>
-//  - Remove <queue>/cleanup/<id>/* (which actually are in <queue>/data/<id>/*)
-//  - Remove the target of <queue>/cleanup/<id> (the folder in <queue>/data)
-//  - Remove the <queue>/cleanup/<id> symlink
-
 pub const DATA_DIR: &'static str = "data";
 pub const QUEUE_DIR: &'static str = "queue";
 pub const INFLIGHT_DIR: &'static str = "inflight";
