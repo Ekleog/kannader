@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use nom::{
     branch::alt,
     bytes::streaming::tag,
-    combinator::{map, map_opt, opt},
+    combinator::{map, map_opt, opt, peek},
     multi::separated_nonempty_list,
     sequence::{pair, preceded, terminated},
     IResult,
@@ -99,6 +99,16 @@ fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[
     }
 }
 
+fn maybe_terminator<'a>(terminator: &'a [u8]) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], ()> {
+    move |buf: &[u8]| {
+        if terminator == b"" {
+            Ok((buf, ()))
+        } else {
+            map(peek(tag(terminator)), |_| ())(buf)
+        }
+    }
+}
+
 // TODO: Ideally the ipv6 and ipv4 variants would be parsed in the single regex
 // pass. However, that's hard to do, so let's just not do it for now and keep it
 // as an optimization. So for now, it's just as well to return the parsed IPs,
@@ -125,7 +135,7 @@ impl<S> Hostname<S> {
     }
 
     fn parse_terminated<'a, 'b>(
-        terminator: &'b [u8],
+        term: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
     where
         'a: 'b,
@@ -133,7 +143,7 @@ impl<S> Hostname<S> {
     {
         alt((
             map_opt(
-                terminated(apply_regex(&HOSTNAME_ASCII), tag(terminator)),
+                terminated(apply_regex(&HOSTNAME_ASCII), maybe_terminator(term)),
                 |b: &[u8]| {
                     // The three below unsafe are OK, thanks to our
                     // regex validating that `b` is proper ascii
@@ -156,7 +166,7 @@ impl<S> Hostname<S> {
                 },
             ),
             map_opt(
-                terminated(apply_regex(&HOSTNAME_UTF8), tag(terminator)),
+                terminated(apply_regex(&HOSTNAME_UTF8), maybe_terminator(term)),
                 |res: &[u8]| {
                     // The below unsafe is OK, thanks to our regex
                     // never disabling the `u` flag and thus
@@ -240,35 +250,52 @@ pub enum Localpart<S> {
 }
 
 impl<S> Localpart<S> {
+    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Localpart<S>>
     where
         S: From<&'a str>,
     {
+        Self::parse_terminated(b"")(buf)
+    }
+
+    fn parse_terminated<'a, 'b>(
+        term: &'b [u8],
+    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Localpart<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
         alt((
-            map(apply_regex(&LOCALPART_ASCII), |b: &[u8]| {
-                // The below unsafe is OK, thanks to our regex
-                // validating that `b` is proper ascii (and thus
-                // utf-8)
-                let s = unsafe { str::from_utf8_unchecked(b) };
+            map(
+                terminated(apply_regex(&LOCALPART_ASCII), maybe_terminator(term)),
+                |b: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // validating that `b` is proper ascii (and thus
+                    // utf-8)
+                    let s = unsafe { str::from_utf8_unchecked(b) };
 
-                if b[0] != b'"' {
-                    return Localpart::Ascii { raw: s.into() };
-                } else {
-                    return Localpart::Quoted { raw: s.into() };
-                }
-            }),
-            map(apply_regex(&LOCALPART_UTF8), |b: &[u8]| {
-                // The below unsafe is OK, thanks to our regex
-                // validating that `b` is proper utf-8 by never disabling the `u` flag
-                let s = unsafe { str::from_utf8_unchecked(b) };
+                    if b[0] != b'"' {
+                        return Localpart::Ascii { raw: s.into() };
+                    } else {
+                        return Localpart::Quoted { raw: s.into() };
+                    }
+                },
+            ),
+            map(
+                terminated(apply_regex(&LOCALPART_UTF8), maybe_terminator(term)),
+                |b: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // validating that `b` is proper utf-8 by never disabling the `u` flag
+                    let s = unsafe { str::from_utf8_unchecked(b) };
 
-                if b[0] != b'"' {
-                    return Localpart::Utf8 { raw: s.into() };
-                } else {
-                    return Localpart::QuotedUtf8 { raw: s.into() };
-                }
-            }),
-        ))(buf)
+                    if b[0] != b'"' {
+                        return Localpart::Utf8 { raw: s.into() };
+                    } else {
+                        return Localpart::QuotedUtf8 { raw: s.into() };
+                    }
+                },
+            ),
+        ))
     }
 }
 
@@ -279,17 +306,34 @@ pub struct Email<S> {
 }
 
 impl<S> Email<S> {
+    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Email<S>>
     where
         S: From<&'a str>,
     {
+        Self::parse_terminated(b"", b"")(buf)
+    }
+
+    // *IF* term != b"", then term_with_atsign must be term + b"@"
+    #[inline]
+    fn parse_terminated<'a, 'b>(
+        term: &'b [u8],
+        term_with_atsign: &'a [u8],
+    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Email<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
         map(
-            pair(Localpart::parse, opt(preceded(tag(b"@"), Hostname::parse))),
+            pair(
+                Localpart::parse_terminated(term_with_atsign),
+                opt(preceded(tag(b"@"), Hostname::parse_terminated(term))),
+            ),
             |(localpart, hostname)| Email {
                 localpart,
                 hostname,
             },
-        )(buf)
+        )
     }
 }
 
@@ -303,14 +347,30 @@ pub struct Path<S> {
 }
 
 impl<S> Path<S> {
+    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Path<S>>
     where
         S: From<&'a str>,
     {
+        Self::parse_terminated(b"")(buf)
+    }
+
+    // *IF* you want a terminator, then term_with_comma must be term + b","
+    #[inline]
+    fn parse_terminated<'a, 'b>(
+        term_with_comma: &'a [u8],
+    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Path<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
         map(
-            separated_nonempty_list(tag(b","), preceded(tag(b"@"), Hostname::parse)),
+            separated_nonempty_list(
+                tag(b","),
+                preceded(tag(b"@"), Hostname::parse_terminated(term_with_comma)),
+            ),
             |domains| Path { domains },
-        )(buf)
+        )
     }
 }
 
@@ -368,7 +428,7 @@ mod tests {
             (
                 "papier-maché.fr>".as_bytes(),
                 b">",
-                b"",
+                b">",
                 Hostname::Utf8Domain {
                     raw: "papier-maché.fr",
                     punycode: "xn--papier-mach-lbb.fr".into(),
