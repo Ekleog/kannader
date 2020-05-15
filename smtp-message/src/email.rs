@@ -151,33 +151,6 @@ mod tests {
     use nom::IResult;
 
     #[test]
-    fn valid_emails() {
-        let tests: Vec<(&[u8], (&[u8], Option<&[u8]>))> = vec![
-            (
-                b"t+e-s.t_i+n-g@foo.bar.baz",
-                (b"t+e-s.t_i+n-g", Some(b"foo.bar.baz")),
-            ),
-            (
-                br#""quoted\"example"@example.org"#,
-                (br#""quoted\"example""#, Some(b"example.org")),
-            ),
-            (b"postmaster", (b"postmaster", None)),
-            (b"test", (b"test", None)),
-        ];
-        for (s, (l, h)) in tests.into_iter() {
-            let b = Bytes::from(s);
-            let r = Email::new(
-                SmtpString::from(l),
-                h.map(|x| Domain::parse_slice(x).unwrap()),
-            );
-            match email(ByteSlice::from(&b)) {
-                IResult::Done(rem, ref res) if rem.len() == 0 && res == &r => (),
-                x => panic!("Unexpected quoted_string result: {:?}", x),
-            }
-        }
-    }
-
-    #[test]
     fn nice_localpart() {
         let tests: Vec<(&[u8], &[u8])> = vec![
             (b"t+e-s.t_i+n-g@foo.bar.baz ", b"t+e-s.t_i+n-g"),

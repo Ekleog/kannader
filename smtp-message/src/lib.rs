@@ -7,8 +7,8 @@ use lazy_static::lazy_static;
 use nom::{
     branch::alt,
     bytes::streaming::tag,
-    combinator::{map, map_opt},
-    sequence::tuple,
+    combinator::{map, map_opt, opt},
+    sequence::{pair, preceded},
     IResult,
 };
 use regex::bytes::Regex;
@@ -261,7 +261,7 @@ impl<S> Localpart<S> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Email<S> {
     pub localpart: Localpart<S>,
-    pub hostname: Hostname<S>,
+    pub hostname: Option<Hostname<S>>,
 }
 
 impl<S> Email<S> {
@@ -270,8 +270,8 @@ impl<S> Email<S> {
         S: From<&'a str>,
     {
         map(
-            tuple((Localpart::parse, tag(b"@"), Hostname::parse)),
-            |(localpart, _, hostname)| Email {
+            pair(Localpart::parse, opt(preceded(tag(b"@"), Hostname::parse))),
+            |(localpart, hostname)| Email {
                 localpart,
                 hostname,
             },
@@ -295,26 +295,30 @@ mod tests {
 
     #[test]
     fn hostname_valid() {
-        let tests: &[(&[u8], usize, Hostname<&str>)] = &[
-            (b"foo--bar", 0, Hostname::AsciiDomain { raw: "foo--bar" }),
-            (b"foo.bar.baz", 0, Hostname::AsciiDomain {
+        let tests: &[(&[u8], &[u8], Hostname<&str>)] = &[
+            (b"foo--bar", b"", Hostname::AsciiDomain { raw: "foo--bar" }),
+            (b"foo.bar.baz", b"", Hostname::AsciiDomain {
                 raw: "foo.bar.baz",
             }),
-            (b"1.2.3.4", 0, Hostname::AsciiDomain { raw: "1.2.3.4" }),
-            (b"[123.255.37.2]", 0, Hostname::Ipv4 {
+            (b"1.2.3.4", b"", Hostname::AsciiDomain { raw: "1.2.3.4" }),
+            (b"[123.255.37.2]", b"", Hostname::Ipv4 {
                 raw: "[123.255.37.2]",
                 ip: "123.255.37.2".parse().unwrap(),
             }),
-            (b"[IPv6:0::ffff:8.7.6.5]", 0, Hostname::Ipv6 {
+            (b"[IPv6:0::ffff:8.7.6.5]", b"", Hostname::Ipv6 {
                 raw: "[IPv6:0::ffff:8.7.6.5]",
                 ip: "0::ffff:8.7.6.5".parse().unwrap(),
             }),
-            ("élégance.fr".as_bytes(), 0, Hostname::Utf8Domain {
+            ("élégance.fr".as_bytes(), b"", Hostname::Utf8Domain {
                 raw: "élégance.fr",
                 punycode: "xn--lgance-9uab.fr".into(),
             }),
-            (b"foo.-bar.baz", 9, Hostname::AsciiDomain { raw: "foo" }),
-            (b"foo.bar.-baz", 5, Hostname::AsciiDomain { raw: "foo.bar" }),
+            (b"foo.-bar.baz", b".-bar.baz", Hostname::AsciiDomain {
+                raw: "foo",
+            }),
+            (b"foo.bar.-baz", b".-baz", Hostname::AsciiDomain {
+                raw: "foo.bar",
+            }),
             /* TODO: add a test like this once we get proper delimiters
              * ("papier-maché.fr".as_bytes(), Hostname::Utf8Domain {
              * raw: "papier-maché.fr",
@@ -322,7 +326,7 @@ mod tests {
              * }),
              */
         ];
-        for (inp, remlen, out) in tests {
+        for (inp, rem, out) in tests {
             let parsed = Hostname::parse(inp);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
@@ -331,8 +335,8 @@ mod tests {
                 out
             );
             match parsed {
-                Ok((rem, host)) => assert!(rem.len() == *remlen && host.deep_equal(out)),
-                x => panic!("Unexpected hostname result: {:?}", x),
+                Ok((rest, host)) => assert!(rest == *rem && host.deep_equal(out)),
+                x => panic!("Unexpected result: {:?}", x),
             }
         }
     }
@@ -363,31 +367,66 @@ mod tests {
 
     #[test]
     fn localpart_valid() {
-        let tests: &[(&[u8], Localpart<&str>)] = &[
-            (b"helloooo", Localpart::Ascii { raw: "helloooo" }),
-            (b"test.ing", Localpart::Ascii { raw: "test.ing" }),
-            (br#""hello""#, Localpart::Quoted { raw: r#""hello""# }),
+        let tests: &[(&[u8], &[u8], Localpart<&str>)] = &[
+            (b"helloooo", b"", Localpart::Ascii { raw: "helloooo" }),
+            (b"test.ing", b"", Localpart::Ascii { raw: "test.ing" }),
+            (br#""hello""#, b"", Localpart::Quoted { raw: r#""hello""# }),
             (
                 br#""hello world. This |$ a g#eat place to experiment !""#,
+                b"",
                 Localpart::Quoted {
                     raw: r#""hello world. This |$ a g#eat place to experiment !""#,
                 },
             ),
             (
                 br#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
+                b"",
                 Localpart::Quoted {
                     raw: r#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
                 },
             ),
             // TODO: add Utf8 tests
         ];
-        for (inp, out) in tests {
+        for (inp, rem, out) in tests {
             match Localpart::parse(inp) {
-                Ok((rem, res)) if rem.len() == 0 && res == *out => (),
-                x => panic!("Unexpected dot_string result: {:?}", x),
+                Ok((rest, res)) if rest == *rem && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
             }
         }
     }
 
     // TODO: add incomplete and invalid localpart tests
+
+    #[test]
+    fn email_valid() {
+        let tests: &[(&[u8], &[u8], Email<&str>)] = &[
+            (b"t+e-s.t_i+n-g@foo.bar.baz", b"", Email {
+                localpart: Localpart::Ascii {
+                    raw: "t+e-s.t_i+n-g",
+                },
+                hostname: Some(Hostname::AsciiDomain { raw: "foo.bar.baz" }),
+            }),
+            (br#""quoted\"example"@example.org"#, b"", Email {
+                localpart: Localpart::Quoted {
+                    raw: r#""quoted\"example""#,
+                },
+                hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
+            }),
+            (b"postmaster>", b">", Email {
+                localpart: Localpart::Ascii { raw: "postmaster" },
+                hostname: None,
+            }),
+            (b"test>", b">", Email {
+                localpart: Localpart::Ascii { raw: "test" },
+                hostname: None,
+            }),
+        ];
+        for (inp, rem, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            match Email::parse(inp) {
+                Ok((rest, res)) if rest == *rem && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
 }
