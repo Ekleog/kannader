@@ -8,7 +8,8 @@ use nom::{
     branch::alt,
     bytes::streaming::tag,
     combinator::{map, map_opt, opt},
-    sequence::{pair, preceded},
+    multi::separated_nonempty_list,
+    sequence::{pair, preceded, terminated},
     IResult,
 };
 use regex_automata::{Regex, RegexBuilder, DFA};
@@ -254,8 +255,6 @@ impl<S> Localpart<S> {
     }
 }
 
-// TODO: Add tests for localpart!
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct Email<S> {
     pub localpart: Localpart<S>,
@@ -277,7 +276,35 @@ impl<S> Email<S> {
     }
 }
 
-// TODO: Add tests for email!
+/// Note: for convenience this is not exactly like what is described by RFC5321,
+/// and it does not contain the Email. Indeed, paths are *very* rare nowadays.
+///
+/// `Path` as defined here is what is specified in RFC5321 as `A-d-l`
+#[derive(Debug, Eq, PartialEq)]
+pub struct Path<S> {
+    pub domains: Vec<Hostname<S>>,
+}
+
+impl<S> Path<S> {
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Path<S>>
+    where
+        S: From<&'a str>,
+    {
+        map(
+            separated_nonempty_list(tag(b","), preceded(tag(b"@"), Hostname::parse)),
+            |domains| Path { domains },
+        )(buf)
+    }
+}
+
+// TODO: add valid/incomplete/invalid tests for Path
+
+fn email_in_path<'a, S>(buf: &'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
+where
+    S: From<&'a str>,
+{
+    pair(opt(terminated(Path::parse, tag(b":"))), Email::parse)(buf)
+}
 
 #[cfg(test)]
 mod tests {
@@ -430,4 +457,41 @@ mod tests {
     }
 
     // TODO: add incomplete and invalid email tests
+
+    #[test]
+    fn email_in_path_valid() {
+        let tests: &[(&[u8], &[u8], (Option<Path<&str>>, Email<&str>))] = &[
+            (
+                b"@foo.bar,@baz.quux:test@example.org",
+                b"",
+                (
+                    Some(Path {
+                        domains: vec![
+                            Hostname::AsciiDomain { raw: "foo.bar" },
+                            Hostname::AsciiDomain { raw: "baz.quux" },
+                        ],
+                    }),
+                    Email {
+                        localpart: Localpart::Ascii { raw: "test" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
+                    },
+                ),
+            ),
+            (
+                b"foo.bar@baz.quux",
+                b"",
+                (None, Email {
+                    localpart: Localpart::Ascii { raw: "foo.bar" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "baz.quux" }),
+                }),
+            ),
+        ];
+        for (inp, rem, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            match email_in_path(inp) {
+                Ok((rest, res)) if rest == *rem && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
 }

@@ -173,28 +173,6 @@ mod tests {
     }
 
     #[test]
-    fn valid_addresses_in_paths() {
-        let tests: Vec<(&[u8], (&[u8], Option<&[u8]>))> = vec![
-            (
-                b"@foo.bar,@baz.quux:test@example.org",
-                (b"test", Some(b"example.org")),
-            ),
-            (b"foo.bar@baz.quux", (b"foo.bar", Some(b"baz.quux"))),
-        ];
-        for (inp, (local, host)) in tests.into_iter() {
-            let b = Bytes::from(inp);
-            match address_in_path(ByteSlice::from(&b)) {
-                IResult::Done(rem, res) => assert!(
-                    rem.len() == 0
-                        && res.raw_localpart().bytes() == local
-                        && res.hostname() == &host.map(|h| Domain::parse_slice(h).unwrap())
-                ),
-                x => panic!("Unexpected address_in_path result: {:?}", x),
-            }
-        }
-    }
-
-    #[test]
     fn valid_addresses_in_maybe_bracketed_paths() {
         let tests: &[(&[u8], (&[u8], Option<&[u8]>))] = &[
             (
