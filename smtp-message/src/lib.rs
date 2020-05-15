@@ -4,7 +4,7 @@ use std::{
 };
 
 use lazy_static::lazy_static;
-use nom::IResult;
+use nom::{branch::alt, combinator::map_opt, IResult};
 use regex::bytes::Regex;
 
 lazy_static! {
@@ -31,6 +31,30 @@ lazy_static! {
     .unwrap();
 }
 
+// TODO: ideally the regex crate would provide us with a way to know
+// whether the match failed due to end of input being reached or due to
+// the input not matching -- the DFA most likely knows this already,
+// it's just not reported in the API.
+fn apply_regex<'a>(
+    regex: &'a Regex,
+    prefix: &'a Regex,
+) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[u8]> {
+    move |buf: &[u8]| {
+        if let Some(res) = regex.find(buf) {
+            let r = res.range();
+            return Ok((&buf[r.end..], &buf[r]));
+        }
+
+        if let Some(res) = prefix.find(buf) {
+            if res.range().end == buf.len() {
+                return Err(nom::Err::Incomplete(nom::Needed::Unknown));
+            }
+        }
+
+        Err(nom::Err::Error((buf, nom::error::ErrorKind::Verify)))
+    }
+}
+
 // TODO: Ideally the ipv6 and ipv4 variants would be parsed in the single regex
 // pass. However, that's hard to do, so let's just not do it for now and keep it
 // as an optimization. So for now, it's just as well to return the parsed IPs,
@@ -52,86 +76,57 @@ impl<S> Hostname<S> {
     where
         S: From<&'a str>,
     {
-        if let Some(res) = HOSTNAME_ASCII.find(buf) {
-            let r = res.range();
-            let rem = &buf[r.end..];
+        alt((
+            map_opt(
+                apply_regex(&HOSTNAME_ASCII, &HOSTNAME_PREFIX),
+                |b: &[u8]| {
+                    // The three below unsafe are OK, thanks to our
+                    // regex validating that `res` is proper ascii
+                    // (and thus utf-8)
+                    let s = unsafe { str::from_utf8_unchecked(b) };
 
-            // The three below unsafe are OK, thanks to our regex validating that `res` is
-            // proper ascii (and thus utf-8)
-            let res = unsafe { str::from_utf8_unchecked(res.as_bytes()) };
+                    if b[0] != b'[' {
+                        return Some(Hostname::AsciiDomain { raw: s.into() });
+                    } else if b[1] == b'I' {
+                        let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
+                        let ip = ip.parse::<Ipv6Addr>().ok()?;
 
-            if buf[r.start] != b'[' {
-                return Ok((rem, Hostname::AsciiDomain { raw: res.into() }));
-            } else if buf[r.start + 1] == b'I' {
-                let ip = unsafe { str::from_utf8_unchecked(&buf[r.start + 6..r.end - 1]) };
-                let ip = ip
-                    .parse::<Ipv6Addr>()
-                    .map_err(|_| nom::Err::Error((buf, nom::error::ErrorKind::Verify)))?;
+                        return Some(Hostname::Ipv6 { raw: s.into(), ip });
+                    } else {
+                        let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
+                        let ip = ip.parse::<Ipv4Addr>().ok()?;
 
-                return Ok((rem, Hostname::Ipv6 {
-                    raw: res.into(),
-                    ip,
-                }));
-            } else {
-                let ip = unsafe { str::from_utf8_unchecked(&buf[r.start + 1..r.end - 1]) };
-                let ip = ip
-                    .parse::<Ipv4Addr>()
-                    .map_err(|_| nom::Err::Error((buf, nom::error::ErrorKind::Verify)))?;
+                        return Some(Hostname::Ipv4 { raw: s.into(), ip });
+                    }
+                },
+            ),
+            map_opt(
+                apply_regex(&HOSTNAME_UTF8, &HOSTNAME_PREFIX),
+                |res: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // never disabling the `u` flag and thus
+                    // validating that the match is proper utf-8
+                    let raw = unsafe { str::from_utf8_unchecked(res) };
 
-                return Ok((rem, Hostname::Ipv4 {
-                    raw: res.into(),
-                    ip,
-                }));
-            }
-        }
+                    // TODO: looks like idna exposes only an
+                    // allocating method for validating an IDNA domain
+                    // name. Maybe it'd be possible to get them to
+                    // expose a validation-only function? Or maybe
+                    // not.
+                    let punycode = idna::Config::default()
+                        .use_std3_ascii_rules(true)
+                        .verify_dns_length(true)
+                        .check_hyphens(true)
+                        .to_ascii(raw)
+                        .ok()?;
 
-        // Poor luck, looks like we're having an actual IDNA domain name
-        // TODO: looks like idna exposes only an allocating method for validating an
-        // IDNA domain name. Maybe it'd be possible to get them to expose a
-        // validation-only function? Or maybe not.
-        if let Some(res) = HOSTNAME_UTF8.find(buf) {
-            // The below unsafe is OK, thanks to our regex never disabling the `u` flag and
-            // thus validating that the match is proper utf-8
-            let raw = unsafe { str::from_utf8_unchecked(res.as_bytes()) };
-
-            let punycode = idna::Config::default()
-                .use_std3_ascii_rules(true)
-                .verify_dns_length(true)
-                .check_hyphens(true)
-                .to_ascii(raw)
-                .map_err(|_| nom::Err::Error((buf, nom::error::ErrorKind::Verify)))?;
-
-            return Ok((&buf[res.range().end..], Hostname::Utf8Domain {
-                raw: raw.into(),
-                punycode,
-            }));
-        }
-
-        // Found no match in either of HOSTNAME_ASCII or HOSTNAME_UTF8. Either
-        // this is due to us not having enough data yet, or it is due to
-        // invalid data. Let's use the prefix regex to know it.
-        //
-        // TODO: ideally the regex crate would provide us with a way to know
-        // whether the match failed due to end of input being reached or due to
-        // the input not matching -- the DFA most likely knows this already,
-        // it's just not reported in the API.
-        if let Some(res) = HOSTNAME_PREFIX.find(buf) {
-            #[cfg(test)]
-            println!(
-                "match prefix regex with range {:?}: {:?} in buf {:?} with regex {:?}",
-                res.range(),
-                tests::show_bytes(res.as_bytes()),
-                tests::show_bytes(buf),
-                HOSTNAME_PREFIX.as_str()
-            );
-            if res.range().end == buf.len() {
-                return Err(nom::Err::Incomplete(nom::Needed::Unknown));
-            }
-        }
-
-        // Looks like the current buffer doesn't match the hostname prefix. Let's report
-        // an error, as more data won't make it possible to get a match
-        return Err(nom::Err::Error((buf, nom::error::ErrorKind::Verify)));
+                    return Some(Hostname::Utf8Domain {
+                        raw: raw.into(),
+                        punycode,
+                    });
+                },
+            ),
+        ))(buf)
     }
 }
 
