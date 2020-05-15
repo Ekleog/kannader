@@ -146,10 +146,10 @@ impl<S> Hostname<S> {
     where
         S: From<&'a str>,
     {
-        Self::parse_terminated(b"")(buf)
+        Self::parse_until(b"")(buf)
     }
 
-    fn parse_terminated<'a, 'b>(
+    fn parse_until<'a, 'b>(
         term: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
     where
@@ -270,10 +270,10 @@ impl<S> Localpart<S> {
     where
         S: From<&'a str>,
     {
-        Self::parse_terminated(b"")(buf)
+        Self::parse_until(b"")(buf)
     }
 
-    fn parse_terminated<'a, 'b>(
+    fn parse_until<'a, 'b>(
         term: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Localpart<S>>
     where
@@ -379,14 +379,14 @@ impl<S> Email<S> {
     where
         S: From<&'a str>,
     {
-        Self::parse_terminated(b"", b"")(buf)
+        Self::parse_until(b"", b"")(buf)
     }
 
     // *IF* term != b"", then term_with_atsign must be term + b"@"
     #[inline]
-    fn parse_terminated<'a, 'b>(
+    fn parse_until<'a, 'b>(
         term: &'b [u8],
-        term_with_atsign: &'a [u8],
+        term_with_atsign: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Email<S>>
     where
         'a: 'b,
@@ -394,8 +394,8 @@ impl<S> Email<S> {
     {
         map(
             pair(
-                Localpart::parse_terminated(term_with_atsign),
-                opt(preceded(tag(b"@"), Hostname::parse_terminated(term))),
+                Localpart::parse_until(term_with_atsign),
+                opt(preceded(tag(b"@"), Hostname::parse_until(term))),
             ),
             |(localpart, hostname)| Email {
                 localpart,
@@ -420,13 +420,13 @@ impl<S> Path<S> {
     where
         S: From<&'a str>,
     {
-        Self::parse_terminated(b"")(buf)
+        Self::parse_until(b"")(buf)
     }
 
     // *IF* you want a terminator, then term_with_comma must be term + b","
     #[inline]
-    fn parse_terminated<'a, 'b>(
-        term_with_comma: &'a [u8],
+    fn parse_until<'a, 'b>(
+        term_with_comma: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Path<S>>
     where
         'a: 'b,
@@ -435,7 +435,7 @@ impl<S> Path<S> {
         map(
             separated_nonempty_list(
                 tag(b","),
-                preceded(tag(b"@"), Hostname::parse_terminated(term_with_comma)),
+                preceded(tag(b"@"), Hostname::parse_until(term_with_comma)),
             ),
             |domains| Path { domains },
         )
@@ -444,11 +444,19 @@ impl<S> Path<S> {
 
 // TODO: add valid/incomplete/invalid tests for Path
 
-fn email_in_path<'a, S>(buf: &'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
+#[inline]
+fn email_with_path<'a, 'b, S>(
+    term: &'b [u8],
+    term_with_atsign: &'b [u8],
+) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
 where
-    S: From<&'a str>,
+    'a: 'b,
+    S: 'b + From<&'a str>,
 {
-    pair(opt(terminated(Path::parse, tag(b":"))), Email::parse)(buf)
+    pair(
+        opt(terminated(Path::parse_until(b":,"), tag(b":"))),
+        Email::parse_until(term, term_with_atsign),
+    )
 }
 
 #[cfg(test)]
@@ -504,7 +512,7 @@ mod tests {
             ),
         ];
         for (inp, terminate, rem, out) in tests {
-            let parsed = Hostname::parse_terminated(*terminate)(inp);
+            let parsed = Hostname::parse_until(*terminate)(inp);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
                 show_bytes(inp),
@@ -645,11 +653,11 @@ mod tests {
     }
 
     #[test]
-    fn email_in_path_valid() {
+    fn email_with_path_valid() {
         let tests: &[(&[u8], &[u8], (Option<Path<&str>>, Email<&str>))] = &[
             (
-                b"@foo.bar,@baz.quux:test@example.org",
-                b"",
+                b"@foo.bar,@baz.quux:test@example.org>",
+                b">",
                 (
                     Some(Path {
                         domains: vec![
@@ -664,8 +672,8 @@ mod tests {
                 ),
             ),
             (
-                b"foo.bar@baz.quux",
-                b"",
+                b"foo.bar@baz.quux>",
+                b">",
                 (None, Email {
                     localpart: Localpart::Ascii { raw: "foo.bar" },
                     hostname: Some(Hostname::AsciiDomain { raw: "baz.quux" }),
@@ -674,7 +682,7 @@ mod tests {
         ];
         for (inp, rem, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
-            match email_in_path(inp) {
+            match email_with_path(b">", b">@")(inp) {
                 Ok((rest, res)) if rest == *rem && res == *out => (),
                 x => panic!("Unexpected result: {:?}", x),
             }
