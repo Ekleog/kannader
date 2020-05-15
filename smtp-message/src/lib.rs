@@ -319,9 +319,10 @@ mod tests {
             (b"foo.bar.-baz", b".-baz", Hostname::AsciiDomain {
                 raw: "foo.bar",
             }),
-            /* TODO: add a test like this once we get proper delimiters
-             * ("papier-maché.fr".as_bytes(), Hostname::Utf8Domain {
-             * raw: "papier-maché.fr",
+            /* TODO: bring this test back once we have an easy way to make nom backtrack to
+             * validate it indeed
+             * ("papier-maché.fr>".as_bytes(), b">",
+             * Hostname::Utf8Domain { raw: "papier-maché.fr",
              * punycode: "-9uab.fr".into(),
              * }),
              */
@@ -429,4 +430,6 @@ mod tests {
             }
         }
     }
+
+    // TODO: add incomplete and invalid email tests
 }
