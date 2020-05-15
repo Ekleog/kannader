@@ -360,4 +360,34 @@ mod tests {
             assert!(!r.unwrap_err().is_incomplete());
         }
     }
+
+    #[test]
+    fn localpart_valid() {
+        let tests: &[(&[u8], Localpart<&str>)] = &[
+            (b"helloooo", Localpart::Ascii { raw: "helloooo" }),
+            (b"test.ing", Localpart::Ascii { raw: "test.ing" }),
+            (br#""hello""#, Localpart::Quoted { raw: r#""hello""# }),
+            (
+                br#""hello world. This |$ a g#eat place to experiment !""#,
+                Localpart::Quoted {
+                    raw: r#""hello world. This |$ a g#eat place to experiment !""#,
+                },
+            ),
+            (
+                br#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
+                Localpart::Quoted {
+                    raw: r#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
+                },
+            ),
+            // TODO: add Utf8 tests
+        ];
+        for (inp, out) in tests {
+            match Localpart::parse(inp) {
+                Ok((rem, res)) if rem.len() == 0 && res == *out => (),
+                x => panic!("Unexpected dot_string result: {:?}", x),
+            }
+        }
+    }
+
+    // TODO: add incomplete and invalid localpart tests
 }

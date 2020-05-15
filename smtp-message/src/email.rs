@@ -151,34 +151,6 @@ mod tests {
     use nom::IResult;
 
     #[test]
-    fn valid_dot_strings() {
-        let tests: &[&[u8]] = &[b"helloooo", b"test.ing"];
-        for test in tests {
-            let b = Bytes::from(*test);
-            match dot_string(ByteSlice::from(&b)) {
-                IResult::Done(rem, res) if rem.len() == 0 && res.promote() == b => (),
-                x => panic!("Unexpected dot_string result: {:?}", x),
-            }
-        }
-    }
-
-    #[test]
-    fn valid_quoted_strings() {
-        let tests: &[&[u8]] = &[
-            br#""hello""#,
-            br#""hello world. This |$ a g#eat place to experiment !""#,
-            br#""\"escapes\", useless like h\ere, except for quotes and \\backslashes""#,
-        ];
-        for test in tests {
-            let b = Bytes::from(*test);
-            match quoted_string(ByteSlice::from(&b)) {
-                IResult::Done(rem, res) if rem.len() == 0 && res.promote() == b => (),
-                x => panic!("Unexpected quoted_string result: {:?}", x),
-            }
-        }
-    }
-
-    #[test]
     fn valid_emails() {
         let tests: Vec<(&[u8], (&[u8], Option<&[u8]>))> = vec![
             (
