@@ -36,21 +36,27 @@ lazy_static! {
     )
     .unwrap();
 
+    // Note: we have to disable the x flag here so that the # in the
+    // middle of the character class does not get construed as a
+    // comment
     static ref LOCALPART_ASCII: Regex = Regex::new(
         r#"(?x) ^(
-            " ( [[:ascii:]&&[^\\"[:cntrl:]]] |    # Quoted-string localpart
+            " ( [[:ascii:]&&[^\\"[:cntrl:]]] |       # Quoted-string localpart
                 \\ [[:ascii:]&&[:^cntrl:]] )* " |
-            [[:alnum:]!#$%&'*+-/=?^_`{|}~]+       # Dot-string localpart
-                ( \. [[:alnum:]!#$%&'*+-/=?^_`{|}~]+ )*
-        "#
+            (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~]+(?x) # Dot-string localpart
+                ( \. (?-x)[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?x) )*
+        )"#
     ).unwrap();
 
+    // Note: we have to disable the x flag here so that the # in the
+    // middle of the character class does not get construed as a
+    // comment
     static ref LOCALPART_UTF8: Regex = Regex::new(
         r#"(?x) ^(
-            " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )* " |       # Quoted-string localpart
-            ( [[:alnum:]!#$%&'*+-/=?^_`{|}~] | [[:^ascii:]] )+ # Dot-string localpart
-                ( \. ( [a-zA-Z0-9!#$%&'*+-/=?^_`{|}~] | [[:^ascii:]] )+ )*
-        "#
+            " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )* " |                # Quoted-string localpart
+            ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ # Dot-string localpart
+                ( \. ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ )*
+        )"#
     ).unwrap();
 
     static ref LOCALPART_PREFIX: Regex = Regex::new(
@@ -203,10 +209,12 @@ impl<S: Eq + PartialEq> Hostname<S> {
 
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
+#[derive(Debug, Eq, PartialEq)]
 pub enum Localpart<S> {
     Ascii { raw: S },
     Quoted { raw: S },
     Utf8 { raw: S },
+    QuotedUtf8 { raw: S },
 }
 
 impl<S> Localpart<S> {
@@ -236,7 +244,12 @@ impl<S> Localpart<S> {
                     // The below unsafe is OK, thanks to our regex
                     // validating that `b` is proper utf-8 by never disabling the `u` flag
                     let s = unsafe { str::from_utf8_unchecked(b) };
-                    return Localpart::Utf8 { raw: s.into() };
+
+                    if b[0] != b'"' {
+                        return Localpart::Utf8 { raw: s.into() };
+                    } else {
+                        return Localpart::QuotedUtf8 { raw: s.into() };
+                    }
                 },
             ),
         ))(buf)
@@ -245,6 +258,7 @@ impl<S> Localpart<S> {
 
 // TODO: Add tests for localpart!
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct Email<S> {
     pub localpart: Localpart<S>,
     pub hostname: Hostname<S>,
@@ -281,22 +295,26 @@ mod tests {
 
     #[test]
     fn hostname_valid() {
-        let tests: &[(&[u8], Hostname<&str>)] = &[
-            (b"foo--bar", Hostname::AsciiDomain { raw: "foo--bar" }),
-            (b"foo.bar.baz", Hostname::AsciiDomain { raw: "foo.bar.baz" }),
-            (b"1.2.3.4", Hostname::AsciiDomain { raw: "1.2.3.4" }),
-            (b"[123.255.37.2]", Hostname::Ipv4 {
+        let tests: &[(&[u8], usize, Hostname<&str>)] = &[
+            (b"foo--bar", 0, Hostname::AsciiDomain { raw: "foo--bar" }),
+            (b"foo.bar.baz", 0, Hostname::AsciiDomain {
+                raw: "foo.bar.baz",
+            }),
+            (b"1.2.3.4", 0, Hostname::AsciiDomain { raw: "1.2.3.4" }),
+            (b"[123.255.37.2]", 0, Hostname::Ipv4 {
                 raw: "[123.255.37.2]",
                 ip: "123.255.37.2".parse().unwrap(),
             }),
-            (b"[IPv6:0::ffff:8.7.6.5]", Hostname::Ipv6 {
+            (b"[IPv6:0::ffff:8.7.6.5]", 0, Hostname::Ipv6 {
                 raw: "[IPv6:0::ffff:8.7.6.5]",
                 ip: "0::ffff:8.7.6.5".parse().unwrap(),
             }),
-            ("élégance.fr".as_bytes(), Hostname::Utf8Domain {
+            ("élégance.fr".as_bytes(), 0, Hostname::Utf8Domain {
                 raw: "élégance.fr",
                 punycode: "xn--lgance-9uab.fr".into(),
             }),
+            (b"foo.-bar.baz", 9, Hostname::AsciiDomain { raw: "foo" }),
+            (b"foo.bar.-baz", 5, Hostname::AsciiDomain { raw: "foo.bar" }),
             /* TODO: add a test like this once we get proper delimiters
              * ("papier-maché.fr".as_bytes(), Hostname::Utf8Domain {
              * raw: "papier-maché.fr",
@@ -304,7 +322,7 @@ mod tests {
              * }),
              */
         ];
-        for (inp, out) in tests {
+        for (inp, remlen, out) in tests {
             let parsed = Hostname::parse(inp);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
@@ -313,20 +331,9 @@ mod tests {
                 out
             );
             match parsed {
-                Ok((rem, host)) => assert!(rem.len() == 0 && host.deep_equal(out)),
+                Ok((rem, host)) => assert!(rem.len() == *remlen && host.deep_equal(out)),
                 x => panic!("Unexpected hostname result: {:?}", x),
             }
-        }
-    }
-
-    #[test]
-    fn hostname_partial() {
-        let tests: &[(&[u8], &str)] = &[(b"foo.-bar.baz", "foo"), (b"foo.bar.-baz", "foo.bar")];
-        for (inp, out) in tests {
-            assert_eq!(
-                Hostname::<String>::parse(inp).unwrap().1,
-                Hostname::AsciiDomain { raw: (*out).into() },
-            );
         }
     }
 
