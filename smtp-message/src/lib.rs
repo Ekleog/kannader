@@ -11,80 +11,90 @@ use nom::{
     sequence::{pair, preceded},
     IResult,
 };
-use regex::bytes::Regex;
+use regex_automata::{Regex, RegexBuilder, DFA};
 
 lazy_static! {
-    static ref HOSTNAME_ASCII: Regex = Regex::new(
-        r#"(?x) ^(
+    static ref HOSTNAME_ASCII: Regex = RegexBuilder::new().anchored(true).build(
+        r#"(?x)
             \[IPv6: [:.[:xdigit:]]+ \] |             # Ipv6
             \[ [.0-9]+ \] |                          # Ipv4
             [[:alnum:]] ([-[:alnum:]]* [[:alnum:]])? # Ascii-only domain
                 ( \. [[:alnum:]] ([-[:alnum:]]* [[:alnum:]])? )*
-        )"#
-    )
-    .unwrap();
-    static ref HOSTNAME_UTF8: Regex = Regex::new(r#"^([-.[:alnum:]]|[[:^ascii:]])+"#).unwrap();
-    // For ascii-only or utf-8 domains, any prefix of such would still
-    // match the regex, so there's no need to handle them here.
-    static ref HOSTNAME_PREFIX: Regex = Regex::new(
-        r#"(?x) ^(
-            \[ (
-                I ( P ( v ( 6 ( : [0-9a-fA-F:.]* )? )? )? )? |
-                [0-9.]+
-            )?
-        )?"#
-    )
-    .unwrap();
+        "#
+    ).unwrap();
+
+    static ref HOSTNAME_UTF8: Regex = RegexBuilder::new().anchored(true).build(
+        r#"([-.[:alnum:]]|[[:^ascii:]])+"#
+    ).unwrap();
 
     // Note: we have to disable the x flag here so that the # in the
     // middle of the character class does not get construed as a
     // comment
-    static ref LOCALPART_ASCII: Regex = Regex::new(
-        r#"(?x) ^(
+    static ref LOCALPART_ASCII: Regex = RegexBuilder::new().anchored(true).build(
+        r#"(?x)
             " ( [[:ascii:]&&[^\\"[:cntrl:]]] |       # Quoted-string localpart
                 \\ [[:ascii:]&&[:^cntrl:]] )* " |
             (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~]+(?x) # Dot-string localpart
                 ( \. (?-x)[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?x) )*
-        )"#
+        "#
     ).unwrap();
 
     // Note: we have to disable the x flag here so that the # in the
     // middle of the character class does not get construed as a
     // comment
-    static ref LOCALPART_UTF8: Regex = Regex::new(
-        r#"(?x) ^(
+    static ref LOCALPART_UTF8: Regex = RegexBuilder::new().anchored(true).build(
+        r#"(?x)
             " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )* " |                # Quoted-string localpart
             ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ # Dot-string localpart
                 ( \. ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ )*
-        )"#
+        "#
     ).unwrap();
-
-    static ref LOCALPART_PREFIX: Regex = Regex::new(
-        r#"(?x) ^"#
-    ).unwrap(); // TODO: make correct, if we don't move to regex_automata after all
 }
 
-// TODO: ideally the regex crate would provide us with a way to know
-// whether the match failed due to end of input being reached or due to
-// the input not matching -- the DFA most likely knows this already,
-// it's just not reported in the API.
-fn apply_regex<'a>(
-    regex: &'a Regex,
-    prefix: &'a Regex,
-) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[u8]> {
-    move |buf: &[u8]| {
-        if let Some(res) = regex.find(buf) {
-            let r = res.range();
-            return Ok((&buf[r.end..], &buf[r]));
-        }
+// Implementation is similar to regex_automata's, but also returns the state
+// when a match wasn't found
+fn find_dfa<D: DFA>(dfa: &D, buf: &[u8]) -> Result<usize, D::ID> {
+    let mut state = dfa.start_state();
+    let mut last_match = if dfa.is_dead_state(state) {
+        return Err(state);
+    } else if dfa.is_match_state(state) {
+        Some(0)
+    } else {
+        None
+    };
 
-        if let Some(res) = prefix.find(buf) {
-            if res.range().end == buf.len() {
-                return Err(nom::Err::Incomplete(nom::Needed::Unknown));
+    for (i, &b) in buf.iter().enumerate() {
+        state = unsafe { dfa.next_state_unchecked(state, b) };
+        if dfa.is_match_or_dead_state(state) {
+            if dfa.is_dead_state(state) {
+                return last_match.ok_or(state);
             }
+            last_match = Some(i + 1);
         }
+    }
 
-        Err(nom::Err::Error((buf, nom::error::ErrorKind::Verify)))
+    last_match.ok_or(state)
+}
+
+fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[u8]> {
+    move |buf: &[u8]| {
+        let dfa = regex.forward();
+
+        let dfa_result = match dfa {
+            regex_automata::DenseDFA::Standard(r) => find_dfa(r, buf),
+            regex_automata::DenseDFA::ByteClass(r) => find_dfa(r, buf),
+            regex_automata::DenseDFA::Premultiplied(r) => find_dfa(r, buf),
+            regex_automata::DenseDFA::PremultipliedByteClass(r) => find_dfa(r, buf),
+            other => find_dfa(other, buf),
+        };
+
+        match dfa_result {
+            Ok(end) => Ok((&buf[end..], &buf[..end])),
+            Err(s) if dfa.is_dead_state(s) => {
+                Err(nom::Err::Error((buf, nom::error::ErrorKind::Verify)))
+            }
+            Err(_) => Err(nom::Err::Incomplete(nom::Needed::Unknown)),
+        }
     }
 }
 
@@ -110,55 +120,49 @@ impl<S> Hostname<S> {
         S: From<&'a str>,
     {
         alt((
-            map_opt(
-                apply_regex(&HOSTNAME_ASCII, &HOSTNAME_PREFIX),
-                |b: &[u8]| {
-                    // The three below unsafe are OK, thanks to our
-                    // regex validating that `b` is proper ascii
-                    // (and thus utf-8)
-                    let s = unsafe { str::from_utf8_unchecked(b) };
+            map_opt(apply_regex(&HOSTNAME_ASCII), |b: &[u8]| {
+                // The three below unsafe are OK, thanks to our
+                // regex validating that `b` is proper ascii
+                // (and thus utf-8)
+                let s = unsafe { str::from_utf8_unchecked(b) };
 
-                    if b[0] != b'[' {
-                        return Some(Hostname::AsciiDomain { raw: s.into() });
-                    } else if b[1] == b'I' {
-                        let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
-                        let ip = ip.parse::<Ipv6Addr>().ok()?;
+                if b[0] != b'[' {
+                    return Some(Hostname::AsciiDomain { raw: s.into() });
+                } else if b[1] == b'I' {
+                    let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
+                    let ip = ip.parse::<Ipv6Addr>().ok()?;
 
-                        return Some(Hostname::Ipv6 { raw: s.into(), ip });
-                    } else {
-                        let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
-                        let ip = ip.parse::<Ipv4Addr>().ok()?;
+                    return Some(Hostname::Ipv6 { raw: s.into(), ip });
+                } else {
+                    let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
+                    let ip = ip.parse::<Ipv4Addr>().ok()?;
 
-                        return Some(Hostname::Ipv4 { raw: s.into(), ip });
-                    }
-                },
-            ),
-            map_opt(
-                apply_regex(&HOSTNAME_UTF8, &HOSTNAME_PREFIX),
-                |res: &[u8]| {
-                    // The below unsafe is OK, thanks to our regex
-                    // never disabling the `u` flag and thus
-                    // validating that the match is proper utf-8
-                    let raw = unsafe { str::from_utf8_unchecked(res) };
+                    return Some(Hostname::Ipv4 { raw: s.into(), ip });
+                }
+            }),
+            map_opt(apply_regex(&HOSTNAME_UTF8), |res: &[u8]| {
+                // The below unsafe is OK, thanks to our regex
+                // never disabling the `u` flag and thus
+                // validating that the match is proper utf-8
+                let raw = unsafe { str::from_utf8_unchecked(res) };
 
-                    // TODO: looks like idna exposes only an
-                    // allocating method for validating an IDNA domain
-                    // name. Maybe it'd be possible to get them to
-                    // expose a validation-only function? Or maybe
-                    // not.
-                    let punycode = idna::Config::default()
-                        .use_std3_ascii_rules(true)
-                        .verify_dns_length(true)
-                        .check_hyphens(true)
-                        .to_ascii(raw)
-                        .ok()?;
+                // TODO: looks like idna exposes only an
+                // allocating method for validating an IDNA domain
+                // name. Maybe it'd be possible to get them to
+                // expose a validation-only function? Or maybe
+                // not.
+                let punycode = idna::Config::default()
+                    .use_std3_ascii_rules(true)
+                    .verify_dns_length(true)
+                    .check_hyphens(true)
+                    .to_ascii(raw)
+                    .ok()?;
 
-                    return Some(Hostname::Utf8Domain {
-                        raw: raw.into(),
-                        punycode,
-                    });
-                },
-            ),
+                return Some(Hostname::Utf8Domain {
+                    raw: raw.into(),
+                    punycode,
+                });
+            }),
         ))(buf)
     }
 }
@@ -223,35 +227,29 @@ impl<S> Localpart<S> {
         S: From<&'a str>,
     {
         alt((
-            map(
-                apply_regex(&LOCALPART_ASCII, &LOCALPART_PREFIX),
-                |b: &[u8]| {
-                    // The below unsafe is OK, thanks to our regex
-                    // validating that `b` is proper ascii (and thus
-                    // utf-8)
-                    let s = unsafe { str::from_utf8_unchecked(b) };
+            map(apply_regex(&LOCALPART_ASCII), |b: &[u8]| {
+                // The below unsafe is OK, thanks to our regex
+                // validating that `b` is proper ascii (and thus
+                // utf-8)
+                let s = unsafe { str::from_utf8_unchecked(b) };
 
-                    if b[0] != b'"' {
-                        return Localpart::Ascii { raw: s.into() };
-                    } else {
-                        return Localpart::Quoted { raw: s.into() };
-                    }
-                },
-            ),
-            map(
-                apply_regex(&LOCALPART_UTF8, &LOCALPART_PREFIX),
-                |b: &[u8]| {
-                    // The below unsafe is OK, thanks to our regex
-                    // validating that `b` is proper utf-8 by never disabling the `u` flag
-                    let s = unsafe { str::from_utf8_unchecked(b) };
+                if b[0] != b'"' {
+                    return Localpart::Ascii { raw: s.into() };
+                } else {
+                    return Localpart::Quoted { raw: s.into() };
+                }
+            }),
+            map(apply_regex(&LOCALPART_UTF8), |b: &[u8]| {
+                // The below unsafe is OK, thanks to our regex
+                // validating that `b` is proper utf-8 by never disabling the `u` flag
+                let s = unsafe { str::from_utf8_unchecked(b) };
 
-                    if b[0] != b'"' {
-                        return Localpart::Utf8 { raw: s.into() };
-                    } else {
-                        return Localpart::QuotedUtf8 { raw: s.into() };
-                    }
-                },
-            ),
+                if b[0] != b'"' {
+                    return Localpart::Utf8 { raw: s.into() };
+                } else {
+                    return Localpart::QuotedUtf8 { raw: s.into() };
+                }
+            }),
         ))(buf)
     }
 }
