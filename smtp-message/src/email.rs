@@ -16,26 +16,6 @@ pub struct Email {
 }
 
 impl Email {
-    pub fn new(localpart: SmtpString, hostname: Option<Domain>) -> Email {
-        Email {
-            localpart,
-            hostname,
-        }
-    }
-
-    pub fn parse(b: ByteSlice) -> Result<Email, ParseError> {
-        nom_to_result(email(b))
-    }
-
-    pub fn parse_slice(b: &[u8]) -> Result<Email, ParseError> {
-        let b = Bytes::copy_from_slice(b);
-        nom_to_result(email(ByteSlice::from(&b)))
-    }
-
-    pub fn raw_localpart(&self) -> &SmtpString {
-        &self.localpart
-    }
-
     // Note: this may contain unexpected characters, check RFC5321 / RFC5322 for
     // details.
     // This is a canonicalized version of the potentially quoted localpart, not
@@ -74,10 +54,6 @@ impl Email {
             SmtpString::from(Bytes::from(res))
         }
     }
-
-    pub fn hostname(&self) -> &Option<Domain> {
-        &self.hostname
-    }
 }
 
 impl Sendable for Email {
@@ -100,38 +76,6 @@ impl Sendable for Option<Email> {
         }
     }
 }
-
-named!(dot_string(ByteSlice) -> ByteSlice, recognize!(
-    separated_nonempty_list_complete!(tag!("."), is_a!(atext!()))
-));
-
-// See RFC 5321 § 4.1.2
-named!(quoted_string(ByteSlice) -> ByteSlice, recognize!(do_parse!(
-    tag!("\"") >>
-    many0!(alt!(
-        preceded!(tag!("\\"), verify!(take!(1), |x: ByteSlice| 32 <= x[0] && x[0] <= 126)) |
-        verify!(take!(1), |x: ByteSlice| 32 <= x[0] && x[0] != 34 && x[0] != 92 && x[0] <= 126)
-    )) >>
-    tag!("\"") >>
-    ()
-)));
-
-named!(localpart(ByteSlice) -> ByteSlice, alt!(quoted_string | dot_string));
-
-named!(pub email(ByteSlice) -> Email, do_parse!(
-    local: localpart >>
-    host: opt!(complete!(preceded!(tag!("@"), hostname))) >>
-    (Email::new(local.promote().into(), host))
-));
-
-named!(address_in_path(ByteSlice) -> Email, preceded!(
-    opt!(do_parse!(
-        separated_list!(tag!(","), do_parse!(tag!("@") >> hostname >> ())) >>
-        tag!(":") >>
-        ()
-    )),
-    email
-));
 
 named!(pub address_in_maybe_bracketed_path(ByteSlice) -> Email,
     alt!(
@@ -164,12 +108,6 @@ mod tests {
             let b = Bytes::from(s);
             assert_eq!(email(ByteSlice::from(&b)).unwrap().1.localpart().bytes(), r);
         }
-    }
-
-    #[test]
-    fn invalid_localpart() {
-        let b = Bytes::from_static(b"@foo.bar");
-        assert!(email(ByteSlice::from(&b)).is_err());
     }
 
     #[test]

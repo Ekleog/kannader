@@ -116,55 +116,72 @@ pub enum Hostname<S = String> {
 }
 
 impl<S> Hostname<S> {
+    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Hostname<S>>
     where
         S: From<&'a str>,
     {
+        Self::parse_terminated(b"")(buf)
+    }
+
+    fn parse_terminated<'a, 'b>(
+        terminator: &'b [u8],
+    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
         alt((
-            map_opt(apply_regex(&HOSTNAME_ASCII), |b: &[u8]| {
-                // The three below unsafe are OK, thanks to our
-                // regex validating that `b` is proper ascii
-                // (and thus utf-8)
-                let s = unsafe { str::from_utf8_unchecked(b) };
+            map_opt(
+                terminated(apply_regex(&HOSTNAME_ASCII), tag(terminator)),
+                |b: &[u8]| {
+                    // The three below unsafe are OK, thanks to our
+                    // regex validating that `b` is proper ascii
+                    // (and thus utf-8)
+                    let s = unsafe { str::from_utf8_unchecked(b) };
 
-                if b[0] != b'[' {
-                    return Some(Hostname::AsciiDomain { raw: s.into() });
-                } else if b[1] == b'I' {
-                    let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
-                    let ip = ip.parse::<Ipv6Addr>().ok()?;
+                    if b[0] != b'[' {
+                        return Some(Hostname::AsciiDomain { raw: s.into() });
+                    } else if b[1] == b'I' {
+                        let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
+                        let ip = ip.parse::<Ipv6Addr>().ok()?;
 
-                    return Some(Hostname::Ipv6 { raw: s.into(), ip });
-                } else {
-                    let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
-                    let ip = ip.parse::<Ipv4Addr>().ok()?;
+                        return Some(Hostname::Ipv6 { raw: s.into(), ip });
+                    } else {
+                        let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
+                        let ip = ip.parse::<Ipv4Addr>().ok()?;
 
-                    return Some(Hostname::Ipv4 { raw: s.into(), ip });
-                }
-            }),
-            map_opt(apply_regex(&HOSTNAME_UTF8), |res: &[u8]| {
-                // The below unsafe is OK, thanks to our regex
-                // never disabling the `u` flag and thus
-                // validating that the match is proper utf-8
-                let raw = unsafe { str::from_utf8_unchecked(res) };
+                        return Some(Hostname::Ipv4 { raw: s.into(), ip });
+                    }
+                },
+            ),
+            map_opt(
+                terminated(apply_regex(&HOSTNAME_UTF8), tag(terminator)),
+                |res: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // never disabling the `u` flag and thus
+                    // validating that the match is proper utf-8
+                    let raw = unsafe { str::from_utf8_unchecked(res) };
 
-                // TODO: looks like idna exposes only an
-                // allocating method for validating an IDNA domain
-                // name. Maybe it'd be possible to get them to
-                // expose a validation-only function? Or maybe
-                // not.
-                let punycode = idna::Config::default()
-                    .use_std3_ascii_rules(true)
-                    .verify_dns_length(true)
-                    .check_hyphens(true)
-                    .to_ascii(raw)
-                    .ok()?;
+                    // TODO: looks like idna exposes only an
+                    // allocating method for validating an IDNA domain
+                    // name. Maybe it'd be possible to get them to
+                    // expose a validation-only function? Or maybe
+                    // not.
+                    let punycode = idna::Config::default()
+                        .use_std3_ascii_rules(true)
+                        .verify_dns_length(true)
+                        .check_hyphens(true)
+                        .to_ascii(raw)
+                        .ok()?;
 
-                return Some(Hostname::Utf8Domain {
-                    raw: raw.into(),
-                    punycode,
-                });
-            }),
-        ))(buf)
+                    return Some(Hostname::Utf8Domain {
+                        raw: raw.into(),
+                        punycode,
+                    });
+                },
+            ),
+        ))
     }
 }
 
@@ -320,40 +337,46 @@ mod tests {
 
     #[test]
     fn hostname_valid() {
-        let tests: &[(&[u8], &[u8], Hostname<&str>)] = &[
-            (b"foo--bar", b"", Hostname::AsciiDomain { raw: "foo--bar" }),
-            (b"foo.bar.baz", b"", Hostname::AsciiDomain {
+        let tests: &[(&[u8], &[u8], &[u8], Hostname<&str>)] = &[
+            (b"foo--bar", b"", b"", Hostname::AsciiDomain {
+                raw: "foo--bar",
+            }),
+            (b"foo.bar.baz", b"", b"", Hostname::AsciiDomain {
                 raw: "foo.bar.baz",
             }),
-            (b"1.2.3.4", b"", Hostname::AsciiDomain { raw: "1.2.3.4" }),
-            (b"[123.255.37.2]", b"", Hostname::Ipv4 {
+            (b"1.2.3.4", b"", b"", Hostname::AsciiDomain {
+                raw: "1.2.3.4",
+            }),
+            (b"[123.255.37.2]", b"", b"", Hostname::Ipv4 {
                 raw: "[123.255.37.2]",
                 ip: "123.255.37.2".parse().unwrap(),
             }),
-            (b"[IPv6:0::ffff:8.7.6.5]", b"", Hostname::Ipv6 {
+            (b"[IPv6:0::ffff:8.7.6.5]", b"", b"", Hostname::Ipv6 {
                 raw: "[IPv6:0::ffff:8.7.6.5]",
                 ip: "0::ffff:8.7.6.5".parse().unwrap(),
             }),
-            ("élégance.fr".as_bytes(), b"", Hostname::Utf8Domain {
+            ("élégance.fr".as_bytes(), b"", b"", Hostname::Utf8Domain {
                 raw: "élégance.fr",
                 punycode: "xn--lgance-9uab.fr".into(),
             }),
-            (b"foo.-bar.baz", b".-bar.baz", Hostname::AsciiDomain {
+            (b"foo.-bar.baz", b"", b".-bar.baz", Hostname::AsciiDomain {
                 raw: "foo",
             }),
-            (b"foo.bar.-baz", b".-baz", Hostname::AsciiDomain {
+            (b"foo.bar.-baz", b"", b".-baz", Hostname::AsciiDomain {
                 raw: "foo.bar",
             }),
-            /* TODO: bring this test back once we have an easy way to make nom backtrack to
-             * validate it indeed
-             * ("papier-maché.fr>".as_bytes(), b">",
-             * Hostname::Utf8Domain { raw: "papier-maché.fr",
-             * punycode: "-9uab.fr".into(),
-             * }),
-             */
+            (
+                "papier-maché.fr>".as_bytes(),
+                b">",
+                b"",
+                Hostname::Utf8Domain {
+                    raw: "papier-maché.fr",
+                    punycode: "xn--papier-mach-lbb.fr".into(),
+                },
+            ),
         ];
-        for (inp, rem, out) in tests {
-            let parsed = Hostname::parse(inp);
+        for (inp, terminate, rem, out) in tests {
+            let parsed = Hostname::parse_terminated(*terminate)(inp);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
                 show_bytes(inp),
@@ -456,7 +479,16 @@ mod tests {
         }
     }
 
-    // TODO: add incomplete and invalid email tests
+    // TODO: add incomplete email tests
+
+    #[test]
+    fn email_invalid() {
+        let tests: &[&[u8]] = &[b"@foo.bar"];
+        for inp in tests {
+            let r = Email::<&str>::parse(inp);
+            assert!(!r.unwrap_err().is_incomplete());
+        }
+    }
 
     #[test]
     fn email_in_path_valid() {
