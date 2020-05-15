@@ -109,6 +109,21 @@ fn maybe_terminator<'a>(terminator: &'a [u8]) -> impl 'a + Fn(&[u8]) -> IResult<
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MaybeUtf8<S = String> {
+    Ascii(S),
+    Utf8(S),
+}
+
+impl MaybeUtf8<&str> {
+    pub fn to_owned(&self) -> MaybeUtf8<String> {
+        match self {
+            MaybeUtf8::Ascii(s) => MaybeUtf8::Ascii(s.to_string()),
+            MaybeUtf8::Utf8(s) => MaybeUtf8::Utf8(s.to_string()),
+        }
+    }
+}
+
 // TODO: Ideally the ipv6 and ipv4 variants would be parsed in the single regex
 // pass. However, that's hard to do, so let's just not do it for now and keep it
 // as an optimization. So for now, it's just as well to return the parsed IPs,
@@ -242,9 +257,9 @@ impl<S: Eq + PartialEq> Hostname<S> {
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
 #[derive(Debug, Eq, PartialEq)]
-pub enum Localpart<S> {
+pub enum Localpart<S = String> {
     Ascii { raw: S },
-    Quoted { raw: S },
+    QuotedAscii { raw: S },
     Utf8 { raw: S },
     QuotedUtf8 { raw: S },
 }
@@ -277,7 +292,7 @@ impl<S> Localpart<S> {
                     if b[0] != b'"' {
                         return Localpart::Ascii { raw: s.into() };
                     } else {
-                        return Localpart::Quoted { raw: s.into() };
+                        return Localpart::QuotedAscii { raw: s.into() };
                     }
                 },
             ),
@@ -299,8 +314,61 @@ impl<S> Localpart<S> {
     }
 }
 
+fn unquoted<S>(s: &S) -> String
+where
+    S: AsRef<str>,
+{
+    #[derive(Clone, Copy)]
+    enum State {
+        Start,
+        Backslash,
+    }
+
+    s.as_ref()
+        .chars()
+        .skip(1)
+        .scan(State::Start, |state, x| match (*state, x) {
+            (State::Backslash, _) => {
+                *state = State::Start;
+                println!("backslashed anything");
+                Some(Some(x))
+            }
+            (State::Start, '"') => {
+                //
+                println!("quoted \"");
+                Some(None)
+            }
+            (_, '\\') => {
+                *state = State::Backslash;
+                println!("backslash");
+                Some(None)
+            }
+            (_, _) => {
+                *state = State::Start;
+                println!("anything");
+                Some(Some(x))
+            }
+        })
+        .filter_map(|x| x)
+        .collect()
+}
+
+impl<S> Localpart<S>
+where
+    S: AsRef<str>,
+{
+    pub fn unquote(&self) -> MaybeUtf8<String> {
+        match self {
+            Localpart::Ascii { raw } => MaybeUtf8::Ascii(raw.as_ref().to_owned()),
+            Localpart::Utf8 { raw } => MaybeUtf8::Utf8(raw.as_ref().to_owned()),
+            Localpart::QuotedAscii { raw } => MaybeUtf8::Ascii(unquoted(raw)),
+            Localpart::QuotedUtf8 { raw } => MaybeUtf8::Utf8(unquoted(raw)),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
-pub struct Email<S> {
+pub struct Email<S = String> {
     pub localpart: Localpart<S>,
     pub hostname: Option<Hostname<S>>,
 }
@@ -342,7 +410,7 @@ impl<S> Email<S> {
 ///
 /// `Path` as defined here is what is specified in RFC5321 as `A-d-l`
 #[derive(Debug, Eq, PartialEq)]
-pub struct Path<S> {
+pub struct Path<S = String> {
     pub domains: Vec<Hostname<S>>,
 }
 
@@ -479,18 +547,20 @@ mod tests {
         let tests: &[(&[u8], &[u8], Localpart<&str>)] = &[
             (b"helloooo", b"", Localpart::Ascii { raw: "helloooo" }),
             (b"test.ing", b"", Localpart::Ascii { raw: "test.ing" }),
-            (br#""hello""#, b"", Localpart::Quoted { raw: r#""hello""# }),
+            (br#""hello""#, b"", Localpart::QuotedAscii {
+                raw: r#""hello""#,
+            }),
             (
                 br#""hello world. This |$ a g#eat place to experiment !""#,
                 b"",
-                Localpart::Quoted {
+                Localpart::QuotedAscii {
                     raw: r#""hello world. This |$ a g#eat place to experiment !""#,
                 },
             ),
             (
                 br#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
                 b"",
-                Localpart::Quoted {
+                Localpart::QuotedAscii {
                     raw: r#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
                 },
             ),
@@ -507,6 +577,30 @@ mod tests {
     // TODO: add incomplete and invalid localpart tests
 
     #[test]
+    fn localpart_unquoting() {
+        let tests: &[(&[u8], MaybeUtf8<&str>)] = &[
+            (
+                b"t+e-s.t_i+n-g@foo.bar.baz ",
+                MaybeUtf8::Ascii("t+e-s.t_i+n-g"),
+            ),
+            (
+                br#""quoted\"example"@example.org "#,
+                MaybeUtf8::Ascii(r#"quoted"example"#),
+            ),
+            (
+                br#""escaped\\exa\mple"@example.org "#,
+                MaybeUtf8::Ascii(r#"escaped\example"#),
+            ),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            let res = Localpart::<&str>::parse(inp).unwrap().1;
+            println!("Result: {:?}", res);
+            assert_eq!(res.unquote(), out.to_owned());
+        }
+    }
+
+    #[test]
     fn email_valid() {
         let tests: &[(&[u8], &[u8], Email<&str>)] = &[
             (b"t+e-s.t_i+n-g@foo.bar.baz", b"", Email {
@@ -516,7 +610,7 @@ mod tests {
                 hostname: Some(Hostname::AsciiDomain { raw: "foo.bar.baz" }),
             }),
             (br#""quoted\"example"@example.org"#, b"", Email {
-                localpart: Localpart::Quoted {
+                localpart: Localpart::QuotedAscii {
                     raw: r#""quoted\"example""#,
                 },
                 hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
