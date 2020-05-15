@@ -7,6 +7,7 @@ use lazy_static::lazy_static;
 use nom::{
     branch::alt,
     bytes::streaming::tag,
+    character::streaming::one_of,
     combinator::{map, map_opt, opt, peek},
     multi::separated_nonempty_list,
     sequence::{pair, preceded, terminated},
@@ -99,14 +100,11 @@ fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[
     }
 }
 
-fn maybe_terminator<'a>(terminator: &'a [u8]) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], ()> {
-    move |buf: &[u8]| {
-        if terminator == b"" {
-            Ok((buf, ()))
-        } else {
-            map(peek(tag(terminator)), |_| ())(buf)
-        }
-    }
+fn terminate<'a, 'b>(term: &'b [u8]) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], char>
+where
+    'a: 'b,
+{
+    peek(one_of(term))
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -141,15 +139,7 @@ pub enum Hostname<S = String> {
 }
 
 impl<S> Hostname<S> {
-    #[inline]
-    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Hostname<S>>
-    where
-        S: From<&'a str>,
-    {
-        Self::parse_until(b"")(buf)
-    }
-
-    fn parse_until<'a, 'b>(
+    pub fn parse_until<'a, 'b>(
         term: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
     where
@@ -158,7 +148,7 @@ impl<S> Hostname<S> {
     {
         alt((
             map_opt(
-                terminated(apply_regex(&HOSTNAME_ASCII), maybe_terminator(term)),
+                terminated(apply_regex(&HOSTNAME_ASCII), terminate(term)),
                 |b: &[u8]| {
                     // The three below unsafe are OK, thanks to our
                     // regex validating that `b` is proper ascii
@@ -181,7 +171,7 @@ impl<S> Hostname<S> {
                 },
             ),
             map_opt(
-                terminated(apply_regex(&HOSTNAME_UTF8), maybe_terminator(term)),
+                terminated(apply_regex(&HOSTNAME_UTF8), terminate(term)),
                 |res: &[u8]| {
                     // The below unsafe is OK, thanks to our regex
                     // never disabling the `u` flag and thus
@@ -265,15 +255,7 @@ pub enum Localpart<S = String> {
 }
 
 impl<S> Localpart<S> {
-    #[inline]
-    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Localpart<S>>
-    where
-        S: From<&'a str>,
-    {
-        Self::parse_until(b"")(buf)
-    }
-
-    fn parse_until<'a, 'b>(
+    pub fn parse_until<'a, 'b>(
         term: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Localpart<S>>
     where
@@ -282,7 +264,7 @@ impl<S> Localpart<S> {
     {
         alt((
             map(
-                terminated(apply_regex(&LOCALPART_ASCII), maybe_terminator(term)),
+                terminated(apply_regex(&LOCALPART_ASCII), terminate(term)),
                 |b: &[u8]| {
                     // The below unsafe is OK, thanks to our regex
                     // validating that `b` is proper ascii (and thus
@@ -297,7 +279,7 @@ impl<S> Localpart<S> {
                 },
             ),
             map(
-                terminated(apply_regex(&LOCALPART_UTF8), maybe_terminator(term)),
+                terminated(apply_regex(&LOCALPART_UTF8), terminate(term)),
                 |b: &[u8]| {
                     // The below unsafe is OK, thanks to our regex
                     // validating that `b` is proper utf-8 by never disabling the `u` flag
@@ -374,17 +356,9 @@ pub struct Email<S = String> {
 }
 
 impl<S> Email<S> {
+    /// term_with_atsign must be term + b"@"
     #[inline]
-    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Email<S>>
-    where
-        S: From<&'a str>,
-    {
-        Self::parse_until(b"", b"")(buf)
-    }
-
-    // *IF* term != b"", then term_with_atsign must be term + b"@"
-    #[inline]
-    fn parse_until<'a, 'b>(
+    pub fn parse_until<'a, 'b>(
         term: &'b [u8],
         term_with_atsign: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Email<S>>
@@ -415,17 +389,9 @@ pub struct Path<S = String> {
 }
 
 impl<S> Path<S> {
+    /// term_with_comma must be the wanted terminator, with b"," added
     #[inline]
-    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Path<S>>
-    where
-        S: From<&'a str>,
-    {
-        Self::parse_until(b"")(buf)
-    }
-
-    // *IF* you want a terminator, then term_with_comma must be term + b","
-    #[inline]
-    fn parse_until<'a, 'b>(
+    pub fn parse_until<'a, 'b>(
         term_with_comma: &'b [u8],
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Path<S>>
     where
@@ -473,46 +439,31 @@ mod tests {
 
     #[test]
     fn hostname_valid() {
-        let tests: &[(&[u8], &[u8], &[u8], Hostname<&str>)] = &[
-            (b"foo--bar", b"", b"", Hostname::AsciiDomain {
-                raw: "foo--bar",
-            }),
-            (b"foo.bar.baz", b"", b"", Hostname::AsciiDomain {
+        let tests: &[(&[u8], &[u8], Hostname<&str>)] = &[
+            (b"foo--bar>", b"", Hostname::AsciiDomain { raw: "foo--bar" }),
+            (b"foo.bar.baz>", b"", Hostname::AsciiDomain {
                 raw: "foo.bar.baz",
             }),
-            (b"1.2.3.4", b"", b"", Hostname::AsciiDomain {
-                raw: "1.2.3.4",
-            }),
-            (b"[123.255.37.2]", b"", b"", Hostname::Ipv4 {
+            (b"1.2.3.4>", b"", Hostname::AsciiDomain { raw: "1.2.3.4" }),
+            (b"[123.255.37.2]>", b"", Hostname::Ipv4 {
                 raw: "[123.255.37.2]",
                 ip: "123.255.37.2".parse().unwrap(),
             }),
-            (b"[IPv6:0::ffff:8.7.6.5]", b"", b"", Hostname::Ipv6 {
+            (b"[IPv6:0::ffff:8.7.6.5]>", b"", Hostname::Ipv6 {
                 raw: "[IPv6:0::ffff:8.7.6.5]",
                 ip: "0::ffff:8.7.6.5".parse().unwrap(),
             }),
-            ("élégance.fr".as_bytes(), b"", b"", Hostname::Utf8Domain {
+            ("élégance.fr>".as_bytes(), b"", Hostname::Utf8Domain {
                 raw: "élégance.fr",
                 punycode: "xn--lgance-9uab.fr".into(),
             }),
-            (b"foo.-bar.baz", b"", b".-bar.baz", Hostname::AsciiDomain {
-                raw: "foo",
+            ("papier-maché.fr>".as_bytes(), b"", Hostname::Utf8Domain {
+                raw: "papier-maché.fr",
+                punycode: "xn--papier-mach-lbb.fr".into(),
             }),
-            (b"foo.bar.-baz", b"", b".-baz", Hostname::AsciiDomain {
-                raw: "foo.bar",
-            }),
-            (
-                "papier-maché.fr>".as_bytes(),
-                b">",
-                b">",
-                Hostname::Utf8Domain {
-                    raw: "papier-maché.fr",
-                    punycode: "xn--papier-mach-lbb.fr".into(),
-                },
-            ),
         ];
-        for (inp, terminate, rem, out) in tests {
-            let parsed = Hostname::parse_until(*terminate)(inp);
+        for (inp, rem, out) in tests {
+            let parsed = terminated(Hostname::parse_until(b">"), tag(b">"))(inp);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
                 show_bytes(inp),
@@ -530,7 +481,7 @@ mod tests {
     fn hostname_incomplete() {
         let tests: &[&[u8]] = &[b"[1.2", b"[IPv6:0::"];
         for inp in tests {
-            let r = Hostname::<&str>::parse(inp);
+            let r = Hostname::<&str>::parse_until(b">")(inp);
             println!("{:?}:  {:?}", show_bytes(inp), r);
             assert!(r.unwrap_err().is_incomplete());
         }
@@ -539,12 +490,12 @@ mod tests {
     #[test]
     fn hostname_invalid() {
         let tests: &[&[u8]] = &[
-            b"-foo.bar",                 // No sub-domain starting with a dash
-            b"\xFF",                     // No invalid utf-8
-            "élégance.-fr".as_bytes(), // No dashes in utf-8 either
+            b"-foo.bar>",                 // No sub-domain starting with a dash
+            b"\xFF>",                     // No invalid utf-8
+            "élégance.-fr>".as_bytes(), // No dashes in utf-8 either
         ];
         for inp in tests {
-            let r = Hostname::<String>::parse(inp);
+            let r = Hostname::<String>::parse_until(b">")(inp);
             println!("{:?}: {:?}", show_bytes(inp), r);
             assert!(!r.unwrap_err().is_incomplete());
         }
@@ -553,20 +504,20 @@ mod tests {
     #[test]
     fn localpart_valid() {
         let tests: &[(&[u8], &[u8], Localpart<&str>)] = &[
-            (b"helloooo", b"", Localpart::Ascii { raw: "helloooo" }),
-            (b"test.ing", b"", Localpart::Ascii { raw: "test.ing" }),
-            (br#""hello""#, b"", Localpart::QuotedAscii {
+            (b"helloooo@", b"", Localpart::Ascii { raw: "helloooo" }),
+            (b"test.ing>", b"", Localpart::Ascii { raw: "test.ing" }),
+            (br#""hello"@"#, b"", Localpart::QuotedAscii {
                 raw: r#""hello""#,
             }),
             (
-                br#""hello world. This |$ a g#eat place to experiment !""#,
+                br#""hello world. This |$ a g#eat place to experiment !">"#,
                 b"",
                 Localpart::QuotedAscii {
                     raw: r#""hello world. This |$ a g#eat place to experiment !""#,
                 },
             ),
             (
-                br#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
+                br#""\"escapes\", useless like h\ere, except for quotes and backslashes\\"@"#,
                 b"",
                 Localpart::QuotedAscii {
                     raw: r#""\"escapes\", useless like h\ere, except for quotes and backslashes\\""#,
@@ -575,7 +526,10 @@ mod tests {
             // TODO: add Utf8 tests
         ];
         for (inp, rem, out) in tests {
-            match Localpart::parse(inp) {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = terminated(Localpart::parse_until(b"@>"), alt((tag(b"@"), tag(b">"))))(inp);
+            println!("Result: {:?}", r);
+            match r {
                 Ok((rest, res)) if rest == *rem && res == *out => (),
                 x => panic!("Unexpected result: {:?}", x),
             }
@@ -602,39 +556,58 @@ mod tests {
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
-            let res = Localpart::<&str>::parse(inp).unwrap().1;
+            let res = Email::<&str>::parse_until(b" ", b" @")(inp).unwrap().1;
             println!("Result: {:?}", res);
-            assert_eq!(res.unquote(), out.to_owned());
+            assert_eq!(res.localpart.unquote(), out.to_owned());
         }
     }
 
     #[test]
     fn email_valid() {
         let tests: &[(&[u8], &[u8], Email<&str>)] = &[
-            (b"t+e-s.t_i+n-g@foo.bar.baz", b"", Email {
+            (b"t+e-s.t_i+n-g@foo.bar.baz>", b"", Email {
                 localpart: Localpart::Ascii {
                     raw: "t+e-s.t_i+n-g",
                 },
                 hostname: Some(Hostname::AsciiDomain { raw: "foo.bar.baz" }),
             }),
-            (br#""quoted\"example"@example.org"#, b"", Email {
+            (br#""quoted\"example"@example.org>"#, b"", Email {
                 localpart: Localpart::QuotedAscii {
                     raw: r#""quoted\"example""#,
                 },
                 hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
             }),
-            (b"postmaster>", b">", Email {
+            (b"postmaster>", b"", Email {
                 localpart: Localpart::Ascii { raw: "postmaster" },
                 hostname: None,
             }),
-            (b"test>", b">", Email {
+            (b"test>", b"", Email {
                 localpart: Localpart::Ascii { raw: "test" },
+                hostname: None,
+            }),
+            (
+                r#""quoted\"example"@exámple.org>"#.as_bytes(),
+                b"",
+                Email {
+                    localpart: Localpart::QuotedAscii {
+                        raw: r#""quoted\"example""#,
+                    },
+                    hostname: Some(Hostname::Utf8Domain {
+                        raw: "exámple.org",
+                        punycode: "foo".into(),
+                    }),
+                },
+            ),
+            ("tést>".as_bytes(), b"", Email {
+                localpart: Localpart::Utf8 { raw: "tést" },
                 hostname: None,
             }),
         ];
         for (inp, rem, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
-            match Email::parse(inp) {
+            let r = terminated(Email::parse_until(b">", b">@"), tag(b">"))(inp);
+            println!("Result: {:?}", r);
+            match r {
                 Ok((rest, res)) if rest == *rem && res == *out => (),
                 x => panic!("Unexpected result: {:?}", x),
             }
@@ -647,7 +620,7 @@ mod tests {
     fn email_invalid() {
         let tests: &[&[u8]] = &[b"@foo.bar"];
         for inp in tests {
-            let r = Email::<&str>::parse(inp);
+            let r = Email::<&str>::parse_until(b">", b">@")(inp);
             assert!(!r.unwrap_err().is_incomplete());
         }
     }
