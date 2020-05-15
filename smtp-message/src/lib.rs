@@ -4,20 +4,26 @@ use std::{
 };
 
 use lazy_static::lazy_static;
-use nom::{branch::alt, combinator::map_opt, IResult};
+use nom::{
+    branch::alt,
+    bytes::streaming::tag,
+    combinator::{map, map_opt},
+    sequence::tuple,
+    IResult,
+};
 use regex::bytes::Regex;
 
 lazy_static! {
     static ref HOSTNAME_ASCII: Regex = Regex::new(
         r#"(?x) ^(
-            \[IPv6: [0-9a-fA-F:.]+ \] |                          # Ipv6
-            \[ [0-9.]+ \] |                                      # Ipv4
-            [[:alnum:]] ([a-zA-Z0-9-]* [[:alnum:]])?             # Ascii-only domain
-                ( \. [[:alnum:]] ([a-zA-Z0-9-]* [[:alnum:]])? )*
+            \[IPv6: [:.[:xdigit:]]+ \] |             # Ipv6
+            \[ [.0-9]+ \] |                          # Ipv4
+            [[:alnum:]] ([-[:alnum:]]* [[:alnum:]])? # Ascii-only domain
+                ( \. [[:alnum:]] ([-[:alnum:]]* [[:alnum:]])? )*
         )"#
     )
     .unwrap();
-    static ref HOSTNAME_UTF8: Regex = Regex::new(r#"^([a-zA-Z0-9.-]|[[:^ascii:]])+"#).unwrap();
+    static ref HOSTNAME_UTF8: Regex = Regex::new(r#"^([-.[:alnum:]]|[[:^ascii:]])+"#).unwrap();
     // For ascii-only or utf-8 domains, any prefix of such would still
     // match the regex, so there's no need to handle them here.
     static ref HOSTNAME_PREFIX: Regex = Regex::new(
@@ -29,6 +35,27 @@ lazy_static! {
         )?"#
     )
     .unwrap();
+
+    static ref LOCALPART_ASCII: Regex = Regex::new(
+        r#"(?x) ^(
+            " ( [[:ascii:]&&[^\\"[:cntrl:]]] |    # Quoted-string localpart
+                \\ [[:ascii:]&&[:^cntrl:]] )* " |
+            [[:alnum:]!#$%&'*+-/=?^_`{|}~]+       # Dot-string localpart
+                ( \. [[:alnum:]!#$%&'*+-/=?^_`{|}~]+ )*
+        "#
+    ).unwrap();
+
+    static ref LOCALPART_UTF8: Regex = Regex::new(
+        r#"(?x) ^(
+            " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )* " |       # Quoted-string localpart
+            ( [[:alnum:]!#$%&'*+-/=?^_`{|}~] | [[:^ascii:]] )+ # Dot-string localpart
+                ( \. ( [a-zA-Z0-9!#$%&'*+-/=?^_`{|}~] | [[:^ascii:]] )+ )*
+        "#
+    ).unwrap();
+
+    static ref LOCALPART_PREFIX: Regex = Regex::new(
+        r#"(?x) ^"#
+    ).unwrap(); // TODO: make correct, if we don't move to regex_automata after all
 }
 
 // TODO: ideally the regex crate would provide us with a way to know
@@ -81,7 +108,7 @@ impl<S> Hostname<S> {
                 apply_regex(&HOSTNAME_ASCII, &HOSTNAME_PREFIX),
                 |b: &[u8]| {
                     // The three below unsafe are OK, thanks to our
-                    // regex validating that `res` is proper ascii
+                    // regex validating that `b` is proper ascii
                     // (and thus utf-8)
                     let s = unsafe { str::from_utf8_unchecked(b) };
 
@@ -173,6 +200,72 @@ impl<S: Eq + PartialEq> Hostname<S> {
         }
     }
 }
+
+// TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
+// matched by weird characters
+pub enum Localpart<S> {
+    Ascii { raw: S },
+    Quoted { raw: S },
+    Utf8 { raw: S },
+}
+
+impl<S> Localpart<S> {
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Localpart<S>>
+    where
+        S: From<&'a str>,
+    {
+        alt((
+            map(
+                apply_regex(&LOCALPART_ASCII, &LOCALPART_PREFIX),
+                |b: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // validating that `b` is proper ascii (and thus
+                    // utf-8)
+                    let s = unsafe { str::from_utf8_unchecked(b) };
+
+                    if b[0] != b'"' {
+                        return Localpart::Ascii { raw: s.into() };
+                    } else {
+                        return Localpart::Quoted { raw: s.into() };
+                    }
+                },
+            ),
+            map(
+                apply_regex(&LOCALPART_UTF8, &LOCALPART_PREFIX),
+                |b: &[u8]| {
+                    // The below unsafe is OK, thanks to our regex
+                    // validating that `b` is proper utf-8 by never disabling the `u` flag
+                    let s = unsafe { str::from_utf8_unchecked(b) };
+                    return Localpart::Utf8 { raw: s.into() };
+                },
+            ),
+        ))(buf)
+    }
+}
+
+// TODO: Add tests for localpart!
+
+pub struct Email<S> {
+    pub localpart: Localpart<S>,
+    pub hostname: Hostname<S>,
+}
+
+impl<S> Email<S> {
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Email<S>>
+    where
+        S: From<&'a str>,
+    {
+        map(
+            tuple((Localpart::parse, tag(b"@"), Hostname::parse)),
+            |(localpart, _, hostname)| Email {
+                localpart,
+                hostname,
+            },
+        )(buf)
+    }
+}
+
+// TODO: Add tests for email!
 
 #[cfg(test)]
 mod tests {
