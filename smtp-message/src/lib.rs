@@ -1,3 +1,5 @@
+#![type_length_limit = "2663307"]
+
 use std::{
     net::{Ipv4Addr, Ipv6Addr},
     str,
@@ -411,7 +413,7 @@ impl<S> Path<S> {
 // TODO: add valid/incomplete/invalid tests for Path
 
 #[inline]
-fn email_with_path<'a, 'b, S>(
+fn unbracketed_email_with_path<'a, 'b, S>(
     term: &'b [u8],
     term_with_atsign: &'b [u8],
 ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
@@ -423,6 +425,33 @@ where
         opt(terminated(Path::parse_until(b":,"), tag(b":"))),
         Email::parse_until(term, term_with_atsign),
     )
+}
+
+/// term
+/// term_with_atsign = term + b"@"
+/// term_with_bracket = term + b">"
+/// term_with_bracket_atsign = term + b"@>"
+#[inline]
+fn email_with_path<'a, 'b, S>(
+    term: &'b [u8],
+    term_with_atsign: &'b [u8],
+    term_with_bracket: &'b [u8],
+    term_with_bracket_atsign: &'b [u8],
+) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
+where
+    'a: 'b,
+    S: 'b + From<&'a str>,
+{
+    alt((
+        preceded(
+            tag(b"<"),
+            terminated(
+                unbracketed_email_with_path(term_with_bracket, term_with_bracket_atsign),
+                tag(b">"),
+            ),
+        ),
+        unbracketed_email_with_path(term, term_with_atsign),
+    ))
 }
 
 #[cfg(test)]
@@ -626,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn email_with_path_valid() {
+    fn unbracketed_email_with_path_valid() {
         let tests: &[(&[u8], &[u8], (Option<Path<&str>>, Email<&str>))] = &[
             (
                 b"@foo.bar,@baz.quux:test@example.org>",
@@ -655,8 +684,76 @@ mod tests {
         ];
         for (inp, rem, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
-            match email_with_path(b">", b">@")(inp) {
+            match unbracketed_email_with_path(b">", b">@")(inp) {
                 Ok((rest, res)) if rest == *rem && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    // TODO: test unbracketed_email_with_path with incomplete and invalid
+
+    #[test]
+    fn email_with_path_valid() {
+        let tests: &[(&[u8], (Option<Path<&str>>, Email<&str>))] = &[
+            (
+                b"@foo.bar,@baz.quux:test@example.org ",
+                (
+                    Some(Path {
+                        domains: vec![
+                            Hostname::AsciiDomain { raw: "foo.bar" },
+                            Hostname::AsciiDomain { raw: "baz.quux" },
+                        ],
+                    }),
+                    Email {
+                        localpart: Localpart::Ascii { raw: "test" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
+                    },
+                ),
+            ),
+            (
+                b"<@foo.bar,@baz.quux:test@example.org> ",
+                (
+                    Some(Path {
+                        domains: vec![
+                            Hostname::AsciiDomain { raw: "foo.bar" },
+                            Hostname::AsciiDomain { raw: "baz.quux" },
+                        ],
+                    }),
+                    Email {
+                        localpart: Localpart::Ascii { raw: "test" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "example.org" }),
+                    },
+                ),
+            ),
+            (
+                b"<foo@bar.baz> ",
+                (None, Email {
+                    localpart: Localpart::Ascii { raw: "foo" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                }),
+            ),
+            (
+                b"foo@bar.baz ",
+                (None, Email {
+                    localpart: Localpart::Ascii { raw: "foo" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                }),
+            ),
+            (
+                b"foobar ",
+                (None, Email {
+                    localpart: Localpart::Ascii { raw: "foobar" },
+                    hostname: None,
+                }),
+            ),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = email_with_path(b" ", b" @", b" >", b" @>")(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) if rest == b" " && res == *out => (),
                 x => panic!("Unexpected result: {:?}", x),
             }
         }
