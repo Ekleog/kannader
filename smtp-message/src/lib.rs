@@ -8,11 +8,11 @@ use std::{
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
-    bytes::streaming::tag,
+    bytes::streaming::{is_a, tag, tag_no_case},
     character::streaming::one_of,
     combinator::{map, map_opt, opt, peek},
     multi::separated_nonempty_list,
-    sequence::{pair, preceded, terminated},
+    sequence::{pair, preceded, terminated, tuple},
     IResult,
 };
 use regex_automata::{Regex, RegexBuilder, DFA};
@@ -109,7 +109,7 @@ where
     peek(one_of(term))
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MaybeUtf8<S = String> {
     Ascii(S),
     Utf8(S),
@@ -132,7 +132,7 @@ impl MaybeUtf8<&str> {
 /// or create a `Hostname` yourself it could have surprising results. But such a
 /// `Hostname` would then not actually represent a real hostname, so you
 /// probably would have had surprising results anyway.
-#[derive(Debug, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub enum Hostname<S = String> {
     Utf8Domain { raw: S, punycode: String },
     AsciiDomain { raw: S },
@@ -248,7 +248,7 @@ impl<S: Eq + PartialEq> Hostname<S> {
 
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Localpart<S = String> {
     Ascii { raw: S },
     QuotedAscii { raw: S },
@@ -351,7 +351,7 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Email<S = String> {
     pub localpart: Localpart<S>,
     pub hostname: Option<Hostname<S>>,
@@ -385,7 +385,7 @@ impl<S> Email<S> {
 /// and it does not contain the Email. Indeed, paths are *very* rare nowadays.
 ///
 /// `Path` as defined here is what is specified in RFC5321 as `A-d-l`
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Path<S = String> {
     pub domains: Vec<Hostname<S>>,
 }
@@ -452,6 +452,52 @@ where
         ),
         unbracketed_email_with_path(term, term_with_atsign),
     ))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Command<S> {
+    /// DATA <CRLF>
+    Data,
+
+    /// EHLO <domain> <CRLF>
+    Ehlo {
+        hostname: Hostname<S>,
+    },
+
+    Expn, // EXPN <name> <CRLF>
+    Helo, // HELO <domain> <CRLF>
+    Help, // HELP [<subject>] <CRLF>
+    Mail, // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
+    Noop, // NOOP [<string>] <CRLF>
+    Quit, // QUIT <CRLF>
+    Rcpt, // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rset, // RSET <CRLF>
+    Vrfy, // VRFY <name> <CRLF>
+}
+
+impl<S> Command<S> {
+    #[inline]
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Command<S>>
+    where
+        S: From<&'a str>,
+    {
+        alt((
+            map(
+                tuple((tag_no_case(b"DATA"), opt(is_a(" \t")), tag(b"\r\n"))),
+                |_| Command::Data,
+            ),
+            map(
+                tuple((
+                    tag_no_case(b"EHLO"),
+                    is_a(" \t"),
+                    Hostname::parse_until(b" \t\r"),
+                    opt(is_a(" \t")),
+                    tag(b"\r\n"),
+                )),
+                |(_, _, hostname, _, _)| Command::Ehlo { hostname },
+            ),
+        ))(buf)
+    }
 }
 
 #[cfg(test)]
@@ -758,4 +804,25 @@ mod tests {
             }
         }
     }
+
+    // TODO: test unbracketed_email_with_path with incomplete and invalid
+
+    #[test]
+    fn command_valid() {
+        let tests: &[(&[u8], Command<&str>)] = &[
+            (b"DATA \t  \t \r\n", Command::Data),
+            (b"daTa\r\n", Command::Data),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = Command::parse(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) if rest == b"" && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    // TODO: test command with incomplete and invalid
 }
