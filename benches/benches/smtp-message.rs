@@ -6,15 +6,15 @@ use smtp_message::Email;
 
 pub fn parse_email(c: &mut Criterion) {
     let tests: &[&[&[u8]]] = &[
-        &[b"postmaster", b"test", b"foobar", b"root"],
+        &[b"postmaster>", b"test>", b"foobar>", b"root>"],
         &[
-            b"t+e-s.t_i+n-g@foo.bar.baz",
-            b"hello@world.com",
-            b"this.is.a.very.long.message@lists.subdomain.domain.tld",
+            b"t+e-s.t_i+n-g@foo.bar.baz>",
+            b"hello@world.com>",
+            b"this.is.a.very.long.message@lists.subdomain.domain.tld>",
         ],
         &[
-            br#""quoted\"example"@example.org"#,
-            br#""and with\@stuff like this\"\\"@test.com"#,
+            br#""quoted\"example"@example.org>"#,
+            br#""and with\@stuff like this\"\\"@test.com>"#,
         ],
     ];
     let names: &[&str] = &["localpart only", "normal email", "quoted-string localpart"];
@@ -31,10 +31,11 @@ pub fn parse_email(c: &mut Criterion) {
         ));
         // https://github.com/bheisler/criterion.rs/issues/382
         // g.throughput(Throughput::Elements(tests[i].len() as u64));
+
         g.bench_with_input(BenchmarkId::new("smtp-message", n), tests[i], |b, tests| {
             b.iter(|| {
                 for t in tests {
-                    black_box(Email::<&str>::parse(t));
+                    black_box(Email::<&str>::parse_until(b">", b"@>")(t));
                 }
             })
         });
@@ -44,14 +45,19 @@ pub fn parse_email(c: &mut Criterion) {
             |b, tests| {
                 b.iter(|| {
                     for t in tests {
-                        black_box(Email::<String>::parse(t));
+                        black_box(Email::<String>::parse_until(b">", b"@>")(t));
                     }
                 })
             },
         );
+
+        let unbracketed_tests = tests[i]
+            .iter()
+            .map(|&t| &t[..t.len() - 1])
+            .collect::<Vec<&'static [u8]>>();
         g.bench_with_input(
             BenchmarkId::new("rustyknife-legacy", n),
-            tests[i],
+            &unbracketed_tests,
             |b, tests| {
                 b.iter(|| {
                     for t in tests {
@@ -64,7 +70,7 @@ pub fn parse_email(c: &mut Criterion) {
         );
         g.bench_with_input(
             BenchmarkId::new("rustyknife-intl", n),
-            tests[i],
+            &unbracketed_tests,
             |b, tests| {
                 b.iter(|| {
                     for t in tests {
