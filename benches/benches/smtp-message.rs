@@ -1,6 +1,9 @@
 #![allow(unused_must_use)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{
+    black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
+    PlotConfiguration, Throughput,
+};
 
 use smtp_message::Email;
 
@@ -16,13 +19,25 @@ pub fn parse_email(c: &mut Criterion) {
             br#""quoted\"example"@example.org>"#,
             br#""and with\@stuff like this\"\\"@test.com>"#,
         ],
+        &[
+            "établi@example.com>".as_bytes(),
+            "fromagé@test.org>".as_bytes(),
+        ],
+        &[
+            "benchmark@minuté.fr>".as_bytes(),
+            "user@truc.avec.dé.accents.fr>".as_bytes(),
+        ],
     ];
-    let names: &[&str] = &["localpart only", "normal email", "quoted-string localpart"];
+    let names: &[&str] = &[
+        "localpart only",
+        "normal email",
+        "quoted-string localpart",
+        "utf-8 localpart",
+        "utf-8 domain",
+    ];
 
     let mut g = c.benchmark_group("Email::parse");
-    // https://github.com/38/plotters/issues/143
-    // g.plot_config(PlotConfiguration::default().summary_scale(AxisScale::
-    // Logarithmic));
+    g.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for i in 0..tests.len() {
         let n = names[i];
