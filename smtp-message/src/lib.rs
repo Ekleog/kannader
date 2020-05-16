@@ -550,7 +550,7 @@ pub enum Command<S> {
     /// DATA <CRLF>
     Data,
 
-    /// EHLO <domain> <CRLF>
+    /// EHLO <hostname> <CRLF>
     Ehlo {
         hostname: Hostname<S>,
     },
@@ -559,7 +559,12 @@ pub enum Command<S> {
     Expn {
         name: MaybeUtf8<S>,
     },
-    Helo, // HELO <domain> <CRLF>
+
+    /// HELO <hostname> <CRLF>
+    Helo {
+        hostname: Hostname<S>,
+    },
+
     Help, // HELP [<subject>] <CRLF>
     Mail, // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Noop, // NOOP [<string>] <CRLF>
@@ -602,6 +607,16 @@ impl<S> Command<S> {
                     })
                 },
             ),
+            map(
+                tuple((
+                    tag_no_case(b"HELO"),
+                    is_a(" \t"),
+                    Hostname::parse_until(b" \t\r"),
+                    opt(is_a(" \t")),
+                    tag(b"\r\n"),
+                )),
+                |(_, _, hostname, _, _)| Command::Helo { hostname },
+            ),
         ))(buf)
     }
 }
@@ -614,12 +629,19 @@ where
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         match self {
             Command::Data => iter::once(IoSlice::new(b"DATA\r\n")),
+
             Command::Ehlo { hostname } => iter::once(IoSlice::new(b"EHLO "))
                 .chain(hostname.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+
             Command::Expn { name } => iter::once(IoSlice::new(b"EXPN "))
                 .chain(name.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Helo { hostname } => iter::once(IoSlice::new(b"HELO "))
+                .chain(hostname.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+
             _ => iter::once(unreachable!()),
         }
     }
@@ -950,6 +972,12 @@ mod tests {
             (b"EXpN \t hello.world \t \r\n", Command::Expn {
                 name: MaybeUtf8::Ascii("\t hello.world \t "),
             }),
+            (b"hElO\t hello.world \t \r\n", Command::Helo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
+            }),
+            (b"HELO hello.world\r\n", Command::Helo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -981,6 +1009,14 @@ mod tests {
                     name: MaybeUtf8::Ascii("foobar"),
                 },
                 b"EXPN foobar\r\n",
+            ),
+            (
+                Command::Helo {
+                    hostname: Hostname::AsciiDomain {
+                        raw: "test.example.org",
+                    },
+                },
+                b"HELO test.example.org\r\n",
             ),
         ];
         for (inp, out) in tests {
