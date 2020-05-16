@@ -11,9 +11,9 @@ use auto_enums::auto_enum;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
-    bytes::streaming::{is_a, tag, tag_no_case},
+    bytes::streaming::{is_a, tag, tag_no_case, take_until},
     character::streaming::one_of,
-    combinator::{map, map_opt, opt, peek},
+    combinator::{map, map_opt, map_res, opt, peek},
     multi::separated_nonempty_list,
     sequence::{pair, preceded, terminated, tuple},
     IResult,
@@ -139,6 +139,20 @@ where
             MaybeUtf8::Ascii(s) => IoSlice::new(s.as_ref()),
             MaybeUtf8::Utf8(s) => IoSlice::new(s.as_ref()),
         })
+    }
+}
+
+impl<'a, S> From<&'a str> for MaybeUtf8<S>
+where
+    S: From<&'a str>,
+{
+    #[inline]
+    fn from(s: &'a str) -> MaybeUtf8<S> {
+        if s.is_ascii() {
+            MaybeUtf8::Ascii(s.into())
+        } else {
+            MaybeUtf8::Utf8(s.into())
+        }
     }
 }
 
@@ -541,7 +555,10 @@ pub enum Command<S> {
         hostname: Hostname<S>,
     },
 
-    Expn, // EXPN <name> <CRLF>
+    /// EXPN <name> <CRLF>
+    Expn {
+        name: MaybeUtf8<S>,
+    },
     Helo, // HELO <domain> <CRLF>
     Help, // HELP [<subject>] <CRLF>
     Mail, // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
@@ -572,6 +589,19 @@ impl<S> Command<S> {
                 )),
                 |(_, _, hostname, _, _)| Command::Ehlo { hostname },
             ),
+            map_res(
+                tuple((
+                    tag_no_case(b"EXPN"),
+                    one_of(" \t"),
+                    take_until("\r\n"),
+                    tag(b"\r\n"),
+                )),
+                |(_, _, name, _)| {
+                    str::from_utf8(name).map(|name| Command::Expn {
+                        name: MaybeUtf8::from(name),
+                    })
+                },
+            ),
         ))(buf)
     }
 }
@@ -586,6 +616,9 @@ where
             Command::Data => iter::once(IoSlice::new(b"DATA\r\n")),
             Command::Ehlo { hostname } => iter::once(IoSlice::new(b"EHLO "))
                 .chain(hostname.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+            Command::Expn { name } => iter::once(IoSlice::new(b"EXPN "))
+                .chain(name.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
             _ => iter::once(unreachable!()),
         }
@@ -908,6 +941,12 @@ mod tests {
         let tests: &[(&[u8], Command<&str>)] = &[
             (b"DATA \t  \t \r\n", Command::Data),
             (b"daTa\r\n", Command::Data),
+            (b"eHlO \t hello.world \t \r\n", Command::Ehlo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
+            }),
+            (b"EHLO hello.world\r\n", Command::Ehlo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
