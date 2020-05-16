@@ -1,10 +1,13 @@
 #![type_length_limit = "2663307"]
 
 use std::{
+    io::IoSlice,
+    iter,
     net::{Ipv4Addr, Ipv6Addr},
     str,
 };
 
+use either::Either;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
@@ -124,6 +127,21 @@ impl MaybeUtf8<&str> {
     }
 }
 
+// TODO: make this a trait once returning existentials from trait methods is a
+// thing
+impl<S> MaybeUtf8<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(match self {
+            MaybeUtf8::Ascii(s) => IoSlice::new(s.as_ref()),
+            MaybeUtf8::Utf8(s) => IoSlice::new(s.as_ref()),
+        })
+    }
+}
+
 // TODO: Ideally the ipv6 and ipv4 variants would be parsed in the single regex
 // pass. However, that's hard to do, so let's just not do it for now and keep it
 // as an optimization. So for now, it's just as well to return the parsed IPs,
@@ -203,6 +221,7 @@ impl<S> Hostname<S> {
 }
 
 impl<S> Hostname<S> {
+    #[inline]
     pub fn raw(&self) -> &S {
         match self {
             Hostname::Utf8Domain { raw, .. } => raw,
@@ -210,6 +229,16 @@ impl<S> Hostname<S> {
             Hostname::Ipv4 { raw, .. } => raw,
             Hostname::Ipv6 { raw, .. } => raw,
         }
+    }
+}
+
+impl<S> Hostname<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(IoSlice::new(self.raw().as_ref()))
     }
 }
 
@@ -298,6 +327,28 @@ impl<S> Localpart<S> {
     }
 }
 
+impl<S> Localpart<S> {
+    #[inline]
+    pub fn raw(&self) -> &S {
+        match self {
+            Localpart::Ascii { raw } => raw,
+            Localpart::QuotedAscii { raw } => raw,
+            Localpart::Utf8 { raw } => raw,
+            Localpart::QuotedUtf8 { raw } => raw,
+        }
+    }
+}
+
+impl<S> Localpart<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(IoSlice::new(self.raw().as_ref()))
+    }
+}
+
 fn unquoted<S>(s: &S) -> String
 where
     S: AsRef<str>,
@@ -381,6 +432,22 @@ impl<S> Email<S> {
     }
 }
 
+impl<S> Email<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        let hostname = match self.hostname {
+            Some(ref hostname) => {
+                Either::Left(iter::once(IoSlice::new(b"@")).chain(hostname.as_io_slices()))
+            }
+            None => Either::Right(iter::empty()),
+        };
+        self.localpart.as_io_slices().chain(hostname)
+    }
+}
+
 /// Note: for convenience this is not exactly like what is described by RFC5321,
 /// and it does not contain the Email. Indeed, paths are *very* rare nowadays.
 ///
@@ -407,6 +474,16 @@ impl<S> Path<S> {
             ),
             |domains| Path { domains },
         )
+    }
+}
+
+impl<S> Path<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        self.domains.iter().flat_map(|d| d.as_io_slices())
     }
 }
 
