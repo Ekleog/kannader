@@ -379,22 +379,15 @@ where
         .scan(State::Start, |state, x| match (*state, x) {
             (State::Backslash, _) => {
                 *state = State::Start;
-                println!("backslashed anything");
                 Some(Some(x))
             }
-            (State::Start, '"') => {
-                //
-                println!("quoted \"");
-                Some(None)
-            }
+            (State::Start, '"') => Some(None),
             (_, '\\') => {
                 *state = State::Backslash;
-                println!("backslash");
                 Some(None)
             }
             (_, _) => {
                 *state = State::Start;
-                println!("anything");
                 Some(Some(x))
             }
         })
