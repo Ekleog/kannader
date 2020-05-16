@@ -7,7 +7,7 @@ use std::{
     str,
 };
 
-use either::Either;
+use auto_enums::auto_enum;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
@@ -437,12 +437,12 @@ where
     S: AsRef<[u8]>,
 {
     #[inline]
+    #[auto_enum]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        #[auto_enum(Iterator)]
         let hostname = match self.hostname {
-            Some(ref hostname) => {
-                Either::Left(iter::once(IoSlice::new(b"@")).chain(hostname.as_io_slices()))
-            }
-            None => Either::Right(iter::empty()),
+            Some(ref hostname) => iter::once(IoSlice::new(b"@")).chain(hostname.as_io_slices()),
+            None => iter::empty(),
         };
         self.localpart.as_io_slices().chain(hostname)
     }
@@ -553,7 +553,6 @@ pub enum Command<S> {
 }
 
 impl<S> Command<S> {
-    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Command<S>>
     where
         S: From<&'a str>,
@@ -574,6 +573,22 @@ impl<S> Command<S> {
                 |(_, _, hostname, _, _)| Command::Ehlo { hostname },
             ),
         ))(buf)
+    }
+}
+
+impl<S> Command<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[auto_enum(Iterator)]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        match self {
+            Command::Data => iter::once(IoSlice::new(b"DATA\r\n")),
+            Command::Ehlo { hostname } => iter::once(IoSlice::new(b"EHLO "))
+                .chain(hostname.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+            _ => iter::once(unreachable!()),
+        }
     }
 }
 
@@ -653,6 +668,8 @@ mod tests {
         }
     }
 
+    // TODO: test hostname_build
+
     #[test]
     fn localpart_valid() {
         let tests: &[(&[u8], &[u8], Localpart<&str>)] = &[
@@ -688,7 +705,7 @@ mod tests {
         }
     }
 
-    // TODO: add incomplete and invalid localpart tests
+    // TODO: add incomplete, invalid and build localpart tests
 
     #[test]
     fn localpart_unquoting() {
@@ -777,6 +794,8 @@ mod tests {
         }
     }
 
+    // TODO: add build email tests
+
     #[test]
     fn unbracketed_email_with_path_valid() {
         let tests: &[(&[u8], &[u8], (Option<Path<&str>>, Email<&str>))] = &[
@@ -814,7 +833,7 @@ mod tests {
         }
     }
 
-    // TODO: test unbracketed_email_with_path with incomplete and invalid
+    // TODO: test unbracketed_email_with_path with incomplete, invalid and build
 
     #[test]
     fn email_with_path_valid() {
@@ -902,4 +921,28 @@ mod tests {
     }
 
     // TODO: test command with incomplete and invalid
+
+    #[test]
+    fn command_build() {
+        let tests: &[(Command<&str>, &[u8])] = &[
+            (Command::Data, b"DATA\r\n"),
+            (
+                Command::Ehlo {
+                    hostname: Hostname::AsciiDomain {
+                        raw: "test.foo.bar",
+                    },
+                },
+                b"EHLO test.foo.bar\r\n",
+            ),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", inp);
+            let res = inp
+                .as_io_slices()
+                .flat_map(|s| s.to_owned().into_iter())
+                .collect::<Vec<u8>>();
+            println!("Result: {:?}", show_bytes(&res));
+            assert_eq!(&res, out);
+        }
+    }
 }

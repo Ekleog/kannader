@@ -8,32 +8,6 @@ use crate::{byteslice::ByteSlice, stupidparsers::eat_spaces};
 
 pub use self::{sink::DataSink, stream::DataStream};
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
-pub struct DataCommand {
-    _useless: (),
-}
-
-impl DataCommand {
-    // SMTP-escapes (ie. doubles leading ‘.’) messages first
-    pub fn new() -> DataCommand {
-        DataCommand { _useless: () }
-    }
-
-    pub fn send_to(&self, w: &mut dyn io::Write) -> io::Result<()> {
-        w.write_all(b"DATA\r\n")
-    }
-
-    pub fn take_ownership(self) -> DataCommand {
-        self
-    }
-}
-
-named!(pub command_data_args(ByteSlice) -> DataCommand, do_parse!(
-    tag_no_case!("DATA") >> eat_spaces >> crlf >>
-    (DataCommand { _useless: () })
-));
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,25 +17,6 @@ mod tests {
     use nom::IResult;
 
     use crate::streamext::StreamExt as SmtpStreamExt;
-
-    #[test]
-    fn valid_command_data_args() {
-        let tests = vec![&b"DATA \t  \t \r\n"[..], &b"daTa\r\n"[..]];
-        for test in tests.into_iter() {
-            let b = Bytes::from(test);
-            match command_data_args(ByteSlice::from(&b)) {
-                IResult::Done(rem, DataCommand { _useless: () }) if rem.len() == 0 => (),
-                x => panic!("Unexpected result: {:?}", x),
-            }
-        }
-    }
-
-    #[test]
-    fn valid_command_data_build() {
-        let mut v = Vec::new();
-        DataCommand::new().send_to(&mut v).unwrap();
-        assert_eq!(v, b"DATA\r\n");
-    }
 
     quickcheck! {
         fn data_stream_and_sink_are_compatible(end_with_crlf: bool, v: Vec<Vec<u8>>) -> bool {
