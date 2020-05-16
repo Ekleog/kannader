@@ -1,4 +1,4 @@
-#![type_length_limit = "2663307"]
+#![type_length_limit = "86596271"]
 
 use std::{
     collections::HashMap,
@@ -588,9 +588,7 @@ where
 
 /// Note: This struct includes the leading ' '
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Parameters<S: Eq + Hash> {
-    pub params: HashMap<ParameterName<S>, Option<MaybeUtf8<S>>>,
-}
+pub struct Parameters<S: Eq + Hash>(HashMap<ParameterName<S>, Option<MaybeUtf8<S>>>);
 
 impl<S> Parameters<S>
 where
@@ -643,11 +641,9 @@ where
                     )),
                 ),
             )),
-            |v| Parameters {
-                // TODO: should collect directly to hashmap, see
-                // https://github.com/Geal/nom/issues/661
-                params: v.into_iter().collect(),
-            },
+            // TODO: should collect directly to hashmap, see
+            // https://github.com/Geal/nom/issues/661
+            |v| Parameters(v.into_iter().collect()),
         )
     }
 }
@@ -659,7 +655,7 @@ where
     #[inline]
     #[auto_enum]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        self.params.iter().flat_map(|(name, value)| {
+        self.0.iter().flat_map(|(name, value)| {
             iter::once(IoSlice::new(b" "))
                 .chain(name.as_io_slices())
                 .chain(
@@ -674,7 +670,10 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Command<S> {
+pub enum Command<S>
+where
+    S: Eq + Hash,
+{
     /// DATA <CRLF>
     Data,
 
@@ -698,7 +697,13 @@ pub enum Command<S> {
         subject: MaybeUtf8<S>,
     },
 
-    Mail, // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
+    /// MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
+    Mail {
+        path: Option<Path<S>>,
+        email: Option<Email<S>>,
+        params: Parameters<S>,
+    },
+
     Noop, // NOOP [<string>] <CRLF>
     Quit, // QUIT <CRLF>
     Rcpt, // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
@@ -706,7 +711,10 @@ pub enum Command<S> {
     Vrfy, // VRFY <name> <CRLF>
 }
 
-impl<S> Command<S> {
+impl<S> Command<S>
+where
+    S: Eq + Hash,
+{
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Command<S>>
     where
         S: From<&'a str>,
@@ -763,13 +771,37 @@ impl<S> Command<S> {
                     })
                 },
             ),
+            map(
+                tuple((
+                    tag_no_case(b"MAIL FROM:"),
+                    is_a(" \t"),
+                    alt((
+                        map(tag(b"<>"), |_| None),
+                        map(email_with_path(b" \t", b" \t@", b" \t>", b" \t@>"), Some),
+                    )),
+                    Parameters::parse_until(b" \t\r"),
+                    tag("\r\n"),
+                )),
+                |(_, _, email, params, _)| match email {
+                    None => Command::Mail {
+                        path: None,
+                        email: None,
+                        params,
+                    },
+                    Some((path, email)) => Command::Mail {
+                        path,
+                        email: Some(email),
+                        params,
+                    },
+                },
+            ),
         ))(buf)
     }
 }
 
 impl<S> Command<S>
 where
-    S: AsRef<[u8]>,
+    S: Eq + Hash + AsRef<[u8]>,
 {
     #[auto_enum(Iterator)]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
@@ -1114,44 +1146,47 @@ mod tests {
     fn parameters_valid() {
         use maplit::hashmap;
         let tests: &[(&[u8], Parameters<&str>)] = &[
-            (b" key=value\r\n", Parameters {
-                params: hashmap!(
+            (
+                b" key=value\r\n",
+                Parameters(hashmap!(
                     ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value"))
-                ),
-            }),
-            (b"\tkey=value\tkey2=value2\r\n", Parameters {
-                params: hashmap!(
+                )),
+            ),
+            (
+                b"\tkey=value\tkey2=value2\r\n",
+                Parameters(hashmap!(
                     ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value")),
                     ParameterName::Other("key2") => Some(MaybeUtf8::Ascii("value2"))
-                ),
-            }),
+                )),
+            ),
             (
                 b" KeY2=V4\"l\\u@e.z\t0tterkeyz=very_muchWh4t3ver\r\n",
-                Parameters {
-                    params: hashmap!(
-                        ParameterName::Other("KeY2") => Some(MaybeUtf8::Ascii("V4\"l\\u@e.z")),
-                        ParameterName::Other("0tterkeyz") => Some(MaybeUtf8::Ascii("very_muchWh4t3ver")),
-                    ),
-                },
+                Parameters(hashmap!(
+                    ParameterName::Other("KeY2") => Some(MaybeUtf8::Ascii("V4\"l\\u@e.z")),
+                    ParameterName::Other("0tterkeyz") => Some(MaybeUtf8::Ascii("very_muchWh4t3ver")),
+                )),
             ),
-            (b" NoValueKey\r\n", Parameters {
-                params: hashmap!(
+            (
+                b" NoValueKey\r\n",
+                Parameters(hashmap!(
                     ParameterName::Other("NoValueKey") => None
-                ),
-            }),
-            (b" A B\r\n", Parameters {
-                params: hashmap!(
+                )),
+            ),
+            (
+                b" A B\r\n",
+                Parameters(hashmap!(
                     ParameterName::Other("A") => None,
                     ParameterName::Other("B") => None,
-                ),
-            }),
-            (b" A=B C D=SP\r\n", Parameters {
-                params: hashmap!(
+                )),
+            ),
+            (
+                b" A=B C D=SP\r\n",
+                Parameters(hashmap!(
                     ParameterName::Other("A") => Some(MaybeUtf8::Ascii("B")),
                     ParameterName::Other("C") => None,
                     ParameterName::Other("D") => Some(MaybeUtf8::Ascii("SP")),
-                ),
-            }),
+                )),
+            ),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
