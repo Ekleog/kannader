@@ -947,6 +947,9 @@ mod tests {
             (b"EHLO hello.world\r\n", Command::Ehlo {
                 hostname: Hostname::AsciiDomain { raw: "hello.world" },
             }),
+            (b"EXpN \t hello.world \t \r\n", Command::Expn {
+                name: MaybeUtf8::Ascii("\t hello.world \t "),
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -972,6 +975,12 @@ mod tests {
                     },
                 },
                 b"EHLO test.foo.bar\r\n",
+            ),
+            (
+                Command::Expn {
+                    name: MaybeUtf8::Ascii("foobar"),
+                },
+                b"EXPN foobar\r\n",
             ),
         ];
         for (inp, out) in tests {
