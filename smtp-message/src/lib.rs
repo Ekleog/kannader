@@ -1,6 +1,8 @@
 #![type_length_limit = "2663307"]
 
 use std::{
+    collections::HashMap,
+    hash::Hash,
     io::IoSlice,
     iter,
     net::{Ipv4Addr, Ipv6Addr},
@@ -14,7 +16,7 @@ use nom::{
     bytes::streaming::{is_a, tag, tag_no_case, take_until},
     character::streaming::one_of,
     combinator::{map, map_opt, map_res, opt, peek, value},
-    multi::separated_nonempty_list,
+    multi::{many0, many1_count, separated_nonempty_list},
     sequence::{pair, preceded, terminated, tuple},
     IResult,
 };
@@ -55,6 +57,20 @@ lazy_static! {
             ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ # Dot-string localpart
                 ( \. ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ )*
         "#
+    ).unwrap();
+
+    static ref PARAMETER_NAME: Regex = RegexBuilder::new().anchored(true).build(
+        r#"(?x)
+            [[:alnum:]] ( [[:alnum:]-] )*
+        "#
+    ).unwrap();
+
+    static ref PARAMETER_VALUE_ASCII: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[[:ascii:]&&[^= [:cntrl:]]]+"#
+    ).unwrap();
+
+    static ref PARAMETER_VALUE_UTF8: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[^= [:cntrl:]]+"#
     ).unwrap();
 }
 
@@ -538,6 +554,125 @@ where
     ))
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ParameterName<S> {
+    Other(S),
+}
+
+impl<S> ParameterName<S> {
+    #[inline]
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], ParameterName<S>>
+    where
+        S: From<&'a str>,
+    {
+        map(apply_regex(&PARAMETER_NAME), |b: &[u8]| {
+            // The below unsafe is OK, thanks to PARAMETER_NAME
+            // validating that `b` is proper ascii
+            let s = unsafe { str::from_utf8_unchecked(b) };
+            ParameterName::Other(s.into())
+        })(buf)
+    }
+}
+
+impl<S> ParameterName<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(IoSlice::new(match self {
+            ParameterName::Other(s) => s.as_ref(),
+        }))
+    }
+}
+
+/// Note: This struct includes the leading ' '
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Parameters<S: Eq + Hash> {
+    pub params: HashMap<ParameterName<S>, Option<MaybeUtf8<S>>>,
+}
+
+impl<S> Parameters<S>
+where
+    S: Eq + Hash,
+{
+    /// If term is the wanted terminator, then
+    /// term_with_sp_tab = term + b" \t"
+    pub fn parse_until<'a, 'b>(
+        term_with_sp_tab: &'b [u8],
+    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Parameters<S>>
+    where
+        'a: 'b,
+        S: 'b + Eq + Hash + From<&'a str>,
+    {
+        map(
+            many0(preceded(
+                many1_count(one_of(" \t")),
+                pair(
+                    ParameterName::parse,
+                    opt(preceded(
+                        tag(b"="),
+                        alt((
+                            map(
+                                terminated(
+                                    apply_regex(&PARAMETER_VALUE_ASCII),
+                                    terminate(term_with_sp_tab),
+                                ),
+                                |b| {
+                                    // The below unsafe is OK, thanks
+                                    // to the regex having validated
+                                    // that it is pure ASCII
+                                    let s = unsafe { str::from_utf8_unchecked(b) };
+                                    MaybeUtf8::Ascii(s.into())
+                                },
+                            ),
+                            map(
+                                terminated(
+                                    apply_regex(&PARAMETER_VALUE_UTF8),
+                                    terminate(term_with_sp_tab),
+                                ),
+                                |b| {
+                                    // The below unsafe is OK, thanks
+                                    // to the regex having validated
+                                    // that it is valid UTF-8
+                                    let s = unsafe { str::from_utf8_unchecked(b) };
+                                    MaybeUtf8::Utf8(s.into())
+                                },
+                            ),
+                        )),
+                    )),
+                ),
+            )),
+            |v| Parameters {
+                // TODO: should collect directly to hashmap, see
+                // https://github.com/Geal/nom/issues/661
+                params: v.into_iter().collect(),
+            },
+        )
+    }
+}
+
+impl<S> Parameters<S>
+where
+    S: Eq + Hash + AsRef<[u8]>,
+{
+    #[inline]
+    #[auto_enum]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        self.params.iter().flat_map(|(name, value)| {
+            iter::once(IoSlice::new(b" "))
+                .chain(name.as_io_slices())
+                .chain(
+                    #[auto_enum(Iterator)]
+                    match value {
+                        None => iter::empty(),
+                        Some(v) => iter::once(IoSlice::new(b"=")).chain(v.as_io_slices()),
+                    },
+                )
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command<S> {
     /// DATA <CRLF>
@@ -972,6 +1107,64 @@ mod tests {
     }
 
     // TODO: test unbracketed_email_with_path with incomplete and invalid
+
+    // TODO: test parameter (without an s) valid, incomplete, invalid and build
+
+    #[test]
+    fn parameters_valid() {
+        use maplit::hashmap;
+        let tests: &[(&[u8], Parameters<&str>)] = &[
+            (b" key=value\r\n", Parameters {
+                params: hashmap!(
+                    ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value"))
+                ),
+            }),
+            (b"\tkey=value\tkey2=value2\r\n", Parameters {
+                params: hashmap!(
+                    ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value")),
+                    ParameterName::Other("key2") => Some(MaybeUtf8::Ascii("value2"))
+                ),
+            }),
+            (
+                b" KeY2=V4\"l\\u@e.z\t0tterkeyz=very_muchWh4t3ver\r\n",
+                Parameters {
+                    params: hashmap!(
+                        ParameterName::Other("KeY2") => Some(MaybeUtf8::Ascii("V4\"l\\u@e.z")),
+                        ParameterName::Other("0tterkeyz") => Some(MaybeUtf8::Ascii("very_muchWh4t3ver")),
+                    ),
+                },
+            ),
+            (b" NoValueKey\r\n", Parameters {
+                params: hashmap!(
+                    ParameterName::Other("NoValueKey") => None
+                ),
+            }),
+            (b" A B\r\n", Parameters {
+                params: hashmap!(
+                    ParameterName::Other("A") => None,
+                    ParameterName::Other("B") => None,
+                ),
+            }),
+            (b" A=B C D=SP\r\n", Parameters {
+                params: hashmap!(
+                    ParameterName::Other("A") => Some(MaybeUtf8::Ascii("B")),
+                    ParameterName::Other("C") => None,
+                    ParameterName::Other("D") => Some(MaybeUtf8::Ascii("SP")),
+                ),
+            }),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = Parameters::parse_until(b" \t\r\n")(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) if rest == b"\r\n" && res == *out => (),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    // TODO: test parameter incomplete, invalid and build
 
     #[test]
     fn command_valid() {
