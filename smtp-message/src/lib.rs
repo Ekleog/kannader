@@ -13,7 +13,7 @@ use nom::{
     branch::alt,
     bytes::streaming::{is_a, tag, tag_no_case, take_until},
     character::streaming::one_of,
-    combinator::{map, map_opt, map_res, opt, peek},
+    combinator::{map, map_opt, map_res, opt, peek, value},
     multi::separated_nonempty_list,
     sequence::{pair, preceded, terminated, tuple},
     IResult,
@@ -565,7 +565,11 @@ pub enum Command<S> {
         hostname: Hostname<S>,
     },
 
-    Help, // HELP [<subject>] <CRLF>
+    /// HELP [<subject>] <CRLF>
+    Help {
+        subject: MaybeUtf8<S>,
+    },
+
     Mail, // MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Noop, // NOOP [<string>] <CRLF>
     Quit, // QUIT <CRLF>
@@ -617,6 +621,20 @@ impl<S> Command<S> {
                 )),
                 |(_, _, hostname, _, _)| Command::Helo { hostname },
             ),
+            map_res(
+                preceded(
+                    tag_no_case(b"HELP"),
+                    alt((
+                        preceded(one_of(" \t"), terminated(take_until("\r\n"), tag(b"\r\n"))),
+                        value(&b""[..], tag(b"\r\n")),
+                    )),
+                ),
+                |s| {
+                    str::from_utf8(s).map(|s| Command::Help {
+                        subject: MaybeUtf8::from(s),
+                    })
+                },
+            ),
         ))(buf)
     }
 }
@@ -640,6 +658,10 @@ where
 
             Command::Helo { hostname } => iter::once(IoSlice::new(b"HELO "))
                 .chain(hostname.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Help { subject } => iter::once(IoSlice::new(b"HELP "))
+                .chain(subject.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             _ => iter::once(unreachable!()),
@@ -978,6 +1000,15 @@ mod tests {
             (b"HELO hello.world\r\n", Command::Helo {
                 hostname: Hostname::AsciiDomain { raw: "hello.world" },
             }),
+            (b"help \t hello.world \t \r\n", Command::Help {
+                subject: MaybeUtf8::Ascii("\t hello.world \t "),
+            }),
+            (b"HELP\r\n", Command::Help {
+                subject: MaybeUtf8::Ascii(""),
+            }),
+            (b"hElP \r\n", Command::Help {
+                subject: MaybeUtf8::Ascii(""),
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -1017,6 +1048,12 @@ mod tests {
                     },
                 },
                 b"HELO test.example.org\r\n",
+            ),
+            (
+                Command::Help {
+                    subject: MaybeUtf8::Ascii("topic"),
+                },
+                b"HELP topic\r\n",
             ),
         ];
         for (inp, out) in tests {
