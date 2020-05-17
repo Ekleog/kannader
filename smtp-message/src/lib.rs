@@ -1,4 +1,4 @@
-#![type_length_limit = "86609159"]
+#![type_length_limit = "109226559"]
 
 use std::{
     io::IoSlice,
@@ -708,7 +708,13 @@ pub enum Command<S> {
     /// QUIT <CRLF>
     Quit,
 
-    Rcpt, // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    /// RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
+    Rcpt {
+        path: Option<Path<S>>,
+        email: Email<S>,
+        params: Parameters<S>,
+    },
+
     Rset, // RSET <CRLF>
     Vrfy, // VRFY <name> <CRLF>
 }
@@ -776,7 +782,10 @@ impl<S> Command<S> {
                     opt(is_a(" \t")),
                     alt((
                         map(tag(b"<>"), |_| None),
-                        map(email_with_path(b" \t", b" \t@", b" \t>", b" \t@>"), Some),
+                        map(
+                            email_with_path(b" \t\r", b" \t\r@", b" \t\r>", b" \t\r@>"),
+                            Some,
+                        ),
                     )),
                     Parameters::parse_until(b" \t\r"),
                     opt(is_a(" \t")),
@@ -812,6 +821,21 @@ impl<S> Command<S> {
             map(
                 tuple((tag_no_case(b"QUIT"), opt(is_a(" \t")), tag(b"\r\n"))),
                 |_| Command::Quit,
+            ),
+            map(
+                tuple((
+                    tag_no_case(b"RCPT TO:"),
+                    opt(is_a(" \t")),
+                    email_with_path(b" \t\r", b" \t\r@", b" \t\r>", b" \t\r@>"),
+                    Parameters::parse_until(b" \t\r"),
+                    opt(is_a(" \t")),
+                    tag("\r\n"),
+                )),
+                |(_, _, (path, email), params, _, _)| Command::Rcpt {
+                    path,
+                    email,
+                    params,
+                },
             ),
         ))(buf)
     }
@@ -870,6 +894,23 @@ where
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             Command::Quit => iter::once(IoSlice::new(b"QUIT\r\n")),
+
+            Command::Rcpt {
+                path,
+                email,
+                params,
+            } => iter::once(IoSlice::new(b"RCPT TO:<"))
+                .chain(
+                    #[auto_enum(Iterator)]
+                    match path {
+                        Some(path) => path.as_io_slices().chain(iter::once(IoSlice::new(b":"))),
+                        None => iter::empty(),
+                    },
+                )
+                .chain(email.as_io_slices())
+                .chain(iter::once(IoSlice::new(b">")))
+                .chain(params.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             _ => iter::once(unreachable!()),
         }
@@ -1305,6 +1346,14 @@ mod tests {
                 }),
                 params: Parameters(vec![]),
             }),
+            (b"MaiL FrOm: quux@example.net\r\n", Command::Mail {
+                path: None,
+                email: Some(Email {
+                    localpart: Localpart::Ascii { raw: "quux" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "example.net" }),
+                }),
+                params: Parameters(vec![]),
+            }),
             (b"mail FROM:<>\r\n", Command::Mail {
                 path: None,
                 email: None,
@@ -1332,6 +1381,43 @@ mod tests {
             }),
             (b"QUIT \t  \t \r\n", Command::Quit),
             (b"quit\r\n", Command::Quit),
+            (b"RCPT TO:<@one,@two:foo@bar.baz>\r\n", Command::Rcpt {
+                path: Some(Path {
+                    domains: vec![
+                        Hostname::AsciiDomain { raw: "one" },
+                        Hostname::AsciiDomain { raw: "two" },
+                    ],
+                }),
+                email: Email {
+                    localpart: Localpart::Ascii { raw: "foo" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                },
+                params: Parameters(vec![]),
+            }),
+            (b"Rcpt tO: quux@example.net  \t \r\n", Command::Rcpt {
+                path: None,
+                email: Email {
+                    localpart: Localpart::Ascii { raw: "quux" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "example.net" }),
+                },
+                params: Parameters(vec![]),
+            }),
+            (b"rcpt TO:<Postmaster>\r\n", Command::Rcpt {
+                path: None,
+                email: Email {
+                    localpart: Localpart::Ascii { raw: "Postmaster" },
+                    hostname: None,
+                },
+                params: Parameters(vec![]),
+            }),
+            (b"RcPt TO: \t poStmaster\r\n", Command::Rcpt {
+                path: None,
+                email: Email {
+                    localpart: Localpart::Ascii { raw: "poStmaster" },
+                    hostname: None,
+                },
+                params: Parameters(vec![]),
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -1454,6 +1540,28 @@ mod tests {
                 b"NOOP useless string\r\n",
             ),
             (Command::Quit, b"QUIT\r\n"),
+            (
+                Command::Rcpt {
+                    path: None,
+                    email: Email {
+                        localpart: Localpart::Ascii { raw: "foo" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "bar.com" }),
+                    },
+                    params: Parameters(vec![]),
+                },
+                b"RCPT TO:<foo@bar.com>\r\n",
+            ),
+            (
+                Command::Rcpt {
+                    path: None,
+                    email: Email {
+                        localpart: Localpart::Ascii { raw: "Postmaster" },
+                        hostname: None,
+                    },
+                    params: Parameters(vec![]),
+                },
+                b"RCPT TO:<Postmaster>\r\n",
+            ),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
