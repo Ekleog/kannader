@@ -1437,6 +1437,12 @@ mod tests {
                 },
                 b"MAIL FROM:<hello@world.example.org> foo=bar baz helloworld=bleh\r\n",
             ),
+            (
+                Command::Noop {
+                    string: MaybeUtf8::Ascii("useless string"),
+                },
+                b"NOOP useless string\r\n",
+            ),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
