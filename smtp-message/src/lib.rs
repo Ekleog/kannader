@@ -1,4 +1,4 @@
-#![type_length_limit = "109228309"]
+#![type_length_limit = "109238057"]
 
 use std::{
     io::IoSlice,
@@ -126,6 +126,7 @@ where
     peek(one_of(term))
 }
 
+// TODO: find out an AsciiString type, and use it here (and below)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MaybeUtf8<S = String> {
     Ascii(S),
@@ -674,24 +675,16 @@ pub enum Command<S> {
     Data,
 
     /// EHLO <hostname> <CRLF>
-    Ehlo {
-        hostname: Hostname<S>,
-    },
+    Ehlo { hostname: Hostname<S> },
 
     /// EXPN <name> <CRLF>
-    Expn {
-        name: MaybeUtf8<S>,
-    },
+    Expn { name: MaybeUtf8<S> },
 
     /// HELO <hostname> <CRLF>
-    Helo {
-        hostname: Hostname<S>,
-    },
+    Helo { hostname: Hostname<S> },
 
     /// HELP [<subject>] <CRLF>
-    Help {
-        subject: MaybeUtf8<S>,
-    },
+    Help { subject: MaybeUtf8<S> },
 
     /// MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Mail {
@@ -701,9 +694,7 @@ pub enum Command<S> {
     },
 
     /// NOOP [<string>] <CRLF>
-    Noop {
-        string: MaybeUtf8<S>,
-    },
+    Noop { string: MaybeUtf8<S> },
 
     /// QUIT <CRLF>
     Quit,
@@ -718,7 +709,8 @@ pub enum Command<S> {
     /// RSET <CRLF>
     Rset,
 
-    Vrfy, // VRFY <name> <CRLF>
+    /// VRFY <name> <CRLF>
+    Vrfy { name: MaybeUtf8<S> },
 }
 
 impl<S> Command<S> {
@@ -843,6 +835,19 @@ impl<S> Command<S> {
                 tuple((tag_no_case(b"RSET"), opt(is_a(" \t")), tag(b"\r\n"))),
                 |_| Command::Rset,
             ),
+            map_res(
+                tuple((
+                    tag_no_case(b"VRFY"),
+                    one_of(" \t"),
+                    take_until("\r\n"),
+                    tag(b"\r\n"),
+                )),
+                |(_, _, s, _)| {
+                    str::from_utf8(s).map(|s| Command::Vrfy {
+                        name: MaybeUtf8::from(s),
+                    })
+                },
+            ),
         ))(buf)
     }
 }
@@ -920,7 +925,9 @@ where
 
             Command::Rset => iter::once(IoSlice::new(b"RSET\r\n")),
 
-            _ => iter::once(unreachable!()),
+            Command::Vrfy { name } => iter::once(IoSlice::new(b"VRFY "))
+                .chain(name.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
         }
     }
 }
@@ -1428,6 +1435,9 @@ mod tests {
             }),
             (b"RSET \t  \t \r\n", Command::Rset),
             (b"rSet\r\n", Command::Rset),
+            (b"VrFY \t hello.world \t \r\n", Command::Vrfy {
+                name: MaybeUtf8::Ascii("\t hello.world \t "),
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -1573,6 +1583,12 @@ mod tests {
                 b"RCPT TO:<Postmaster>\r\n",
             ),
             (Command::Rset, b"RSET\r\n"),
+            (
+                Command::Vrfy {
+                    name: MaybeUtf8::Ascii("postmaster"),
+                },
+                b"VRFY postmaster\r\n",
+            ),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
