@@ -1,6 +1,7 @@
 #![type_length_limit = "109238057"]
 
 use std::{
+    convert::TryInto,
     io::IoSlice,
     iter,
     net::{Ipv4Addr, Ipv6Addr},
@@ -69,6 +70,14 @@ lazy_static! {
 
     static ref PARAMETER_VALUE_UTF8: Regex = RegexBuilder::new().anchored(true).build(
         r#"[^= [:cntrl:]]+"#
+    ).unwrap();
+
+    static ref REPLY_CODE: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[2-5][0-9][0-9]"#
+    ).unwrap();
+
+    static ref EXTENDED_REPLY_CODE: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[245]\.[0-9]{1,3}\.[0-9]{1,3}"#
     ).unwrap();
 }
 
@@ -932,6 +941,199 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplyCodeKind {
+    PositiveCompletion,
+    PositiveIntermediate,
+    TransientNegative,
+    PermanentNegative,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplyCodeCategory {
+    Syntax,
+    Information,
+    Connection,
+    ReceiverStatus,
+    Unspecified,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReplyCode(pub [u8; 3]);
+
+#[rustfmt::skip]
+impl ReplyCode {
+    pub const SYSTEM_STATUS: ReplyCode = ReplyCode(*b"211");
+    pub const HELP_MESSAGE: ReplyCode = ReplyCode(*b"214");
+    pub const SERVICE_READY: ReplyCode = ReplyCode(*b"220");
+    pub const CLOSING_CHANNEL: ReplyCode = ReplyCode(*b"221");
+    pub const OKAY: ReplyCode = ReplyCode(*b"250");
+    pub const USER_NOT_LOCAL_WILL_FORWARD: ReplyCode = ReplyCode(*b"251");
+    pub const CANNOT_VRFY_BUT_PLEASE_TRY: ReplyCode = ReplyCode(*b"252");
+    pub const START_MAIL_INPUT: ReplyCode = ReplyCode(*b"354");
+    pub const SERVICE_NOT_AVAILABLE: ReplyCode = ReplyCode(*b"421");
+    pub const MAILBOX_TEMPORARILY_UNAVAILABLE: ReplyCode = ReplyCode(*b"450");
+    pub const LOCAL_ERROR: ReplyCode = ReplyCode(*b"451");
+    pub const INSUFFICIENT_STORAGE: ReplyCode = ReplyCode(*b"452");
+    pub const UNABLE_TO_ACCEPT_PARAMETERS: ReplyCode = ReplyCode(*b"455");
+    pub const COMMAND_UNRECOGNIZED: ReplyCode = ReplyCode(*b"500");
+    pub const SYNTAX_ERROR: ReplyCode = ReplyCode(*b"501");
+    pub const COMMAND_UNIMPLEMENTED: ReplyCode = ReplyCode(*b"502");
+    pub const BAD_SEQUENCE: ReplyCode = ReplyCode(*b"503");
+    pub const PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode(*b"504");
+    pub const MAILBOX_UNAVAILABLE: ReplyCode = ReplyCode(*b"550");
+    pub const POLICY_REASON: ReplyCode = ReplyCode(*b"550");
+    pub const USER_NOT_LOCAL: ReplyCode = ReplyCode(*b"551");
+    pub const EXCEEDED_STORAGE: ReplyCode = ReplyCode(*b"552");
+    pub const MAILBOX_NAME_INCORRECT: ReplyCode = ReplyCode(*b"553");
+    pub const TRANSACTION_FAILED: ReplyCode = ReplyCode(*b"554");
+    pub const MAIL_OR_RCPT_PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode(*b"555");
+}
+
+impl ReplyCode {
+    #[inline]
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], ReplyCode> {
+        map(apply_regex(&REPLY_CODE), |b| {
+            // The below unwrap is OK, as the regex already validated
+            // that there are exactly 3 characters
+            ReplyCode(b.try_into().unwrap())
+        })(buf)
+    }
+
+    #[inline]
+    pub fn kind(&self) -> ReplyCodeKind {
+        match self.0[0] {
+            2 => ReplyCodeKind::PositiveCompletion,
+            3 => ReplyCodeKind::PositiveIntermediate,
+            4 => ReplyCodeKind::TransientNegative,
+            5 => ReplyCodeKind::PermanentNegative,
+            _ => panic!("Asked kind of invalid reply code!"),
+        }
+    }
+
+    #[inline]
+    pub fn category(&self) -> ReplyCodeCategory {
+        match self.0[1] {
+            0 => ReplyCodeCategory::Syntax,
+            1 => ReplyCodeCategory::Information,
+            2 => ReplyCodeCategory::Connection,
+            5 => ReplyCodeCategory::ReceiverStatus,
+            _ => ReplyCodeCategory::Unspecified,
+        }
+    }
+
+    #[inline]
+    pub fn code(&self) -> u16 {
+        self.0[0] as u16 * 100 + self.0[1] as u16 * 10 + self.0[2] as u16
+    }
+
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(IoSlice::new(&self.0))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExtendedReplyCodeClass {
+    Success = 2,
+    PersistentTransient = 4,
+    PermanentFailure = 5,
+}
+
+pub enum ExtendedReplyCodeSubject {
+    Undefined,
+    Addressing,
+    Mailbox,
+    MailSystem,
+    Network,
+    MailDelivery,
+    Content,
+    Policy,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtendedReplyCode<S> {
+    pub raw: S,
+    pub class: ExtendedReplyCodeClass,
+    pub raw_subject: u16,
+    pub raw_detail: u16,
+}
+
+macro_rules! extended_reply_code {
+    ($name:ident, $subject:tt, $detail:tt) => {
+        pub const concat_ident!(SUCCESS_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+            raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
+            class: ExtendedReplyCodeClass::Success,
+            raw_subject: $subject,
+            raw_detail: $detail,
+        };
+        pub const concat_ident!(TRANSIENT_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+            raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
+            class: ExtendedReplyCodeClass::PersistentTransient,
+            raw_subject: $subject,
+            raw_detail: $detail,
+        };
+        pub const concat_ident!(PERMANENT_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+            raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
+            class: ExtendedReplyCodeClass::PermanentFailure,
+            raw_subject: $subject,
+            raw_detail: $detail,
+        };
+    }
+}
+
+#[rustfmt::skip]
+impl ExtendedReplyCode<&'static str> {
+}
+
+impl<S> ExtendedReplyCode<S> {
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], ExtendedReplyCode<S>>
+    where
+        S: From<&'a str>,
+    {
+        map(apply_regex(&EXTENDED_REPLY_CODE), |raw| {
+            let class = raw[0] - b'0';
+            let class = match class {
+                2 => ExtendedReplyCodeClass::Success,
+                4 => ExtendedReplyCodeClass::PersistentTransient,
+                5 => ExtendedReplyCodeClass::PermanentFailure,
+                _ => panic!("Regex allowed unexpected elements"),
+            };
+            let after_class = &raw[2..];
+            // These unwrap and unsafe are OK thanks to the regex
+            // already matching
+            let second_dot = after_class.iter().position(|c| *c == b'.').unwrap();
+            let raw_subject = unsafe { str::from_utf8_unchecked(&after_class[..second_dot]) }
+                .parse()
+                .unwrap();
+            let raw_detail = unsafe { str::from_utf8_unchecked(&after_class[second_dot + 1..]) }
+                .parse()
+                .unwrap();
+            let raw = unsafe { str::from_utf8_unchecked(raw) };
+            ExtendedReplyCode {
+                raw: raw.into(),
+                class,
+                raw_subject,
+                raw_detail,
+            }
+        })(buf)
+    }
+
+    pub fn subject(&self) -> ExtendedReplyCodeSubject {
+        match self.raw_subject {
+            1 => ExtendedReplyCodeSubject::Addressing,
+            2 => ExtendedReplyCodeSubject::Mailbox,
+            3 => ExtendedReplyCodeSubject::MailSystem,
+            4 => ExtendedReplyCodeSubject::Network,
+            5 => ExtendedReplyCodeSubject::MailDelivery,
+            6 => ExtendedReplyCodeSubject::Content,
+            7 => ExtendedReplyCodeSubject::Policy,
+            _ => ExtendedReplyCodeSubject::Undefined,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1601,4 +1803,91 @@ mod tests {
             assert_eq!(&res, out);
         }
     }
+
+    #[test]
+    pub fn reply_code_valid() {
+        let tests: &[(&[u8], [u8; 3])] = &[(b"523", *b"523"), (b"234", *b"234")];
+        for (inp, out) in tests {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = ReplyCode::parse(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) => {
+                    assert_eq!(rest, b"");
+                    assert_eq!(res, ReplyCode(*out));
+                }
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    #[test]
+    fn reply_code_incomplete() {
+        let tests: &[&[u8]] = &[b"3", b"43"];
+        for inp in tests {
+            let r = ReplyCode::parse(inp);
+            println!("{:?}:  {:?}", show_bytes(inp), r);
+            assert!(r.unwrap_err().is_incomplete());
+        }
+    }
+
+    #[test]
+    fn reply_code_invalid() {
+        let tests: &[&[u8]] = &[b"foo", b"123", b"648"];
+        for inp in tests {
+            let r = ReplyCode::parse(inp);
+            assert!(!r.unwrap_err().is_incomplete());
+        }
+    }
+
+    // TODO: test reply code builder
+
+    #[test]
+    pub fn extended_reply_code_valid() {
+        let tests: &[(&[u8], (ExtendedReplyCodeClass, u16, u16))] = &[
+            (b"2.1.23", (ExtendedReplyCodeClass::Success, 1, 23)),
+            (
+                b"5.243.567",
+                (ExtendedReplyCodeClass::PermanentFailure, 243, 567),
+            ),
+        ];
+        for (inp, (class, raw_subject, raw_detail)) in tests.iter().cloned() {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = ExtendedReplyCode::parse(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) => {
+                    assert_eq!(rest, b"");
+                    assert_eq!(res, ExtendedReplyCode {
+                        raw: str::from_utf8(inp).unwrap(),
+                        class,
+                        raw_subject,
+                        raw_detail,
+                    });
+                }
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    #[test]
+    fn extended_reply_code_incomplete() {
+        let tests: &[&[u8]] = &[b"4.", b"5.23"];
+        for inp in tests {
+            let r = ExtendedReplyCode::<&str>::parse(inp);
+            println!("{:?}:  {:?}", show_bytes(inp), r);
+            assert!(r.unwrap_err().is_incomplete());
+        }
+    }
+
+    #[test]
+    fn extended_reply_code_invalid() {
+        let tests: &[&[u8]] = &[b"foo", b"3.5.1", b"1.1000.2"];
+        for inp in tests {
+            let r = ExtendedReplyCode::<String>::parse(inp);
+            assert!(!r.unwrap_err().is_incomplete());
+        }
+    }
+
+    // TODO: test extended reply code builder
 }

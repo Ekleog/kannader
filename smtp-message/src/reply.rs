@@ -8,51 +8,6 @@ use crate::{
     smtpstring::SmtpString,
 };
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, Clone, Copy)]
-pub struct ReplyCode {
-    code: u16,
-}
-
-#[cfg_attr(test, allow(dead_code))]
-#[rustfmt::skip] // Keep the const order equal to the one in the RFC
-impl ReplyCode {
-    pub const SYSTEM_STATUS: ReplyCode = ReplyCode { code: 211 };
-    pub const HELP_MESSAGE: ReplyCode = ReplyCode { code: 214 };
-    pub const SERVICE_READY: ReplyCode = ReplyCode { code: 220 };
-    pub const CLOSING_CHANNEL: ReplyCode = ReplyCode { code: 221 };
-    pub const OKAY: ReplyCode = ReplyCode { code: 250 };
-    pub const USER_NOT_LOCAL_WILL_FORWARD: ReplyCode = ReplyCode { code: 251 };
-    pub const CANNOT_VRFY_BUT_PLEASE_TRY: ReplyCode = ReplyCode { code: 252 };
-    pub const START_MAIL_INPUT: ReplyCode = ReplyCode { code: 354 };
-    pub const SERVICE_NOT_AVAILABLE: ReplyCode = ReplyCode { code: 421 };
-    pub const MAILBOX_TEMPORARILY_UNAVAILABLE: ReplyCode = ReplyCode { code: 450 };
-    pub const LOCAL_ERROR: ReplyCode = ReplyCode { code: 451 };
-    pub const INSUFFICIENT_STORAGE: ReplyCode = ReplyCode { code: 452 };
-    pub const UNABLE_TO_ACCEPT_PARAMETERS: ReplyCode = ReplyCode { code: 455 };
-    pub const COMMAND_UNRECOGNIZED: ReplyCode = ReplyCode { code: 500 };
-    pub const SYNTAX_ERROR: ReplyCode = ReplyCode { code: 501 };
-    pub const COMMAND_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 502 };
-    pub const BAD_SEQUENCE: ReplyCode = ReplyCode { code: 503 };
-    pub const PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 504 };
-    pub const MAILBOX_UNAVAILABLE: ReplyCode = ReplyCode { code: 550 };
-    pub const POLICY_REASON: ReplyCode = ReplyCode { code: 550 };
-    pub const USER_NOT_LOCAL: ReplyCode = ReplyCode { code: 551 };
-    pub const EXCEEDED_STORAGE: ReplyCode = ReplyCode { code: 552 };
-    pub const MAILBOX_NAME_INCORRECT: ReplyCode = ReplyCode { code: 553 };
-    pub const TRANSACTION_FAILED: ReplyCode = ReplyCode { code: 554 };
-    pub const MAIL_OR_RCPT_PARAMETER_UNIMPLEMENTED: ReplyCode = ReplyCode { code: 555 };
-
-    pub fn custom(code: u16) -> ReplyCode {
-        assert!(code < 1000);
-        ReplyCode { code }
-    }
-
-    pub fn code(&self) -> u16 {
-        self.code
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsLastLine {
     Yes,
