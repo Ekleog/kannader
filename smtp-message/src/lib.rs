@@ -1,4 +1,4 @@
-#![type_length_limit = "109226559"]
+#![type_length_limit = "109228309"]
 
 use std::{
     io::IoSlice,
@@ -715,7 +715,9 @@ pub enum Command<S> {
         params: Parameters<S>,
     },
 
-    Rset, // RSET <CRLF>
+    /// RSET <CRLF>
+    Rset,
+
     Vrfy, // VRFY <name> <CRLF>
 }
 
@@ -837,6 +839,10 @@ impl<S> Command<S> {
                     params,
                 },
             ),
+            map(
+                tuple((tag_no_case(b"RSET"), opt(is_a(" \t")), tag(b"\r\n"))),
+                |_| Command::Rset,
+            ),
         ))(buf)
     }
 }
@@ -911,6 +917,8 @@ where
                 .chain(iter::once(IoSlice::new(b">")))
                 .chain(params.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Rset => iter::once(IoSlice::new(b"RSET\r\n")),
 
             _ => iter::once(unreachable!()),
         }
@@ -1418,6 +1426,8 @@ mod tests {
                 },
                 params: Parameters(vec![]),
             }),
+            (b"RSET \t  \t \r\n", Command::Rset),
+            (b"rSet\r\n", Command::Rset),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -1562,6 +1572,7 @@ mod tests {
                 },
                 b"RCPT TO:<Postmaster>\r\n",
             ),
+            (Command::Rset, b"RSET\r\n"),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
