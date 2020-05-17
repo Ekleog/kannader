@@ -1,8 +1,6 @@
-#![type_length_limit = "86597661"]
+#![type_length_limit = "86607409"]
 
 use std::{
-    collections::HashMap,
-    hash::Hash,
     io::IoSlice,
     iter,
     net::{Ipv4Addr, Ipv6Addr},
@@ -560,7 +558,7 @@ where
     ))
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParameterName<S> {
     Other(S),
 }
@@ -594,12 +592,9 @@ where
 
 /// Note: This struct includes the leading ' '
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Parameters<S: Eq + Hash>(HashMap<ParameterName<S>, Option<MaybeUtf8<S>>>);
+pub struct Parameters<S>(Vec<(ParameterName<S>, Option<MaybeUtf8<S>>)>);
 
-impl<S> Parameters<S>
-where
-    S: Eq + Hash,
-{
+impl<S> Parameters<S> {
     /// If term is the wanted terminator, then
     /// term_with_sp_tab = term + b" \t"
     pub fn parse_until<'a, 'b>(
@@ -607,7 +602,7 @@ where
     ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Parameters<S>>
     where
         'a: 'b,
-        S: 'b + Eq + Hash + From<&'a str>,
+        S: 'b + From<&'a str>,
     {
         map(
             many0(preceded(
@@ -647,16 +642,14 @@ where
                     )),
                 ),
             )),
-            // TODO: should collect directly to hashmap, see
-            // https://github.com/Geal/nom/issues/661
-            |v| Parameters(v.into_iter().collect()),
+            |v| Parameters(v),
         )
     }
 }
 
 impl<S> Parameters<S>
 where
-    S: Eq + Hash + AsRef<[u8]>,
+    S: AsRef<[u8]>,
 {
     #[inline]
     #[auto_enum]
@@ -676,10 +669,7 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Command<S>
-where
-    S: Eq + Hash,
-{
+pub enum Command<S> {
     /// DATA <CRLF>
     Data,
 
@@ -710,17 +700,18 @@ where
         params: Parameters<S>,
     },
 
-    Noop, // NOOP [<string>] <CRLF>
+    /// NOOP [<string>] <CRLF>
+    Noop {
+        string: MaybeUtf8<S>,
+    },
+
     Quit, // QUIT <CRLF>
     Rcpt, // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset, // RSET <CRLF>
     Vrfy, // VRFY <name> <CRLF>
 }
 
-impl<S> Command<S>
-where
-    S: Eq + Hash,
-{
+impl<S> Command<S> {
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Command<S>>
     where
         S: From<&'a str>,
@@ -802,13 +793,27 @@ where
                     },
                 },
             ),
+            map_res(
+                preceded(
+                    tag_no_case(b"NOOP"),
+                    alt((
+                        preceded(one_of(" \t"), terminated(take_until("\r\n"), tag(b"\r\n"))),
+                        value(&b""[..], tag(b"\r\n")),
+                    )),
+                ),
+                |s| {
+                    str::from_utf8(s).map(|s| Command::Noop {
+                        string: MaybeUtf8::from(s),
+                    })
+                },
+            ),
         ))(buf)
     }
 }
 
 impl<S> Command<S>
 where
-    S: Eq + Hash + AsRef<[u8]>,
+    S: AsRef<[u8]>,
 {
     #[auto_enum(Iterator)]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
@@ -852,6 +857,10 @@ where
                 )
                 .chain(iter::once(IoSlice::new(b">")))
                 .chain(params.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Noop { string } => iter::once(IoSlice::new(b"NOOP "))
+                .chain(string.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             _ => iter::once(unreachable!()),
@@ -1174,48 +1183,55 @@ mod tests {
 
     #[test]
     fn parameters_valid() {
-        use maplit::hashmap;
         let tests: &[(&[u8], Parameters<&str>)] = &[
             (
                 b" key=value\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value"))
-                )),
+                Parameters(vec![(
+                    ParameterName::Other("key"),
+                    Some(MaybeUtf8::Ascii("value")),
+                )]),
             ),
             (
                 b"\tkey=value\tkey2=value2\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("key") => Some(MaybeUtf8::Ascii("value")),
-                    ParameterName::Other("key2") => Some(MaybeUtf8::Ascii("value2"))
-                )),
+                Parameters(vec![
+                    (ParameterName::Other("key"), Some(MaybeUtf8::Ascii("value"))),
+                    (
+                        ParameterName::Other("key2"),
+                        Some(MaybeUtf8::Ascii("value2")),
+                    ),
+                ]),
             ),
             (
                 b" KeY2=V4\"l\\u@e.z\t0tterkeyz=very_muchWh4t3ver\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("KeY2") => Some(MaybeUtf8::Ascii("V4\"l\\u@e.z")),
-                    ParameterName::Other("0tterkeyz") => Some(MaybeUtf8::Ascii("very_muchWh4t3ver")),
-                )),
+                Parameters(vec![
+                    (
+                        ParameterName::Other("KeY2"),
+                        Some(MaybeUtf8::Ascii("V4\"l\\u@e.z")),
+                    ),
+                    (
+                        ParameterName::Other("0tterkeyz"),
+                        Some(MaybeUtf8::Ascii("very_muchWh4t3ver")),
+                    ),
+                ]),
             ),
             (
                 b" NoValueKey\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("NoValueKey") => None
-                )),
+                Parameters(vec![(ParameterName::Other("NoValueKey"), None)]),
             ),
             (
                 b" A B\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("A") => None,
-                    ParameterName::Other("B") => None,
-                )),
+                Parameters(vec![
+                    (ParameterName::Other("A"), None),
+                    (ParameterName::Other("B"), None),
+                ]),
             ),
             (
                 b" A=B C D=SP\r\n",
-                Parameters(hashmap!(
-                    ParameterName::Other("A") => Some(MaybeUtf8::Ascii("B")),
-                    ParameterName::Other("C") => None,
-                    ParameterName::Other("D") => Some(MaybeUtf8::Ascii("SP")),
-                )),
+                Parameters(vec![
+                    (ParameterName::Other("A"), Some(MaybeUtf8::Ascii("B"))),
+                    (ParameterName::Other("C"), None),
+                    (ParameterName::Other("D"), Some(MaybeUtf8::Ascii("SP"))),
+                ]),
             ),
         ];
         for (inp, out) in tests {
@@ -1233,7 +1249,6 @@ mod tests {
 
     #[test]
     fn command_valid() {
-        use maplit::hashmap;
         let tests: &[(&[u8], Command<&str>)] = &[
             (b"DATA \t  \t \r\n", Command::Data),
             (b"daTa\r\n", Command::Data),
@@ -1261,45 +1276,51 @@ mod tests {
             (b"hElP \r\n", Command::Help {
                 subject: MaybeUtf8::Ascii(""),
             }),
-            (
-                &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
-                Command::Mail {
-                    path: Some(Path {
-                        domains: vec![
-                            Hostname::AsciiDomain { raw: "one" },
-                            Hostname::AsciiDomain { raw: "two" },
-                        ],
-                    }),
-                    email: Some(Email {
-                        localpart: Localpart::Ascii { raw: "foo" },
-                        hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
-                    }),
-                    params: Parameters(hashmap!()),
-                },
-            ),
-            (
-                &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
-                Command::Mail {
-                    path: None,
-                    email: Some(Email {
-                        localpart: Localpart::Ascii { raw: "quux" },
-                        hostname: Some(Hostname::AsciiDomain { raw: "example.net" }),
-                    }),
-                    params: Parameters(hashmap!()),
-                },
-            ),
-            (&b"mail FROM:<>\r\n"[..], Command::Mail {
-                path: None,
-                email: None,
-                params: Parameters(hashmap!()),
+            (b"Mail FROM:<@one,@two:foo@bar.baz>\r\n", Command::Mail {
+                path: Some(Path {
+                    domains: vec![
+                        Hostname::AsciiDomain { raw: "one" },
+                        Hostname::AsciiDomain { raw: "two" },
+                    ],
+                }),
+                email: Some(Email {
+                    localpart: Localpart::Ascii { raw: "foo" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                }),
+                params: Parameters(vec![]),
             }),
-            (&b"MAIL FROM:<> hello=world foo\r\n"[..], Command::Mail {
+            (b"MaiL FrOm: quux@example.net  \t \r\n", Command::Mail {
+                path: None,
+                email: Some(Email {
+                    localpart: Localpart::Ascii { raw: "quux" },
+                    hostname: Some(Hostname::AsciiDomain { raw: "example.net" }),
+                }),
+                params: Parameters(vec![]),
+            }),
+            (b"mail FROM:<>\r\n", Command::Mail {
                 path: None,
                 email: None,
-                params: Parameters(hashmap!(
-                    ParameterName::Other("hello") => Some(MaybeUtf8::Ascii("world")),
-                    ParameterName::Other("foo") => None,
-                )),
+                params: Parameters(vec![]),
+            }),
+            (b"MAIL FROM:<> hello=world foo\r\n", Command::Mail {
+                path: None,
+                email: None,
+                params: Parameters(vec![
+                    (
+                        ParameterName::Other("hello"),
+                        Some(MaybeUtf8::Ascii("world")),
+                    ),
+                    (ParameterName::Other("foo"), None),
+                ]),
+            }),
+            (b"NOOP \t hello.world \t \r\n", Command::Noop {
+                string: MaybeUtf8::Ascii("\t hello.world \t "),
+            }),
+            (b"nOoP\r\n", Command::Noop {
+                string: MaybeUtf8::Ascii(""),
+            }),
+            (b"noop \r\n", Command::Noop {
+                string: MaybeUtf8::Ascii(""),
             }),
         ];
         for (inp, out) in tests {
@@ -1331,7 +1352,6 @@ mod tests {
 
     #[test]
     fn command_build() {
-        use maplit::hashmap;
         let tests: &[(Command<&str>, &[u8])] = &[
             (Command::Data, b"DATA\r\n"),
             (
@@ -1369,7 +1389,7 @@ mod tests {
                         localpart: Localpart::Ascii { raw: "foo" },
                         hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
                     }),
-                    params: Parameters(hashmap!()),
+                    params: Parameters(vec![]),
                 },
                 b"MAIL FROM:<foo@bar.baz>\r\n",
             ),
@@ -1385,7 +1405,7 @@ mod tests {
                         localpart: Localpart::Ascii { raw: "foo" },
                         hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
                     }),
-                    params: Parameters(hashmap!()),
+                    params: Parameters(vec![]),
                 },
                 b"MAIL FROM:<@test,@foo.bar:foo@bar.baz>\r\n",
             ),
@@ -1393,7 +1413,7 @@ mod tests {
                 Command::Mail {
                     path: None,
                     email: None,
-                    params: Parameters(hashmap!()),
+                    params: Parameters(vec![]),
                 },
                 b"MAIL FROM:<>\r\n",
             ),
@@ -1406,11 +1426,14 @@ mod tests {
                             raw: "world.example.org",
                         }),
                     }),
-                    params: Parameters(hashmap!(
-                        ParameterName::Other("foo") => Some(MaybeUtf8::Ascii("bar")),
-                        ParameterName::Other("baz") => None,
-                        ParameterName::Other("helloworld") => Some(MaybeUtf8::Ascii("bleh")),
-                    )),
+                    params: Parameters(vec![
+                        (ParameterName::Other("foo"), Some(MaybeUtf8::Ascii("bar"))),
+                        (ParameterName::Other("baz"), None),
+                        (
+                            ParameterName::Other("helloworld"),
+                            Some(MaybeUtf8::Ascii("bleh")),
+                        ),
+                    ]),
                 },
                 b"MAIL FROM:<hello@world.example.org> foo=bar baz helloworld=bleh\r\n",
             ),
