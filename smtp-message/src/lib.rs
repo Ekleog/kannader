@@ -1,4 +1,4 @@
-#![type_length_limit = "86596271"]
+#![type_length_limit = "86597661"]
 
 use std::{
     collections::HashMap,
@@ -506,7 +506,13 @@ where
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        self.domains.iter().flat_map(|d| d.as_io_slices())
+        self.domains.iter().enumerate().flat_map(|(i, d)| {
+            iter::once(match i {
+                0 => IoSlice::new(b"@"),
+                _ => IoSlice::new(b",@"),
+            })
+            .chain(d.as_io_slices())
+        })
     }
 }
 
@@ -774,15 +780,16 @@ where
             map(
                 tuple((
                     tag_no_case(b"MAIL FROM:"),
-                    is_a(" \t"),
+                    opt(is_a(" \t")),
                     alt((
                         map(tag(b"<>"), |_| None),
                         map(email_with_path(b" \t", b" \t@", b" \t>", b" \t@>"), Some),
                     )),
                     Parameters::parse_until(b" \t\r"),
+                    opt(is_a(" \t")),
                     tag("\r\n"),
                 )),
-                |(_, _, email, params, _)| match email {
+                |(_, _, email, params, _, _)| match email {
                     None => Command::Mail {
                         path: None,
                         email: None,
@@ -822,6 +829,29 @@ where
 
             Command::Help { subject } => iter::once(IoSlice::new(b"HELP "))
                 .chain(subject.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Mail {
+                path,
+                email,
+                params,
+            } => iter::once(IoSlice::new(b"MAIL FROM:<"))
+                .chain(
+                    #[auto_enum(Iterator)]
+                    match path {
+                        Some(path) => path.as_io_slices().chain(iter::once(IoSlice::new(b":"))),
+                        None => iter::empty(),
+                    },
+                )
+                .chain(
+                    #[auto_enum(Iterator)]
+                    match email {
+                        Some(email) => email.as_io_slices(),
+                        None => iter::empty(),
+                    },
+                )
+                .chain(iter::once(IoSlice::new(b">")))
+                .chain(params.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             _ => iter::once(unreachable!()),
@@ -1203,6 +1233,7 @@ mod tests {
 
     #[test]
     fn command_valid() {
+        use maplit::hashmap;
         let tests: &[(&[u8], Command<&str>)] = &[
             (b"DATA \t  \t \r\n", Command::Data),
             (b"daTa\r\n", Command::Data),
@@ -1230,22 +1261,77 @@ mod tests {
             (b"hElP \r\n", Command::Help {
                 subject: MaybeUtf8::Ascii(""),
             }),
+            (
+                &b"Mail FROM:<@one,@two:foo@bar.baz>\r\n"[..],
+                Command::Mail {
+                    path: Some(Path {
+                        domains: vec![
+                            Hostname::AsciiDomain { raw: "one" },
+                            Hostname::AsciiDomain { raw: "two" },
+                        ],
+                    }),
+                    email: Some(Email {
+                        localpart: Localpart::Ascii { raw: "foo" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                    }),
+                    params: Parameters(hashmap!()),
+                },
+            ),
+            (
+                &b"MaiL FrOm: quux@example.net  \t \r\n"[..],
+                Command::Mail {
+                    path: None,
+                    email: Some(Email {
+                        localpart: Localpart::Ascii { raw: "quux" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "example.net" }),
+                    }),
+                    params: Parameters(hashmap!()),
+                },
+            ),
+            (&b"mail FROM:<>\r\n"[..], Command::Mail {
+                path: None,
+                email: None,
+                params: Parameters(hashmap!()),
+            }),
+            (&b"MAIL FROM:<> hello=world foo\r\n"[..], Command::Mail {
+                path: None,
+                email: None,
+                params: Parameters(hashmap!(
+                    ParameterName::Other("hello") => Some(MaybeUtf8::Ascii("world")),
+                    ParameterName::Other("foo") => None,
+                )),
+            }),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
             let r = Command::parse(inp);
             println!("Result: {:?}", r);
             match r {
-                Ok((rest, res)) if rest == b"" && res == *out => (),
+                Ok((rest, res)) => {
+                    assert_eq!(rest, b"");
+                    assert_eq!(res, *out);
+                }
                 x => panic!("Unexpected result: {:?}", x),
             }
         }
     }
 
-    // TODO: test command with incomplete and invalid
+    #[test]
+    fn command_incomplete() {
+        // TODO: add tests for all the variants (that could)
+        let tests: &[&[u8]] = &[b"MAIL FROM:<foo@bar.com", b"mail from:foo@bar.com"];
+        for inp in tests {
+            let r = Command::<&str>::parse(inp);
+            println!("{:?}:  {:?}", show_bytes(inp), r);
+            assert!(r.unwrap_err().is_incomplete());
+        }
+    }
+
+    // TODO: test command with invalid
 
     #[test]
     fn command_build() {
+        use maplit::hashmap;
         let tests: &[(Command<&str>, &[u8])] = &[
             (Command::Data, b"DATA\r\n"),
             (
@@ -1276,6 +1362,58 @@ mod tests {
                 },
                 b"HELP topic\r\n",
             ),
+            (
+                Command::Mail {
+                    path: None,
+                    email: Some(Email {
+                        localpart: Localpart::Ascii { raw: "foo" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                    }),
+                    params: Parameters(hashmap!()),
+                },
+                b"MAIL FROM:<foo@bar.baz>\r\n",
+            ),
+            (
+                Command::Mail {
+                    path: Some(Path {
+                        domains: vec![
+                            Hostname::AsciiDomain { raw: "test" },
+                            Hostname::AsciiDomain { raw: "foo.bar" },
+                        ],
+                    }),
+                    email: Some(Email {
+                        localpart: Localpart::Ascii { raw: "foo" },
+                        hostname: Some(Hostname::AsciiDomain { raw: "bar.baz" }),
+                    }),
+                    params: Parameters(hashmap!()),
+                },
+                b"MAIL FROM:<@test,@foo.bar:foo@bar.baz>\r\n",
+            ),
+            (
+                Command::Mail {
+                    path: None,
+                    email: None,
+                    params: Parameters(hashmap!()),
+                },
+                b"MAIL FROM:<>\r\n",
+            ),
+            (
+                Command::Mail {
+                    path: None,
+                    email: Some(Email {
+                        localpart: Localpart::Ascii { raw: "hello" },
+                        hostname: Some(Hostname::AsciiDomain {
+                            raw: "world.example.org",
+                        }),
+                    }),
+                    params: Parameters(hashmap!(
+                        ParameterName::Other("foo") => Some(MaybeUtf8::Ascii("bar")),
+                        ParameterName::Other("baz") => None,
+                        ParameterName::Other("helloworld") => Some(MaybeUtf8::Ascii("bleh")),
+                    )),
+                },
+                b"MAIL FROM:<hello@world.example.org> foo=bar baz helloworld=bleh\r\n",
+            ),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
@@ -1283,7 +1421,8 @@ mod tests {
                 .as_io_slices()
                 .flat_map(|s| s.to_owned().into_iter())
                 .collect::<Vec<u8>>();
-            println!("Result: {:?}", show_bytes(&res));
+            println!("Result  : {:?}", show_bytes(&res));
+            println!("Expected: {:?}", show_bytes(out));
             assert_eq!(&res, out);
         }
     }
