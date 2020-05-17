@@ -1060,31 +1060,105 @@ pub struct ExtendedReplyCode<S> {
     pub raw_detail: u16,
 }
 
-macro_rules! extended_reply_code {
-    ($name:ident, $subject:tt, $detail:tt) => {
-        pub const concat_ident!(SUCCESS_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+macro_rules! extended_reply_codes {
+    ($(($success:tt, $transient:tt, $permanent:tt, $subject:tt, $detail:tt),)*) => {
+        $(
+            extended_reply_codes!(@, success, $success, $subject, $detail);
+            extended_reply_codes!(@, transient, $transient, $subject, $detail);
+            extended_reply_codes!(@, permanent, $permanent, $subject, $detail);
+        )*
+    };
+
+    (@, $any:ident, _, $subject:tt, $detail:tt) => {}; // ignore these
+
+    (@, success, $success:ident, $subject:tt, $detail:tt) => {
+        pub const $success: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
             raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
             class: ExtendedReplyCodeClass::Success,
             raw_subject: $subject,
             raw_detail: $detail,
         };
-        pub const concat_ident!(TRANSIENT_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
-            raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
+    };
+
+    (@, transient, $transient:ident, $subject:tt, $detail:tt) => {
+        pub const $transient: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+            raw: concat!("4.", stringify!($subject), ".", stringify!($detail)),
             class: ExtendedReplyCodeClass::PersistentTransient,
             raw_subject: $subject,
             raw_detail: $detail,
         };
-        pub const concat_ident!(PERMANENT_, $name): ExtendedReplyCode<&'static str> = ExtendedReplyCode {
-            raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
+    };
+
+    (@, permanent, $permanent:ident, $subject:tt, $detail:tt) => {
+        pub const $permanent: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+            raw: concat!("5.", stringify!($subject), ".", stringify!($detail)),
             class: ExtendedReplyCodeClass::PermanentFailure,
             raw_subject: $subject,
             raw_detail: $detail,
         };
-    }
+    };
 }
 
 #[rustfmt::skip]
 impl ExtendedReplyCode<&'static str> {
+    extended_reply_codes!(
+        (SUCCESS_UNDEFINED, TRANSIENT_UNDEFINED, PERMANENT_UNDEFINED, 0, 0),
+
+        (SUCCESS_ADDRESS_OTHER, TRANSIENT_ADDRESS_OTHER, PERMANENT_ADDRESS_OTHER, 1, 0),
+        (_, _, PERMANENT_BAD_DEST_MAILBOX, 1, 1),
+        (_, _, PERMANENT_BAD_DEST_SYSTEM, 1, 2),
+        (_, _, PERMANENT_BAD_DEST_MAILBOX_SYNTAX, 1, 3),
+        (SUCCESS_DEST_MAILBOX_AMBIGUOUS, TRANSIENT_DEST_MAILBOX_AMBIGUOUS, PERMANENT_DEST_MAILBOX_AMBIGUOUS, 1, 4),
+        (SUCCESS_DEST_VALID, _, _, 1, 5),
+        (_, _, PERMANENT_DEST_MAILBOX_HAS_MOVED, 1, 6),
+        (_, _, PERMANENT_BAD_SENDER_MAILBOX_SYNTAX, 1, 7),
+        (_, TRANSIENT_BAD_SENDER_SYSTEM, PERMANENT_BAD_SENDER_SYSTEM, 1, 8),
+
+        (SUCCESS_MAILBOX_OTHER, TRANSIENT_MAILBOX_OTHER, PERMANENT_MAILBOX_OTHER, 2, 0),
+        (_, TRANSIENT_MAILBOX_DISABLED, PERMANENT_MAILBOX_DISABLED, 2, 1),
+        (_, TRANSIENT_MAILBOX_FULL, _, 2, 2),
+        (_, _, PERMANENT_MESSAGE_TOO_LONG_FOR_MAILBOX, 2, 3),
+        (_, TRANSIENT_MAILING_LIST_EXPANSION_ISSUE, PERMANENT_MAILING_LIST_EXPANSION_ISSUE, 2, 4),
+
+        (SUCCESS_SYSTEM_OTHER, TRANSIENT_SYSTEM_OTHER, PERMANENT_SYSTEM_OTHER, 3, 0),
+        (_, TRANSIENT_SYSTEM_FULL, _, 3, 1),
+        (_, TRANSIENT_SYSTEM_NOT_ACCEPTING_MESSAGES, PERMANENT_SYSTEM_NOT_ACCEPTING_MESSAGES, 3, 2),
+        (_, TRANSIENT_SYSTEM_INCAPABLE_OF_FEATURE, PERMANENT_SYSTEM_INCAPABLE_OF_FEATURE, 3, 3),
+        (_, _, PERMANENT_MESSAGE_TOO_BIG, 3, 4),
+        (_, TRANSIENT_SYSTEM_INCORRECTLY_CONFIGURED, PERMANENT_SYSTEM_INCORRECTLY_CONFIGURED, 3, 5),
+
+        (SUCCESS_NETWORK_OTHER, TRANSIENT_NETWORK_OTHER, PERMANENT_NETWORK_OTHER, 4, 0),
+        (_, TRANSIENT_NO_ANSWER_FROM_HOST, _, 4, 1),
+        (_, TRANSIENT_BAD_CONNECTION, _, 4, 2),
+        (_, TRANSIENT_DIRECTORY_SERVER_FAILURE, _, 4, 3),
+        (_, TRANSIENT_UNABLE_TO_ROUTE, PERMANENT_UNABLE_TO_ROUTE, 4, 4),
+        (_, TRANSIENT_SYSTEM_CONGESTION, _, 4, 5),
+        (_, TRANSIENT_ROUTING_LOOP_DETECTED, _, 4, 6),
+        (_, TRANSIENT_DELIVERY_TIME_EXPIRED, PERMANENT_DELIVERY_TIME_EXPIRED, 4, 7),
+
+        (SUCCESS_DELIVERY_OTHER, TRANSIENT_DELIVERY_OTHER, PERMANENT_DELIVERY_OTHER, 5, 0),
+        (_, _, PERMANENT_INVALID_COMMAND, 5, 1),
+        (_, _, PERMANENT_SYNTAX_ERROR, 5, 2),
+        (_, TRANSIENT_TOO_MANY_RECIPIENTS, PERMANENT_TOO_MANY_RECIPIENTS, 5, 3),
+        (_, _, PERMANENT_INVALID_COMMAND_ARGUMENTS, 5, 4),
+        (_, TRANSIENT_WRONG_PROTOCOL_VERSION, PERMANENT_WRONG_PROTOCOL_VERSION, 5, 5),
+
+        (SUCCESS_CONTENT_OTHER, TRANSIENT_CONTENT_OTHER, PERMANENT_CONTENT_OTHER, 6, 0),
+        (_, _, PERMANENT_MEDIA_NOT_SUPPORTED, 6, 1),
+        (_, TRANSIENT_CONVERSION_REQUIRED_AND_PROHIBITED, PERMANENT_CONVERSION_REQUIRED_AND_PROHIBITED, 6, 2),
+        (_, TRANSIENT_CONVERSION_REQUIRED_BUT_NOT_SUPPORTED, PERMANENT_CONVERSION_REQUIRED_BUT_NOT_SUPPORTED, 6, 3),
+        (SUCCESS_CONVERSION_WITH_LOSS_PERFORMED, TRANSIENT_CONVERSION_WITH_LOSS_PERFORMED, PERMANENT_CONVERSION_WITH_LOSS_PERFORMED, 6, 4),
+        (_, TRANSIENT_CONVERSION_FAILED, PERMANENT_CONVERSION_FAILED, 6, 5),
+
+        (SUCCESS_POLICY_OTHER, TRANSIENT_POLICY_OTHER, PERMANENT_POLICY_OTHER, 7, 0),
+        (_, _, PERMANENT_DELIVERY_NOT_AUTHORIZED, 7, 1),
+        (_, _, PERMANENT_MAILING_LIST_EXPANSION_PROHIBITED, 7, 2),
+        (_, _, PERMANENT_SECURITY_CONVERSION_REQUIRED_BUT_NOT_POSSIBLE, 7, 3),
+        (_, _, PERMANENT_SECURITY_FEATURES_NOT_SUPPORTED, 7, 4),
+        (_, TRANSIENT_CRYPTO_FAILURE, PERMANENT_CRYPTO_FAILURE, 7, 5),
+        (_, TRANSIENT_CRYPTO_ALGO_NOT_SUPPORTED, PERMANENT_CRYPTO_ALGO_NOT_SUPPORTED, 7, 6),
+        (SUCCESS_MESSAGE_INTEGRITY_FAILURE, TRANSIENT_MESSAGE_INTEGRITY_FAILURE, PERMANENT_MESSAGE_INTEGRITY_FAILURE, 7, 7),
+    );
 }
 
 impl<S> ExtendedReplyCode<S> {
@@ -1120,6 +1194,7 @@ impl<S> ExtendedReplyCode<S> {
         })(buf)
     }
 
+    #[inline]
     pub fn subject(&self) -> ExtendedReplyCodeSubject {
         match self.raw_subject {
             1 => ExtendedReplyCodeSubject::Addressing,
@@ -1131,6 +1206,16 @@ impl<S> ExtendedReplyCode<S> {
             7 => ExtendedReplyCodeSubject::Policy,
             _ => ExtendedReplyCodeSubject::Undefined,
         }
+    }
+}
+
+impl<S> ExtendedReplyCode<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        iter::once(IoSlice::new(self.raw.as_ref()))
     }
 }
 
