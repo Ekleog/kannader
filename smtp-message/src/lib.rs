@@ -1,4 +1,4 @@
-#![type_length_limit = "86607409"]
+#![type_length_limit = "86609159"]
 
 use std::{
     io::IoSlice,
@@ -705,7 +705,9 @@ pub enum Command<S> {
         string: MaybeUtf8<S>,
     },
 
-    Quit, // QUIT <CRLF>
+    /// QUIT <CRLF>
+    Quit,
+
     Rcpt, // RCPT TO:<@ONE,@TWO:JOE@THREE> [SP <rcpt-parameters] <CRLF>
     Rset, // RSET <CRLF>
     Vrfy, // VRFY <name> <CRLF>
@@ -807,6 +809,10 @@ impl<S> Command<S> {
                     })
                 },
             ),
+            map(
+                tuple((tag_no_case(b"QUIT"), opt(is_a(" \t")), tag(b"\r\n"))),
+                |_| Command::Quit,
+            ),
         ))(buf)
     }
 }
@@ -862,6 +868,8 @@ where
             Command::Noop { string } => iter::once(IoSlice::new(b"NOOP "))
                 .chain(string.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Quit => iter::once(IoSlice::new(b"QUIT\r\n")),
 
             _ => iter::once(unreachable!()),
         }
@@ -1322,6 +1330,8 @@ mod tests {
             (b"noop \r\n", Command::Noop {
                 string: MaybeUtf8::Ascii(""),
             }),
+            (b"QUIT \t  \t \r\n", Command::Quit),
+            (b"quit\r\n", Command::Quit),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -1443,6 +1453,7 @@ mod tests {
                 },
                 b"NOOP useless string\r\n",
             ),
+            (Command::Quit, b"QUIT\r\n"),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
