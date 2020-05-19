@@ -1037,13 +1037,13 @@ impl ReplyCode {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ExtendedReplyCodeClass {
+pub enum EnhancedReplyCodeClass {
     Success = 2,
     PersistentTransient = 4,
     PermanentFailure = 5,
 }
 
-pub enum ExtendedReplyCodeSubject {
+pub enum EnhancedReplyCodeSubject {
     Undefined,
     Addressing,
     Mailbox,
@@ -1055,9 +1055,9 @@ pub enum ExtendedReplyCodeSubject {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExtendedReplyCode<S> {
+pub struct EnhancedReplyCode<S> {
     pub raw: S,
-    pub class: ExtendedReplyCodeClass,
+    pub class: EnhancedReplyCodeClass,
     pub raw_subject: u16,
     pub raw_detail: u16,
 }
@@ -1074,27 +1074,27 @@ macro_rules! extended_reply_codes {
     (@, $any:ident, _, $subject:tt, $detail:tt) => {}; // ignore these
 
     (@, success, $success:ident, $subject:tt, $detail:tt) => {
-        pub const $success: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+        pub const $success: EnhancedReplyCode<&'static str> = EnhancedReplyCode {
             raw: concat!("2.", stringify!($subject), ".", stringify!($detail)),
-            class: ExtendedReplyCodeClass::Success,
+            class: EnhancedReplyCodeClass::Success,
             raw_subject: $subject,
             raw_detail: $detail,
         };
     };
 
     (@, transient, $transient:ident, $subject:tt, $detail:tt) => {
-        pub const $transient: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+        pub const $transient: EnhancedReplyCode<&'static str> = EnhancedReplyCode {
             raw: concat!("4.", stringify!($subject), ".", stringify!($detail)),
-            class: ExtendedReplyCodeClass::PersistentTransient,
+            class: EnhancedReplyCodeClass::PersistentTransient,
             raw_subject: $subject,
             raw_detail: $detail,
         };
     };
 
     (@, permanent, $permanent:ident, $subject:tt, $detail:tt) => {
-        pub const $permanent: ExtendedReplyCode<&'static str> = ExtendedReplyCode {
+        pub const $permanent: EnhancedReplyCode<&'static str> = EnhancedReplyCode {
             raw: concat!("5.", stringify!($subject), ".", stringify!($detail)),
-            class: ExtendedReplyCodeClass::PermanentFailure,
+            class: EnhancedReplyCodeClass::PermanentFailure,
             raw_subject: $subject,
             raw_detail: $detail,
         };
@@ -1102,7 +1102,7 @@ macro_rules! extended_reply_codes {
 }
 
 #[rustfmt::skip]
-impl ExtendedReplyCode<&'static str> {
+impl EnhancedReplyCode<&'static str> {
     extended_reply_codes!(
         (SUCCESS_UNDEFINED, TRANSIENT_UNDEFINED, PERMANENT_UNDEFINED, 0, 0),
 
@@ -1195,17 +1195,17 @@ impl ExtendedReplyCode<&'static str> {
     );
 }
 
-impl<S> ExtendedReplyCode<S> {
-    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], ExtendedReplyCode<S>>
+impl<S> EnhancedReplyCode<S> {
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], EnhancedReplyCode<S>>
     where
         S: From<&'a str>,
     {
         map(apply_regex(&EXTENDED_REPLY_CODE), |raw| {
             let class = raw[0] - b'0';
             let class = match class {
-                2 => ExtendedReplyCodeClass::Success,
-                4 => ExtendedReplyCodeClass::PersistentTransient,
-                5 => ExtendedReplyCodeClass::PermanentFailure,
+                2 => EnhancedReplyCodeClass::Success,
+                4 => EnhancedReplyCodeClass::PersistentTransient,
+                5 => EnhancedReplyCodeClass::PermanentFailure,
                 _ => panic!("Regex allowed unexpected elements"),
             };
             let after_class = &raw[2..];
@@ -1219,7 +1219,7 @@ impl<S> ExtendedReplyCode<S> {
                 .parse()
                 .unwrap();
             let raw = unsafe { str::from_utf8_unchecked(raw) };
-            ExtendedReplyCode {
+            EnhancedReplyCode {
                 raw: raw.into(),
                 class,
                 raw_subject,
@@ -1229,21 +1229,21 @@ impl<S> ExtendedReplyCode<S> {
     }
 
     #[inline]
-    pub fn subject(&self) -> ExtendedReplyCodeSubject {
+    pub fn subject(&self) -> EnhancedReplyCodeSubject {
         match self.raw_subject {
-            1 => ExtendedReplyCodeSubject::Addressing,
-            2 => ExtendedReplyCodeSubject::Mailbox,
-            3 => ExtendedReplyCodeSubject::MailSystem,
-            4 => ExtendedReplyCodeSubject::Network,
-            5 => ExtendedReplyCodeSubject::MailDelivery,
-            6 => ExtendedReplyCodeSubject::Content,
-            7 => ExtendedReplyCodeSubject::Policy,
-            _ => ExtendedReplyCodeSubject::Undefined,
+            1 => EnhancedReplyCodeSubject::Addressing,
+            2 => EnhancedReplyCodeSubject::Mailbox,
+            3 => EnhancedReplyCodeSubject::MailSystem,
+            4 => EnhancedReplyCodeSubject::Network,
+            5 => EnhancedReplyCodeSubject::MailDelivery,
+            6 => EnhancedReplyCodeSubject::Content,
+            7 => EnhancedReplyCodeSubject::Policy,
+            _ => EnhancedReplyCodeSubject::Undefined,
         }
     }
 }
 
-impl<S> ExtendedReplyCode<S>
+impl<S> EnhancedReplyCode<S>
 where
     S: AsRef<[u8]>,
 {
@@ -1963,21 +1963,21 @@ mod tests {
 
     #[test]
     pub fn extended_reply_code_valid() {
-        let tests: &[(&[u8], (ExtendedReplyCodeClass, u16, u16))] = &[
-            (b"2.1.23", (ExtendedReplyCodeClass::Success, 1, 23)),
+        let tests: &[(&[u8], (EnhancedReplyCodeClass, u16, u16))] = &[
+            (b"2.1.23", (EnhancedReplyCodeClass::Success, 1, 23)),
             (
                 b"5.243.567",
-                (ExtendedReplyCodeClass::PermanentFailure, 243, 567),
+                (EnhancedReplyCodeClass::PermanentFailure, 243, 567),
             ),
         ];
         for (inp, (class, raw_subject, raw_detail)) in tests.iter().cloned() {
             println!("Test: {:?}", show_bytes(inp));
-            let r = ExtendedReplyCode::parse(inp);
+            let r = EnhancedReplyCode::parse(inp);
             println!("Result: {:?}", r);
             match r {
                 Ok((rest, res)) => {
                     assert_eq!(rest, b"");
-                    assert_eq!(res, ExtendedReplyCode {
+                    assert_eq!(res, EnhancedReplyCode {
                         raw: str::from_utf8(inp).unwrap(),
                         class,
                         raw_subject,
@@ -1993,7 +1993,7 @@ mod tests {
     fn extended_reply_code_incomplete() {
         let tests: &[&[u8]] = &[b"4.", b"5.23"];
         for inp in tests {
-            let r = ExtendedReplyCode::<&str>::parse(inp);
+            let r = EnhancedReplyCode::<&str>::parse(inp);
             println!("{:?}:  {:?}", show_bytes(inp), r);
             assert!(r.unwrap_err().is_incomplete());
         }
@@ -2003,7 +2003,7 @@ mod tests {
     fn extended_reply_code_invalid() {
         let tests: &[&[u8]] = &[b"foo", b"3.5.1", b"1.1000.2"];
         for inp in tests {
-            let r = ExtendedReplyCode::<String>::parse(inp);
+            let r = EnhancedReplyCode::<String>::parse(inp);
             assert!(!r.unwrap_err().is_incomplete());
         }
     }
