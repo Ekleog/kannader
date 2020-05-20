@@ -79,6 +79,14 @@ lazy_static! {
     static ref EXTENDED_REPLY_CODE: Regex = RegexBuilder::new().anchored(true).build(
         r#"[245]\.[0-9]{1,3}\.[0-9]{1,3}"#
     ).unwrap();
+
+    static ref REPLY_TEXT_ASCII: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[\t -~]*"#
+    ).unwrap();
+
+    static ref REPLY_TEXT_UTF8: Regex = RegexBuilder::new().anchored(true).build(
+        r#"[\t -~[:^ascii:]]*"#
+    ).unwrap();
 }
 
 // Implementation is similar to regex_automata's, but also returns the state
@@ -1253,6 +1261,84 @@ where
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplyLine<S> {
+    pub code: ReplyCode,
+    pub last: bool,
+    pub ecode: Option<EnhancedReplyCode<S>>,
+    pub text: MaybeUtf8<S>,
+}
+
+impl<S> ReplyLine<S> {
+    #[inline]
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], ReplyLine<S>>
+    where
+        S: From<&'a str>,
+    {
+        map(
+            tuple((
+                ReplyCode::parse,
+                alt((value(false, tag(b"-")), value(true, opt(tag(b" "))))),
+                opt(terminated(
+                    EnhancedReplyCode::parse,
+                    alt((tag(b" "), peek(tag(b"\r\n")))),
+                )),
+                alt((
+                    map(
+                        terminated(apply_regex(&REPLY_TEXT_ASCII), tag(b"\r\n")),
+                        |b: &[u8]| {
+                            // The below unsafe is OK, thanks to our
+                            // regex validating that `b` is proper
+                            // ascii (and thus utf-8)
+                            let s = unsafe { str::from_utf8_unchecked(b) };
+                            MaybeUtf8::Ascii(s.into())
+                        },
+                    ),
+                    map(
+                        terminated(apply_regex(&REPLY_TEXT_UTF8), tag(b"\r\n")),
+                        |b: &[u8]| {
+                            // The below unsafe is OK, thanks to our
+                            // regex validating that `b` is proper
+                            // utf8
+                            let s = unsafe { str::from_utf8_unchecked(b) };
+                            MaybeUtf8::Utf8(s.into())
+                        },
+                    ),
+                )),
+            )),
+            |(code, last, ecode, text)| ReplyLine {
+                code,
+                last,
+                ecode,
+                text,
+            },
+        )(buf)
+    }
+}
+
+impl<S> ReplyLine<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        let is_last_char = match self.last {
+            true => b" ",
+            false => b"-",
+        };
+        self.code
+            .as_io_slices()
+            .chain(iter::once(IoSlice::new(is_last_char)))
+            .chain(
+                self.ecode
+                    .iter()
+                    .flat_map(|c| c.as_io_slices().chain(iter::once(IoSlice::new(b" ")))),
+            )
+            .chain(self.text.as_io_slices())
+            .chain(iter::once(IoSlice::new(b"\r\n")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2009,4 +2095,100 @@ mod tests {
     }
 
     // TODO: test extended reply code builder
+
+    #[test]
+    fn reply_line_valid() {
+        let tests: &[(&[u8], ReplyLine<&str>)] = &[
+            (b"250 All is well\r\n", ReplyLine {
+                code: ReplyCode(*b"250"),
+                last: true,
+                ecode: None,
+                text: MaybeUtf8::Ascii("All is well"),
+            }),
+            (b"450-Temporary\r\n", ReplyLine {
+                code: ReplyCode(*b"450"),
+                last: false,
+                ecode: None,
+                text: MaybeUtf8::Ascii("Temporary"),
+            }),
+            (b"354 Please do start input now\r\n", ReplyLine {
+                code: ReplyCode(*b"354"),
+                last: true,
+                ecode: None,
+                text: MaybeUtf8::Ascii("Please do start input now"),
+            }),
+            (b"550 5.1.1 Mailbox does not exist\r\n", ReplyLine {
+                code: ReplyCode(*b"550"),
+                last: true,
+                ecode: Some(EnhancedReplyCode::parse(b"5.1.1").unwrap().1),
+                text: MaybeUtf8::Ascii("Mailbox does not exist"),
+            }),
+        ];
+        for (inp, out) in tests.iter().cloned() {
+            println!("Test: {:?}", show_bytes(inp));
+            let r = ReplyLine::parse(inp);
+            println!("Result: {:?}", r);
+            match r {
+                Ok((rest, res)) => {
+                    assert_eq!(rest, b"");
+                    assert_eq!(res, out);
+                }
+                x => panic!("Unexpected result: {:?}", x),
+            }
+        }
+    }
+
+    // TODO: test incomplete, invalid for ReplyLine
+
+    #[test]
+    fn reply_line_build() {
+        let tests: &[(ReplyLine<&str>, &[u8])] = &[
+            (
+                ReplyLine {
+                    code: ReplyCode::SERVICE_READY,
+                    last: false,
+                    ecode: None,
+                    text: MaybeUtf8::Ascii("hello world!"),
+                },
+                b"220-hello world!\r\n",
+            ),
+            (
+                ReplyLine {
+                    code: ReplyCode::COMMAND_UNIMPLEMENTED,
+                    last: true,
+                    ecode: None,
+                    text: MaybeUtf8::Ascii("test"),
+                },
+                b"502 test\r\n",
+            ),
+            (
+                ReplyLine {
+                    code: ReplyCode::MAILBOX_UNAVAILABLE,
+                    last: true,
+                    ecode: Some(EnhancedReplyCode::PERMANENT_BAD_DEST_MAILBOX),
+                    text: MaybeUtf8::Utf8("mélbox does not exist"),
+                },
+                "550 5.1.1 mélbox does not exist\r\n".as_bytes(),
+            ),
+            (
+                ReplyLine {
+                    code: ReplyCode::USER_NOT_LOCAL,
+                    last: false,
+                    ecode: Some(EnhancedReplyCode::PERMANENT_DELIVERY_NOT_AUTHORIZED),
+                    text: MaybeUtf8::Ascii("Forwarding is disabled"),
+                },
+                "551-5.7.1 Forwarding is disabled\r\n".as_bytes(),
+            ),
+        ];
+        for (inp, out) in tests {
+            println!("Test: {:?}", inp);
+            let res = inp
+                .as_io_slices()
+                .flat_map(|s| s.to_owned().into_iter())
+                .collect::<Vec<u8>>();
+            println!("Result  : {:?}", show_bytes(&res));
+            println!("Expected: {:?}", show_bytes(out));
+            assert_eq!(&res, out);
+        }
+    }
 }
