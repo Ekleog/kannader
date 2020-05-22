@@ -12,9 +12,9 @@ use auto_enums::auto_enum;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
-    bytes::streaming::{is_a, tag, tag_no_case, take_until},
+    bytes::streaming::{is_a, tag, tag_no_case, take, take_until},
     character::streaming::one_of,
-    combinator::{map, map_opt, map_res, opt, peek, value},
+    combinator::{map, map_opt, map_res, opt, peek, value, verify},
     multi::{many0, many1_count, separated_nonempty_list},
     sequence::{pair, preceded, terminated, tuple},
     IResult,
@@ -1043,7 +1043,7 @@ impl ReplyCode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EnhancedReplyCodeClass {
     Success = 2,
@@ -1051,6 +1051,7 @@ pub enum EnhancedReplyCodeClass {
     PermanentFailure = 5,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EnhancedReplyCodeSubject {
     Undefined,
     Addressing,
@@ -1270,7 +1271,6 @@ pub struct ReplyLine<S> {
 }
 
 impl<S> ReplyLine<S> {
-    #[inline]
     pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], ReplyLine<S>>
     where
         S: From<&'a str>,
@@ -1316,26 +1316,93 @@ impl<S> ReplyLine<S> {
     }
 }
 
+#[inline]
+fn line_as_io_slices<'a, S>(
+    code: &'a ReplyCode,
+    last: bool,
+    ecode: &'a Option<EnhancedReplyCode<S>>,
+    text: &'a MaybeUtf8<S>,
+) -> impl 'a + Iterator<Item = IoSlice<'a>>
+where
+    S: AsRef<[u8]>,
+{
+    let is_last_char = match last {
+        true => b" ",
+        false => b"-",
+    };
+    code.as_io_slices()
+        .chain(iter::once(IoSlice::new(is_last_char)))
+        .chain(
+            ecode
+                .iter()
+                .flat_map(|c| c.as_io_slices().chain(iter::once(IoSlice::new(b" ")))),
+        )
+        .chain(text.as_io_slices())
+        .chain(iter::once(IoSlice::new(b"\r\n")))
+}
+
 impl<S> ReplyLine<S>
 where
     S: AsRef<[u8]>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        let is_last_char = match self.last {
-            true => b" ",
-            false => b"-",
-        };
-        self.code
-            .as_io_slices()
-            .chain(iter::once(IoSlice::new(is_last_char)))
-            .chain(
-                self.ecode
-                    .iter()
-                    .flat_map(|c| c.as_io_slices().chain(iter::once(IoSlice::new(b" ")))),
-            )
-            .chain(self.text.as_io_slices())
-            .chain(iter::once(IoSlice::new(b"\r\n")))
+        line_as_io_slices(&self.code, self.last, &self.ecode, &self.text)
+    }
+}
+
+// TODO: use ascii crate for From<&'a AsciiStr> instead of From<&'a
+// str> for the ascii variants
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reply<S> {
+    pub code: ReplyCode,
+    pub ecode: Option<EnhancedReplyCode<S>>,
+    pub text: Vec<MaybeUtf8<S>>,
+}
+
+impl<S> Reply<S> {
+    #[inline]
+    pub fn parse<'a>(buf: &'a [u8]) -> IResult<&'a [u8], Reply<S>>
+    where
+        S: From<&'a str>,
+    {
+        // TODO: raise yellow flags if .code and .ecode are different
+        // between the parsed reply lines
+        map(
+            pair(
+                many0(preceded(
+                    peek(pair(take(3usize), tag(b"-"))),
+                    ReplyLine::parse,
+                )),
+                verify(ReplyLine::parse, |l| l.last),
+            ),
+            |(beg, end)| Reply {
+                code: end.code,
+                ecode: end.ecode,
+                text: beg
+                    .into_iter()
+                    .map(|l| l.text)
+                    .chain(iter::once(end.text))
+                    .collect(),
+            },
+        )(buf)
+    }
+}
+
+impl<S> Reply<S>
+where
+    S: AsRef<[u8]>,
+{
+    #[inline]
+    pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
+        let code = &self.code;
+        let ecode = &self.ecode;
+        let last_i = self.text.len() - 1;
+        self.text
+            .iter()
+            .enumerate()
+            .flat_map(move |(i, l)| line_as_io_slices(code, i == last_i, ecode, l))
     }
 }
 
