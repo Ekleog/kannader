@@ -1115,90 +1115,142 @@ pub struct DataUnescapeRes {
     pub unhandled_idx: usize,
 }
 
-/// Unescapes data coming from an [`EscapedDataReader`](EscapedDataReader).
+/// Helper struct to unescape a data stream.
 ///
-/// This takes a `data` argument. It will modify the `data` argument, removing
-/// the escaping that could happen with it, and then returns a
-/// [`DataUnescapeRes`](DataUnescapeRes).
-///
-/// It is possible that the end of `data` does not land on a boundary that
-/// allows yet to know whether data should be output or not. This is the reason
-/// why this returns a [`DataUnescapeRes`](DataUnescapeRes). The returned value
-/// will contain:
-///  - `.written`, which is the number of unescaped bytes that have been written
-///    in `data` — that is, `data[..res.written]` is the unescaped data, and
-///  - `.unhandled_idx`, which is the number of bytes at the end of `data` that
-///    could not be handled yet for lack of more information — that is,
-///    `data[res.unhandled_idx..]` is data that should be at the beginning of
-///    the next call to `data_unescape`.
-///
-/// Note that the unhandled data's length is never going to be longer than 4
-/// bytes long ("\r\n.\r", the longest sequence that can't be interpreted yet),
-/// so it should not be an issue to just copy it to the next buffer's start.
-pub fn data_unescape(data: &mut [u8]) -> DataUnescapeRes {
-    let mut written = 0;
-    let mut unhandled_idx = 0;
+/// Note that one unescaper should be used for a single data stream. Creating a
+/// `DataUnescaper` is basically free, and not creating a new one would probably
+/// lead to initial `\r\n` being handled incorrectly.
+pub struct DataUnescaper {
+    is_preceded_by_crlf: bool,
+}
 
-    // TODO: this could be optimized by having a state machine we handle ourselves.
-    // Unfortunately, neither regex nor regex_automata provide tooling for
-    // noalloc replacements when the replacement is guaranteed to be shorter than
-    // the match
-
-    // First, look for "\r\n."
-    while let Some(i) = data[unhandled_idx..].windows(3).position(|s| s == b"\r\n.") {
-        if data.len() <= unhandled_idx + i + 4 {
-            // Don't have enough information to know whether it's the end or just an escape
-            if unhandled_idx != written {
-                data.copy_within(unhandled_idx..unhandled_idx + i, written);
-            }
-            return DataUnescapeRes {
-                written: written + i,
-                unhandled_idx: unhandled_idx + i,
-            };
-        } else if &data[unhandled_idx + i + 3..unhandled_idx + i + 5] != b"\r\n" {
-            // It is just an escape
-            if unhandled_idx != written {
-                data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
-            }
-            written += i + 2;
-            unhandled_idx += i + 3;
-        } else {
-            // It is the end
-            if unhandled_idx != written {
-                data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
-            }
-            return DataUnescapeRes {
-                written: written + i + 2,
-                unhandled_idx: unhandled_idx + i + 5,
-            };
+impl DataUnescaper {
+    /// Creates a `DataUnescaper`.
+    ///
+    /// The `is_preceded_by_crlf` argument is used to indicate whether, before
+    /// the first buffer that is fed into `unescape`, the unescaper should
+    /// assume that a `\r\n` was present.
+    ///
+    /// Usually, one will want to set `true` as an argument, as starting a
+    /// `DataUnescaper` mid-line is a rare use case.
+    pub fn new(is_preceded_by_crlf: bool) -> DataUnescaper {
+        DataUnescaper {
+            is_preceded_by_crlf,
         }
     }
 
-    // There is no "\r\n." any longer, let's handle the remaining bytes by simply
-    // checking whether they end with something that needs handling.
-    if data.ends_with(b"\r\n") {
-        if unhandled_idx != written {
-            data.copy_within(unhandled_idx..data.len() - 2, written);
+    /// Unescapes data coming from an [`EscapedDataReader`](EscapedDataReader).
+    ///
+    /// This takes a `data` argument. It will modify the `data` argument,
+    /// removing the escaping that could happen with it, and then returns a
+    /// [`DataUnescapeRes`](DataUnescapeRes).
+    ///
+    /// It is possible that the end of `data` does not land on a boundary that
+    /// allows yet to know whether data should be output or not. This is the
+    /// reason why this returns a [`DataUnescapeRes`](DataUnescapeRes). The
+    /// returned value will contain:
+    ///  - `.written`, which is the number of unescaped bytes that have been
+    ///    written in `data` — that is, `data[..res.written]` is the unescaped
+    ///    data, and
+    ///  - `.unhandled_idx`, which is the number of bytes at the end of `data`
+    ///    that could not be handled yet for lack of more information — that is,
+    ///    `data[res.unhandled_idx..]` is data that should be at the beginning
+    ///    of the next call to `data_unescape`.
+    ///
+    /// Note that the unhandled data's length is never going to be longer than 4
+    /// bytes long ("\r\n.\r", the longest sequence that can't be interpreted
+    /// yet), so it should not be an issue to just copy it to the next
+    /// buffer's start.
+    pub fn unescape(&mut self, data: &mut [u8]) -> DataUnescapeRes {
+        // TODO: this could be optimized by having a state machine we handle ourselves.
+        // Unfortunately, neither regex nor regex_automata provide tooling for
+        // noalloc replacements when the replacement is guaranteed to be shorter than
+        // the match
+
+        let mut written = 0;
+        let mut unhandled_idx = 0;
+
+        if self.is_preceded_by_crlf {
+            if data.len() <= 3 {
+                // Don't have enough information to know whether it's the end or just an escape.
+                // Maybe it's nothing special, but let's not make an effort to check it, as
+                // asking for 4-byte buffers should hopefully not be too much.
+                return DataUnescapeRes {
+                    written: 0,
+                    unhandled_idx: 0,
+                };
+            } else if data.starts_with(b".\r\n") {
+                // It is the end already
+                return DataUnescapeRes {
+                    written: 0,
+                    unhandled_idx: 3,
+                };
+            } else if data[0] == b'.' {
+                // It is just an escape, skip the dot
+                unhandled_idx += 1;
+            } else {
+                // It is nothing special, just go the regular path
+            }
+
+            self.is_preceded_by_crlf = false;
         }
-        DataUnescapeRes {
-            written: written + data.len() - 2 - unhandled_idx,
-            unhandled_idx: data.len() - 2,
+
+        // First, look for "\r\n."
+        while let Some(i) = data[unhandled_idx..].windows(3).position(|s| s == b"\r\n.") {
+            if data.len() <= unhandled_idx + i + 4 {
+                // Don't have enough information to know whether it's the end or just an escape
+                if unhandled_idx != written {
+                    data.copy_within(unhandled_idx..unhandled_idx + i, written);
+                }
+                return DataUnescapeRes {
+                    written: written + i,
+                    unhandled_idx: unhandled_idx + i,
+                };
+            } else if &data[unhandled_idx + i + 3..unhandled_idx + i + 5] != b"\r\n" {
+                // It is just an escape
+                if unhandled_idx != written {
+                    data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
+                }
+                written += i + 2;
+                unhandled_idx += i + 3;
+            } else {
+                // It is the end
+                if unhandled_idx != written {
+                    data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
+                }
+                return DataUnescapeRes {
+                    written: written + i + 2,
+                    unhandled_idx: unhandled_idx + i + 5,
+                };
+            }
         }
-    } else if data.ends_with(b"\r") {
-        if unhandled_idx != written {
-            data.copy_within(unhandled_idx..data.len() - 1, written);
-        }
-        DataUnescapeRes {
-            written: written + data.len() - 1 - unhandled_idx,
-            unhandled_idx: data.len() - 1,
-        }
-    } else {
-        if unhandled_idx != written {
-            data.copy_within(unhandled_idx..data.len(), written);
-        }
-        DataUnescapeRes {
-            written: written + data.len() - unhandled_idx,
-            unhandled_idx: data.len(),
+
+        // There is no "\r\n." any longer, let's handle the remaining bytes by simply
+        // checking whether they end with something that needs handling.
+        if data.ends_with(b"\r\n") {
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..data.len() - 2, written);
+            }
+            DataUnescapeRes {
+                written: written + data.len() - 2 - unhandled_idx,
+                unhandled_idx: data.len() - 2,
+            }
+        } else if data.ends_with(b"\r") {
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..data.len() - 1, written);
+            }
+            DataUnescapeRes {
+                written: written + data.len() - 1 - unhandled_idx,
+                unhandled_idx: data.len() - 1,
+            }
+        } else {
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..data.len(), written);
+            }
+            DataUnescapeRes {
+                written: written + data.len() - unhandled_idx,
+                unhandled_idx: data.len(),
+            }
         }
     }
 }
@@ -1669,9 +1721,10 @@ mod tests {
         io::{AsyncReadExt, Cursor},
     };
 
+    /// Used as `println!("{:?}", show_bytes(b))`
     pub fn show_bytes(b: &[u8]) -> String {
         if let Ok(s) = str::from_utf8(b) {
-            format!(r#""{}" ({:?})"#, s, b)
+            s.into()
         } else {
             format!("{:?}", b)
         }
@@ -2337,7 +2390,7 @@ mod tests {
 
     // TODO: actually test the vectored version of the function
     #[test]
-    pub fn escaped_data_reader() {
+    fn escaped_data_reader() {
         let tests: &[(&[&[u8]], &[u8], &[u8])] = &[
             (
                 &[b"foo", b" bar", b"\r\n", b".\r", b"\n"],
@@ -2361,7 +2414,7 @@ mod tests {
         let mut enclosed_buf: [u8; 8] = [0; 8];
         for (i, &(inp, out, rem)) in tests.iter().enumerate() {
             println!(
-                "Trying to parse test {} into {} with {} remaining\n",
+                "Trying to parse test {} into {:?} with {:?} remaining\n",
                 i,
                 show_bytes(out),
                 show_bytes(rem)
@@ -2382,14 +2435,14 @@ mod tests {
                     break;
                 }
                 println!(
-                    "got out buf (size {}): {}",
+                    "got out buf (size {}): {:?}",
                     r,
                     show_bytes(&enclosed_buf[..r])
                 );
                 res_out.extend_from_slice(&enclosed_buf[..r]);
             }
             println!(
-                "total out is: {}, hoping for: {}",
+                "total out is: {:?}, hoping for: {:?}",
                 show_bytes(&res_out),
                 show_bytes(out)
             );
@@ -2403,11 +2456,11 @@ mod tests {
                 if r == 0 {
                     break;
                 }
-                println!("got rem buf: {}", show_bytes(&surrounding_buf[..r]));
+                println!("got rem buf: {:?}", show_bytes(&surrounding_buf[..r]));
                 res_rem.extend_from_slice(&surrounding_buf[0..r]);
             }
             println!(
-                "total rem is: {}, hoping for: {}",
+                "total rem is: {:?}, hoping for: {:?}",
                 show_bytes(&res_rem),
                 show_bytes(rem)
             );
@@ -2415,10 +2468,45 @@ mod tests {
         }
     }
 
-    // TODO: test data_unescape
+    #[test]
+    fn data_unescaper() {
+        let tests: &[(&[&[u8]], &[u8])] = &[
+            (&[b"foo", b" bar", b"\r\n", b".\r", b"\n"], b"foo bar\r\n"),
+            (&[b"\r\n.\r\n"], b"\r\n"),
+            (&[b".baz\r\n", b".\r\n"], b"baz\r\n"),
+            (&[b" .baz", b"\r\n.", b"\r\n"], b" .baz\r\n"),
+            (&[b".\r\n"], b""),
+            (&[b"..\r\n.\r\n"], b".\r\n"),
+            (&[b"foo\r\n. ", b"bar\r\n.\r\n"], b"foo\r\n bar\r\n"),
+        ];
+        let mut buf: [u8; 1024] = [0; 1024];
+        for &(inp, out) in tests {
+            println!(
+                "Test: {:?}",
+                itertools::concat(
+                    inp.iter()
+                        .map(|i| show_bytes(i).chars().collect::<Vec<char>>())
+                )
+                .iter()
+                .collect::<String>()
+            );
+            let mut res = Vec::<u8>::new();
+            let mut end = 0;
+            let mut unescaper = DataUnescaper::new(true);
+            for i in inp {
+                buf[end..end + i.len()].copy_from_slice(i);
+                let r = unescaper.unescape(&mut buf[..end + i.len()]);
+                res.extend_from_slice(&buf[..r.written]);
+                buf.copy_within(r.unhandled_idx..end + i.len(), 0);
+                end = end + i.len() - r.unhandled_idx;
+            }
+            println!("Result: {:?}", show_bytes(&res));
+            assert_eq!(&res[..], out);
+        }
+    }
 
     #[test]
-    pub fn reply_code_valid() {
+    fn reply_code_valid() {
         let tests: &[(&[u8], [u8; 3])] = &[(b"523", *b"523"), (b"234", *b"234")];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
