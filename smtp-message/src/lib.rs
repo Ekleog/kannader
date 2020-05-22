@@ -955,7 +955,7 @@ where
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum EscapedDataReaderState {
     Start,
     Cr,
@@ -986,6 +986,28 @@ pub struct EscapedDataReader<'a, R> {
     read: R,
 }
 
+impl<'a, R> EscapedDataReader<'a, R>
+where
+    R: AsyncRead,
+{
+    pub fn new(buf: &'a mut [u8], unhandled: Range<usize>, read: R) -> Self {
+        EscapedDataReader {
+            buf,
+            unhandled,
+            state: EscapedDataReaderState::CrLf,
+            read,
+        }
+    }
+
+    /// Asserts that the full message has been read, then returns the range of
+    /// data in the `buf` passed to `new` that contains data that hasn't been
+    /// handled yet (ie. what followed the end-of-data marker)
+    pub fn complete(&self) -> Range<usize> {
+        assert_eq!(self.state, EscapedDataReaderState::End);
+        self.unhandled.clone()
+    }
+}
+
 impl<'a, R> AsyncRead for EscapedDataReader<'a, R>
 where
     R: AsyncRead,
@@ -1004,6 +1026,11 @@ where
         bufs: &mut [IoSliceMut],
     ) -> Poll<io::Result<usize>> {
         let this = self.project();
+
+        // If we have already finished, return early
+        if *this.state == EscapedDataReaderState::End {
+            return Poll::Ready(Ok(0));
+        }
 
         // First, fill the bufs with incoming data
         let raw_size = {
@@ -1039,7 +1066,7 @@ where
         // Then, look for the end in the bufs
         let mut size = 0;
         for b in 0..bufs.len() {
-            for i in 0..bufs[b].len() {
+            for i in 0..cmp::min(bufs[b].len(), raw_size - size) {
                 use EscapedDataReaderState::*;
                 match (*this.state, bufs[b][i]) {
                     (Cr, b'\n') => *this.state = CrLf,
@@ -1048,21 +1075,34 @@ where
                     (CrLfDotCr, b'\n') => {
                         *this.state = End;
                         size += i + 1;
-                        let remaining = bufs[b].len() - (i + 1);
-                        this.buf[..remaining].copy_from_slice(&bufs[b][i + 1..]);
-                        let mut copied = remaining;
-                        for bb in b + 1..bufs.len() {
-                            this.buf[copied..copied + bufs[bb].len()].copy_from_slice(&bufs[bb]);
-                            copied += bufs[bb].len();
+
+                        if this.unhandled.start == this.unhandled.end {
+                            // The data (most likely) comes from `this.read` -- or, at least, we
+                            // know that there can be nothing left in `this.unhandled`.
+                            let remaining = cmp::min(bufs[b].len() - (i + 1), raw_size - size);
+                            this.buf[..remaining]
+                                .copy_from_slice(&bufs[b][i + 1..i + 1 + remaining]);
+                            let mut copied = remaining;
+                            for bb in b + 1..bufs.len() {
+                                let remaining = cmp::min(bufs[bb].len(), raw_size - size - copied);
+                                this.buf[copied..copied + remaining]
+                                    .copy_from_slice(&bufs[bb][..remaining]);
+                                copied += remaining;
+                            }
+                            *this.unhandled = 0..copied;
+                        } else {
+                            // The data comes straight out of `this.unhandled`,
+                            // so let's just reuse it
+                            this.unhandled.start -= raw_size - size;
                         }
-                        *this.unhandled = 0..copied;
+
                         return Poll::Ready(Ok(size));
                     }
                     (_, b'\r') => *this.state = Cr,
                     _ => *this.state = Start,
                 }
             }
-            size += bufs[b].len();
+            size += cmp::min(bufs[b].len(), raw_size - size);
         }
 
         // Didn't reach the end, let's return everything found
@@ -1624,9 +1664,14 @@ where
 mod tests {
     use super::*;
 
+    use futures::{
+        executor,
+        io::{AsyncReadExt, Cursor},
+    };
+
     pub fn show_bytes(b: &[u8]) -> String {
         if let Ok(s) = str::from_utf8(b) {
-            s.into()
+            format!(r#""{}" ({:?})"#, s, b)
         } else {
             format!("{:?}", b)
         }
@@ -2290,7 +2335,86 @@ mod tests {
         }
     }
 
-    // TODO: test EscapedDataReader
+    // TODO: actually test the vectored version of the function
+    #[test]
+    pub fn escaped_data_reader() {
+        let tests: &[(&[&[u8]], &[u8], &[u8])] = &[
+            (
+                &[b"foo", b" bar", b"\r\n", b".\r", b"\n"],
+                b"foo bar\r\n.\r\n",
+                b"",
+            ),
+            (&[b"\r\n.\r\n", b"\r\n"], b"\r\n.\r\n", b"\r\n"),
+            (&[b".baz\r\n", b".\r\n", b"foo"], b".baz\r\n.\r\n", b"foo"),
+            (&[b" .baz", b"\r\n.", b"\r\nfoo"], b" .baz\r\n.\r\n", b"foo"),
+            (&[b".\r\n", b"MAIL FROM"], b".\r\n", b"MAIL FROM"),
+            (&[b"..\r\n.\r\n"], b"..\r\n.\r\n", b""),
+            (
+                &[b"foo\r\n. ", b"bar\r\n.\r\n"],
+                b"foo\r\n. bar\r\n.\r\n",
+                b"",
+            ),
+            (&[b".\r\nMAIL FROM"], b".\r\n", b"MAIL FROM"),
+            (&[b"..\r\n.\r\nMAIL FROM"], b"..\r\n.\r\n", b"MAIL FROM"),
+        ];
+        let mut surrounding_buf: [u8; 16] = [0; 16];
+        let mut enclosed_buf: [u8; 8] = [0; 8];
+        for (i, &(inp, out, rem)) in tests.iter().enumerate() {
+            println!(
+                "Trying to parse test {} into {} with {} remaining\n",
+                i,
+                show_bytes(out),
+                show_bytes(rem)
+            );
+
+            let mut reader = inp[1..].iter().map(Cursor::new).fold(
+                Box::pin(futures::io::empty()) as Pin<Box<dyn 'static + AsyncRead>>,
+                |a, b| Box::pin(AsyncReadExt::chain(a, b)),
+            );
+
+            surrounding_buf[..inp[0].len()].copy_from_slice(inp[0]);
+            let mut data_reader =
+                EscapedDataReader::new(&mut surrounding_buf, 0..inp[0].len(), reader.as_mut());
+
+            let mut res_out = Vec::<u8>::new();
+            while let Ok(r) = executor::block_on(data_reader.read(&mut enclosed_buf)) {
+                if r == 0 {
+                    break;
+                }
+                println!(
+                    "got out buf (size {}): {}",
+                    r,
+                    show_bytes(&enclosed_buf[..r])
+                );
+                res_out.extend_from_slice(&enclosed_buf[..r]);
+            }
+            println!(
+                "total out is: {}, hoping for: {}",
+                show_bytes(&res_out),
+                show_bytes(out)
+            );
+            assert_eq!(&res_out[..], out);
+
+            let unhandled = data_reader.complete();
+            let mut res_rem = Vec::<u8>::new();
+            res_rem.extend_from_slice(&surrounding_buf[unhandled]);
+
+            while let Ok(r) = executor::block_on(reader.read(&mut surrounding_buf)) {
+                if r == 0 {
+                    break;
+                }
+                println!("got rem buf: {}", show_bytes(&surrounding_buf[..r]));
+                res_rem.extend_from_slice(&surrounding_buf[0..r]);
+            }
+            println!(
+                "total rem is: {}, hoping for: {}",
+                show_bytes(&res_rem),
+                show_bytes(rem)
+            );
+            assert_eq!(&res_rem[..], rem);
+        }
+    }
+
     // TODO: test data_unescape
 
     #[test]
