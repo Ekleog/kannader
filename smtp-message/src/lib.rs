@@ -1,14 +1,19 @@
 #![type_length_limit = "109238057"]
 
 use std::{
+    cmp,
     convert::TryInto,
-    io::IoSlice,
+    io::{self, IoSlice, IoSliceMut},
     iter,
     net::{Ipv4Addr, Ipv6Addr},
+    ops::Range,
+    pin::Pin,
     str,
+    task::{Context, Poll},
 };
 
 use auto_enums::auto_enum;
+use futures::AsyncRead;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
@@ -19,6 +24,7 @@ use nom::{
     sequence::{pair, preceded, terminated, tuple},
     IResult,
 };
+use pin_project::pin_project;
 use regex_automata::{Regex, RegexBuilder, DFA};
 
 lazy_static! {
@@ -945,6 +951,214 @@ where
             Command::Vrfy { name } => iter::once(IoSlice::new(b"VRFY "))
                 .chain(name.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum EscapedDataReaderState {
+    Start,
+    Cr,
+    CrLf,
+    CrLfDot,
+    CrLfDotCr,
+    End,
+}
+
+/// `AsyncRead` instance that returns an unescaped `DATA` stream.
+///
+/// Note that:
+///  - If a line (as defined by b"\r\n" endings) starts with a b'.', it is an
+///    "escaping" dot that is not part of the actual contents of the line.
+///  - If a line is exactly b".\r\n", it is the last line of the stream this
+///    stream will give. It is not part of the actual contents of the message.
+#[pin_project]
+pub struct EscapedDataReader<'a, R> {
+    buf: &'a mut [u8],
+
+    // This should be another &'a mut [u8], but the issue described in [1] makes it not work
+    // [1] https://github.com/rust-lang/rust/issues/72477
+    unhandled: Range<usize>,
+
+    state: EscapedDataReaderState,
+
+    #[pin]
+    read: R,
+}
+
+impl<'a, R> AsyncRead for EscapedDataReader<'a, R>
+where
+    R: AsyncRead,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        self.poll_read_vectored(cx, &mut [IoSliceMut::new(buf)])
+    }
+
+    fn poll_read_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &mut [IoSliceMut],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.project();
+
+        // First, fill the bufs with incoming data
+        let raw_size = {
+            let unhandled_len_start = this.unhandled.end - this.unhandled.start;
+            if unhandled_len_start > 0 {
+                for buf in bufs.iter_mut() {
+                    let copy_len = cmp::min(buf.len(), this.unhandled.end - this.unhandled.start);
+                    let next_start = this.unhandled.start + copy_len;
+                    buf[..copy_len].copy_from_slice(&this.buf[this.unhandled.start..next_start]);
+                    this.unhandled.start = next_start;
+                }
+                unhandled_len_start - (this.unhandled.end - this.unhandled.start)
+            } else {
+                match this.read.poll_read_vectored(cx, bufs) {
+                    Poll::Ready(Ok(s)) => s,
+                    other => return other,
+                }
+            }
+        };
+
+        // If there was nothing to read, return early
+        if raw_size == 0 {
+            if bufs.iter().map(|b| b.len()).sum::<usize>() == 0 {
+                return Poll::Ready(Ok(0));
+            } else {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "connection aborted without finishing the data stream",
+                )));
+            }
+        }
+
+        // Then, look for the end in the bufs
+        let mut size = 0;
+        for b in 0..bufs.len() {
+            for i in 0..bufs[b].len() {
+                use EscapedDataReaderState::*;
+                match (*this.state, bufs[b][i]) {
+                    (Cr, b'\n') => *this.state = CrLf,
+                    (CrLf, b'.') => *this.state = CrLfDot,
+                    (CrLfDot, b'\r') => *this.state = CrLfDotCr,
+                    (CrLfDotCr, b'\n') => {
+                        *this.state = End;
+                        size += i + 1;
+                        let remaining = bufs[b].len() - (i + 1);
+                        this.buf[..remaining].copy_from_slice(&bufs[b][i + 1..]);
+                        let mut copied = remaining;
+                        for bb in b + 1..bufs.len() {
+                            this.buf[copied..copied + bufs[bb].len()].copy_from_slice(&bufs[bb]);
+                            copied += bufs[bb].len();
+                        }
+                        *this.unhandled = 0..copied;
+                        return Poll::Ready(Ok(size));
+                    }
+                    (_, b'\r') => *this.state = Cr,
+                    _ => *this.state = Start,
+                }
+            }
+            size += bufs[b].len();
+        }
+
+        // Didn't reach the end, let's return everything found
+        Poll::Ready(Ok(size))
+    }
+}
+
+pub struct DataUnescapeRes {
+    pub written: usize,
+    pub unhandled_idx: usize,
+}
+
+/// Unescapes data coming from an [`EscapedDataReader`](EscapedDataReader).
+///
+/// This takes a `data` argument. It will modify the `data` argument, removing
+/// the escaping that could happen with it, and then returns a
+/// [`DataUnescapeRes`](DataUnescapeRes).
+///
+/// It is possible that the end of `data` does not land on a boundary that
+/// allows yet to know whether data should be output or not. This is the reason
+/// why this returns a [`DataUnescapeRes`](DataUnescapeRes). The returned value
+/// will contain:
+///  - `.written`, which is the number of unescaped bytes that have been written
+///    in `data` — that is, `data[..res.written]` is the unescaped data, and
+///  - `.unhandled_idx`, which is the number of bytes at the end of `data` that
+///    could not be handled yet for lack of more information — that is,
+///    `data[res.unhandled_idx..]` is data that should be at the beginning of
+///    the next call to `data_unescape`.
+///
+/// Note that the unhandled data's length is never going to be longer than 4
+/// bytes long ("\r\n.\r", the longest sequence that can't be interpreted yet),
+/// so it should not be an issue to just copy it to the next buffer's start.
+pub fn data_unescape(data: &mut [u8]) -> DataUnescapeRes {
+    let mut written = 0;
+    let mut unhandled_idx = 0;
+
+    // TODO: this could be optimized by having a state machine we handle ourselves.
+    // Unfortunately, neither regex nor regex_automata provide tooling for
+    // noalloc replacements when the replacement is guaranteed to be shorter than
+    // the match
+
+    // First, look for "\r\n."
+    while let Some(i) = data[unhandled_idx..].windows(3).position(|s| s == b"\r\n.") {
+        if data.len() <= unhandled_idx + i + 4 {
+            // Don't have enough information to know whether it's the end or just an escape
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..unhandled_idx + i, written);
+            }
+            return DataUnescapeRes {
+                written: written + i,
+                unhandled_idx: unhandled_idx + i,
+            };
+        } else if &data[unhandled_idx + i + 3..unhandled_idx + i + 5] != b"\r\n" {
+            // It is just an escape
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
+            }
+            written += i + 2;
+            unhandled_idx += i + 3;
+        } else {
+            // It is the end
+            if unhandled_idx != written {
+                data.copy_within(unhandled_idx..unhandled_idx + i + 2, written);
+            }
+            return DataUnescapeRes {
+                written: written + i + 2,
+                unhandled_idx: unhandled_idx + i + 5,
+            };
+        }
+    }
+
+    // There is no "\r\n." any longer, let's handle the remaining bytes by simply
+    // checking whether they end with something that needs handling.
+    if data.ends_with(b"\r\n") {
+        if unhandled_idx != written {
+            data.copy_within(unhandled_idx..data.len() - 2, written);
+        }
+        DataUnescapeRes {
+            written: written + data.len() - 2 - unhandled_idx,
+            unhandled_idx: data.len() - 2,
+        }
+    } else if data.ends_with(b"\r") {
+        if unhandled_idx != written {
+            data.copy_within(unhandled_idx..data.len() - 1, written);
+        }
+        DataUnescapeRes {
+            written: written + data.len() - 1 - unhandled_idx,
+            unhandled_idx: data.len() - 1,
+        }
+    } else {
+        if unhandled_idx != written {
+            data.copy_within(unhandled_idx..data.len(), written);
+        }
+        DataUnescapeRes {
+            written: written + data.len() - unhandled_idx,
+            unhandled_idx: data.len(),
         }
     }
 }
@@ -2075,6 +2289,9 @@ mod tests {
             assert_eq!(&res, out);
         }
     }
+
+    // TODO: test EscapedDataReader
+    // TODO: test data_unescape
 
     #[test]
     pub fn reply_code_valid() {
