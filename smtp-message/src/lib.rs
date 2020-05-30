@@ -13,7 +13,7 @@ use std::{
 };
 
 use auto_enums::auto_enum;
-use futures::AsyncRead;
+use futures::{pin_mut, AsyncRead, AsyncWrite, AsyncWriteExt};
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
@@ -1251,6 +1251,145 @@ impl DataUnescaper {
                 written: written + data.len() - unhandled_idx,
                 unhandled_idx: data.len(),
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EscapingDataWriterState {
+    Start,
+    Cr,
+    CrLf,
+}
+
+/// `AsyncWrite` instance that takes an unescaped `DATA` stream and
+/// escapes it.
+#[pin_project]
+pub struct EscapingDataWriter<W> {
+    state: EscapingDataWriterState,
+
+    #[pin]
+    write: W,
+}
+
+impl<W> EscapingDataWriter<W>
+where
+    W: AsyncWrite,
+{
+    pub fn new(write: W) -> Self {
+        EscapingDataWriter {
+            state: EscapingDataWriterState::CrLf,
+            write,
+        }
+    }
+
+    pub async fn finish(self) -> io::Result<()> {
+        let write = self.write;
+        pin_mut!(write);
+        match self.state {
+            EscapingDataWriterState::Start => write.write_all(b"\r\n.\r\n").await,
+            EscapingDataWriterState::Cr => write.write_all(b"\n.\r\n").await,
+            EscapingDataWriterState::CrLf => write.write_all(b".\r\n").await,
+        }
+    }
+}
+
+impl<W> AsyncWrite for EscapingDataWriter<W>
+where
+    W: AsyncWrite,
+{
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.poll_write_vectored(cx, &[IoSlice::new(buf)])
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        self.project().write.poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::Other,
+            "tried closing a stream during a message",
+        )))
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &[IoSlice],
+    ) -> Poll<io::Result<usize>> {
+        fn set_state_until(state: &mut EscapingDataWriterState, bufs: &[IoSlice], n: usize) {
+            use EscapingDataWriterState::*;
+            let mut n = n;
+            for buf in bufs {
+                if n.saturating_sub(2) > buf.len() {
+                    n -= buf.len();
+                    *state = Start;
+                    continue;
+                }
+                for i in n.saturating_sub(2)..cmp::min(buf.len(), n) {
+                    n -= 1;
+                    match (*state, buf[i]) {
+                        (_, b'\r') => *state = Cr,
+                        (Cr, b'\n') => *state = CrLf,
+                        // We know that this function can't be called with an escape happening
+                        _ => *state = Start,
+                    }
+                }
+                if n == 0 {
+                    return;
+                }
+            }
+        }
+
+        let mut this = self.project();
+
+        let initial_state = *this.state;
+        for b in 0..bufs.len() {
+            for i in 0..bufs[b].len() {
+                use EscapingDataWriterState::*;
+                match (*this.state, bufs[b][i]) {
+                    (_, b'\r') => *this.state = Cr,
+                    (Cr, b'\n') => *this.state = CrLf,
+                    (CrLf, b'.') => {
+                        let mut v = Vec::with_capacity(b + 1);
+                        let mut writing = 0;
+                        for bb in 0..b {
+                            v.push(IoSlice::new(&bufs[bb]));
+                            writing += bufs[bb].len();
+                        }
+                        v.push(IoSlice::new(&bufs[b][..=i]));
+                        writing += i + 1;
+                        return match this.write.poll_write_vectored(cx, &v) {
+                            Poll::Ready(Ok(s)) => {
+                                if s == writing {
+                                    *this.state = Start;
+                                    Poll::Ready(Ok(s - 1))
+                                } else {
+                                    *this.state = initial_state;
+                                    set_state_until(&mut this.state, bufs, s);
+                                    Poll::Ready(Ok(s))
+                                }
+                            }
+                            o => o,
+                        };
+                    }
+                    _ => *this.state = Start,
+                }
+            }
+        }
+
+        match this.write.poll_write_vectored(cx, bufs) {
+            Poll::Ready(Ok(s)) => {
+                if s == bufs.iter().map(|b| b.len()).sum::<usize>() {
+                    Poll::Ready(Ok(s))
+                } else {
+                    *this.state = initial_state;
+                    set_state_until(&mut this.state, bufs, s);
+                    Poll::Ready(Ok(s))
+                }
+            }
+            o => o,
         }
     }
 }
@@ -2502,6 +2641,56 @@ mod tests {
             }
             println!("Result: {:?}", show_bytes(&res));
             assert_eq!(&res[..], out);
+        }
+    }
+
+    #[test]
+    fn escaping_data_writer() {
+        let tests: &[(&[&[&[u8]]], &[u8])] = &[
+            (&[&[b"foo", b" bar"], &[b" baz"]], b"foo bar baz\r\n.\r\n"),
+            (&[&[b"foo\r\n. bar\r\n"]], b"foo\r\n.. bar\r\n.\r\n"),
+            (&[&[b""]], b".\r\n"),
+            (&[&[b"."]], b"..\r\n.\r\n"),
+            (&[&[b"foo\r"]], b"foo\r\n.\r\n"),
+            (&[&[b"foo bar\r", b"\n"]], b"foo bar\r\n.\r\n"),
+            (
+                &[&[b"foo bar\r\n"], &[b". baz\n"]],
+                b"foo bar\r\n.. baz\n\r\n.\r\n",
+            ),
+        ];
+        for &(inp, out) in tests {
+            println!("Expected result: {:?}", show_bytes(out));
+            let mut v = Vec::new();
+            let c = Cursor::new(&mut v);
+            let mut w = EscapingDataWriter::new(c);
+            for write in inp {
+                let mut written = 0;
+                let total_to_write = write.iter().map(|b| b.len()).sum::<usize>();
+                while written != total_to_write {
+                    let mut i = Vec::new();
+                    let mut skipped = 0;
+                    for s in *write {
+                        if skipped + s.len() <= written {
+                            skipped += s.len();
+                            println!("(skipping, skipped = {})", skipped);
+                            continue;
+                        }
+                        if written - skipped != 0 {
+                            println!("(skipping first {} chars)", written - skipped);
+                            i.push(IoSlice::new(&s[(written - skipped)..]));
+                            skipped = written;
+                        } else {
+                            println!("(skipping nothing)");
+                            i.push(IoSlice::new(s));
+                        }
+                    }
+                    println!("Writing: {:?}", i);
+                    written += executor::block_on(w.write_vectored(&i)).unwrap();
+                    println!("Written: {:?} (out of {:?})", written, total_to_write);
+                }
+            }
+            executor::block_on(w.finish()).unwrap();
+            assert_eq!(&v, &out);
         }
     }
 
