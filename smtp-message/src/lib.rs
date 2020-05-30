@@ -47,7 +47,7 @@ lazy_static! {
     static ref LOCALPART_ASCII: Regex = RegexBuilder::new().anchored(true).build(
         r#"(?x)
             " ( [[:ascii:]&&[^\\"[:cntrl:]]] |       # Quoted-string localpart
-                \\ [[:ascii:]&&[:^cntrl:]] )* " |
+                \\ [[:ascii:]&&[:^cntrl:]] )+ " |
             (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~]+(?x) # Dot-string localpart
                 ( \. (?-x)[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?x) )*
         "#
@@ -58,7 +58,7 @@ lazy_static! {
     // comment
     static ref LOCALPART_UTF8: Regex = RegexBuilder::new().anchored(true).build(
         r#"(?x)
-            " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )* " |                # Quoted-string localpart
+            " ( [^\\"[:cntrl:]] | \\ [[:^cntrl:]] )+ " |                # Quoted-string localpart
             ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ # Dot-string localpart
                 ( \. ( (?-x)[a-zA-Z0-9!#$%&'*+-/=?^_`{|}~](?x) | [[:^ascii:]] )+ )*
         "#
@@ -1976,7 +1976,18 @@ mod tests {
         }
     }
 
-    // TODO: add incomplete, invalid and build localpart tests
+    // TODO: add incomplete localpart tests
+
+    #[test]
+    fn localpart_invalid() {
+        let tests: &[&[u8]] = &[br#"""@"#, br#""""@"#, b"\r@"];
+        for inp in tests {
+            let r = Localpart::<&str>::parse_until(b"@>")(inp);
+            assert!(!r.unwrap_err().is_incomplete());
+        }
+    }
+
+    // TODO: add build localpart tests
 
     #[test]
     fn localpart_unquoting() {
