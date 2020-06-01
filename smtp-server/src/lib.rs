@@ -1,15 +1,7 @@
-#![type_length_limit = "4194304"]
-
-mod crlflines;
-mod interact;
-mod sendreply;
-
-pub use interact::interact;
-
-use std::{borrow::Cow, future::Future, pin::Pin};
+use std::{borrow::Cow, future::Future, io, pin::Pin};
 
 use async_trait::async_trait;
-use futures::io::AsyncRead;
+use futures::io::{AsyncRead, AsyncWrite};
 use smtp_message::{Email, EnhancedReplyCode, EscapedDataReader, Reply, ReplyCode};
 
 #[must_use]
@@ -155,4 +147,16 @@ pub trait Config: Send + Sync {
             text: vec!["Command not recognized"],
         }
     }
+}
+
+pub async fn interact<IO, Cfg>(
+    io: IO,
+    metadata: Cfg::ConnectionUserMeta,
+    cfg: &Cfg,
+) -> io::Result<()>
+where
+    IO: Unpin + AsyncRead + AsyncWrite,
+    Cfg: Config,
+{
+    unimplemented!() // See interact.rs
 }
