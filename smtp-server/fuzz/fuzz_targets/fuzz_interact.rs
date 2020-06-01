@@ -5,6 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use futures::{executor, prelude::*};
 use libfuzzer_sys::fuzz_target;
@@ -36,54 +37,61 @@ impl Sink<Bytes> for DiscardSink {
 
 struct FuzzConfig;
 
-impl smtp_server::Config<()> for FuzzConfig {
+#[async_trait]
+impl smtp_server::Config for FuzzConfig {
+    type ConnectionUserMeta = ();
+    type MailUserMeta = ();
+
     fn hostname(&self) -> SmtpString {
         SmtpString::from_static(b"test.example.org")
     }
 
-    fn filter_from<'a>(
-        &'a mut self,
-        from: &'a mut Option<Email>,
-        _conn_meta: &'a mut ConnectionMetadata<()>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
+    async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
+
+    async fn filter_from(
+        &self,
+        from: &mut Option<Email>,
+        _meta: &mut MailMetadata<()>,
+        _conn_meta: &mut ConnectionMetadata<()>,
+    ) -> Decision {
         if let Some(from) = from {
             let loc = from.localpart();
             let locb = loc.bytes();
             if locb.len() >= 2 && locb[0] > locb[1] {
-                Box::pin(future::ready(Decision::Accept))
+                Decision::Accept
             } else {
-                Box::pin(future::ready(Decision::Reject(Refusal {
+                Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
                     msg: (&"forbidden user"[..]).into(),
-                })))
+                })
             }
         } else {
-            Box::pin(future::ready(Decision::Accept))
+            Decision::Accept
         }
     }
 
-    fn filter_to<'a>(
-        &'a mut self,
-        to: &'a mut Email,
-        _meta: &'a mut MailMetadata,
-        _conn_meta: &'a mut ConnectionMetadata<()>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
+    async fn filter_to(
+        &self,
+        to: &mut Email,
+        _meta: &mut MailMetadata<()>,
+        _conn_meta: &mut ConnectionMetadata<()>,
+    ) -> Decision {
         let loc = to.localpart();
         let locb = loc.bytes();
         if locb.len() >= 2 && locb[0] > locb[1] {
-            Box::pin(future::ready(Decision::Accept))
+            Decision::Accept
         } else {
-            Box::pin(future::ready(Decision::Reject(Refusal {
+            Decision::Reject(Refusal {
                 code: ReplyCode::POLICY_REASON,
                 msg: (&"forbidden user"[..]).into(),
-            })))
+            })
         }
     }
 
     fn handle_mail<'a, S>(
-        &'a mut self,
+        &'a self,
         stream: &'a mut DataStream<S>,
-        mail: MailMetadata,
+        mail: MailMetadata<()>,
         _conn_meta: &'a mut ConnectionMetadata<()>,
     ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
     where
