@@ -1,7 +1,8 @@
-use std::pin::Pin;
+use std::{future::Future, pin::Pin};
 
+use async_trait::async_trait;
 use bytes::BytesMut;
-use futures::{future, Future, Stream};
+use futures::Stream;
 
 use smtp_message::{DataStream, Email, ReplyCode, SmtpString};
 
@@ -10,44 +11,53 @@ use crate::{
     metadata::{ConnectionMetadata, MailMetadata},
 };
 
-pub trait Config<U> {
-    fn new_mail<'a>(&'a mut self) -> Pin<Box<dyn 'a + Send + Future<Output = ()>>> {
-        Box::pin(future::ready(()))
-    }
+#[async_trait]
+pub trait Config: Send + Sync {
+    type ConnectionUserMeta: Send;
+    type MailUserMeta: Send;
 
-    fn filter_from<'a>(
-        &'a mut self,
-        from: &'a mut Option<Email>,
-        conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>>;
+    // TODO: this could have a default implementation if we were able to have a
+    // default type of () for MailUserMeta without requiring unstable
+    async fn new_mail(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Self::MailUserMeta;
 
-    fn filter_to<'a>(
-        &'a mut self,
-        to: &'a mut Email,
-        meta: &'a mut MailMetadata,
-        conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>>;
+    async fn filter_from(
+        &self,
+        from: &mut Option<Email>,
+        meta: &mut MailMetadata<Self::MailUserMeta>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision;
 
-    fn filter_data<'a>(
-        &'a mut self,
-        meta: &'a mut MailMetadata,
-        conn_meta: &'a mut ConnectionMetadata<U>,
-    ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
-        let _ = (meta, conn_meta); // Silence unused variable warning to keep nice names in the doc
-        Box::pin(future::ready(Decision::Accept))
+    async fn filter_to(
+        &self,
+        to: &mut Email,
+        meta: &mut MailMetadata<Self::MailUserMeta>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision;
+
+    #[allow(unused_variables)]
+    async fn filter_data(
+        &self,
+        meta: &mut MailMetadata<Self::MailUserMeta>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision {
+        Decision::Accept
     }
 
     // Note: handle_mail *must* consume all of `stream` and call its `complete`
     // method to check that the data stream was properly closed and did not just
     // EOF too early. Things will panic otherwise.
+    // TODO: this can't be an async fn due to https://github.com/rust-lang/rust/issues/71058
     fn handle_mail<'a, S>(
-        &'a mut self,
+        &'a self,
         stream: &'a mut DataStream<S>,
-        meta: MailMetadata,
-        conn_meta: &'a mut ConnectionMetadata<U>,
+        meta: MailMetadata<Self::MailUserMeta>,
+        conn_meta: &'a mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
     where
-        S: 'a + Unpin + Stream<Item = BytesMut>;
+        S: 'a + Send + Unpin + Stream<Item = BytesMut>;
 
     fn hostname(&self) -> SmtpString;
 
