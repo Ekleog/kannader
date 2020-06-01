@@ -13,16 +13,16 @@ use crate::{
     sendreply::send_reply,
 };
 
-pub async fn interact<'a, Reader, Writer, UserProvidedMetadata, Cfg>(
+pub async fn interact<'a, Reader, Writer, Cfg>(
     incoming: Reader,
     outgoing: Pin<&'a mut Writer>,
-    metadata: UserProvidedMetadata,
+    metadata: Cfg::ConnectionUserMeta,
     cfg: &'a mut Cfg,
 ) -> Result<(), Writer::Error>
 where
     Reader: 'a + Send + Unpin + Stream<Item = BytesMut>,
     Writer: 'a + Sink<Bytes, Error = ()>,
-    Cfg: 'a + Config<UserProvidedMetadata>,
+    Cfg: 'a + Config,
 {
     let mut conn_meta = ConnectionMetadata { user: metadata };
     let mut mail_meta = None;
@@ -57,18 +57,18 @@ where
     Ok(())
 }
 
-async fn handle_line<'a, U, W, R, Cfg>(
+async fn handle_line<'a, W, R, Cfg>(
     reader: &'a mut Prependable<R>,
     mut writer: Pin<&'a mut W>,
     line: BytesMut,
     cfg: &'a mut Cfg,
-    conn_meta: &'a mut ConnectionMetadata<U>,
-    mail_meta: &'a mut Option<MailMetadata>,
+    conn_meta: &'a mut ConnectionMetadata<Cfg::ConnectionUserMeta>,
+    mail_meta: &'a mut Option<MailMetadata<Cfg::MailUserMeta>>,
 ) -> Result<(), W::Error>
 where
     W: 'a + Sink<ReplyLine>,
     R: 'a + Send + Unpin + Stream<Item = BytesMut>,
-    Cfg: Config<U>,
+    Cfg: Config,
 {
     let cmd = Command::parse(line.freeze());
     match cmd {
@@ -79,12 +79,19 @@ where
             if mail_meta.is_some() {
                 send_reply(writer, cfg.already_in_mail()).await?;
             } else {
-                cfg.new_mail().await;
-                match cfg.filter_from(&mut from, conn_meta).await {
+                let mut mail_metadata = MailMetadata {
+                    user: cfg.new_mail(conn_meta).await,
+                    from: None,
+                    to: Vec::with_capacity(4),
+                };
+                match cfg
+                    .filter_from(&mut from, &mut mail_metadata, conn_meta)
+                    .await
+                {
                     Decision::Accept => {
-                        let to = Vec::new();
                         send_reply(writer, cfg.mail_okay()).await?;
-                        *mail_meta = Some(MailMetadata { from, to });
+                        mail_metadata.from = from;
+                        *mail_meta = Some(mail_metadata);
                     }
                     Decision::Reject(r) => {
                         send_reply(writer, (r.code, r.msg.into())).await?;
@@ -169,6 +176,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    use async_trait::async_trait;
     use futures::executor;
     use itertools::Itertools;
 
@@ -180,50 +188,57 @@ mod tests {
         mails: Arc<Mutex<Vec<(Option<Email>, Vec<Email>, BytesMut)>>>,
     }
 
-    impl Config<()> for TestConfig {
+    #[async_trait]
+    impl Config for TestConfig {
+        type ConnectionUserMeta = ();
+        type MailUserMeta = ();
+
         fn hostname(&self) -> SmtpString {
             SmtpString::from_static(b"test.example.org")
         }
 
-        fn filter_from<'a>(
-            &'a mut self,
-            addr: &'a mut Option<Email>,
-            _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
+        async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
+
+        async fn filter_from(
+            &self,
+            addr: &mut Option<Email>,
+            _meta: &mut MailMetadata<()>,
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision {
             if *addr == Some(Email::parse_slice(b"bad@quux.example.org").unwrap()) {
-                Box::pin(future::ready(Decision::Reject(Refusal {
+                Decision::Reject(Refusal {
                     code: ReplyCode::POLICY_REASON,
                     msg: "User 'bad' banned".into(),
-                })))
+                })
             } else {
-                Box::pin(future::ready(Decision::Accept))
+                Decision::Accept
             }
         }
 
-        fn filter_to<'a>(
-            &'a mut self,
-            email: &'a mut Email,
-            _meta: &'a mut MailMetadata,
-            _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Send + Future<Output = Decision>>> {
+        async fn filter_to(
+            &self,
+            email: &mut Email,
+            _meta: &mut MailMetadata<()>,
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision {
             if email.localpart().bytes() == &b"baz"[..] {
-                Box::pin(future::ready(Decision::Reject(Refusal {
+                Decision::Reject(Refusal {
                     code: ReplyCode::MAILBOX_UNAVAILABLE,
                     msg: "No user 'baz'".into(),
-                })))
+                })
             } else {
-                Box::pin(future::ready(Decision::Accept))
+                Decision::Accept
             }
         }
 
         fn handle_mail<'a, S>(
-            &'a mut self,
+            &'a self,
             reader: &'a mut DataStream<S>,
-            meta: MailMetadata,
+            meta: MailMetadata<()>,
             _conn_meta: &'a mut ConnectionMetadata<()>,
         ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
         where
-            S: 'a + Unpin + Stream<Item = BytesMut>,
+            S: 'a + Send + Unpin + Stream<Item = BytesMut>,
         {
             Box::pin(async move {
                 let mail_text = reader.concat().await;

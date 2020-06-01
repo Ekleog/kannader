@@ -1,6 +1,7 @@
 use smtp_message::Email;
 
-pub struct MailMetadata {
+pub struct MailMetadata<U> {
+    pub user: U,
     pub from: Option<Email>,
     pub to: Vec<Email>,
 }
