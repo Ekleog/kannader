@@ -2,7 +2,7 @@ use std::{borrow::Cow, future::Future, io, pin::Pin};
 
 use async_trait::async_trait;
 use futures::io::{AsyncRead, AsyncWrite};
-use smtp_message::{Email, EnhancedReplyCode, EscapedDataReader, Reply, ReplyCode};
+use smtp_message::{Email, EnhancedReplyCode, EscapedDataReader, MaybeUtf8, Reply, ReplyCode};
 
 #[must_use]
 pub enum Decision {
@@ -76,43 +76,45 @@ pub trait Config: Send + Sync {
         Reply {
             code: ReplyCode::SERVICE_READY,
             ecode: None,
-            text: vec![self.hostname() + " " + self.banner()],
+            text: vec![MaybeUtf8::Utf8(self.hostname() + " " + self.banner())],
         }
     }
 
     fn okay(&self, ecode: EnhancedReplyCode<Cow<'static, str>>) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::OKAY,
-            ecode,
-            text: vec!["Okay"],
+            ecode: Some(ecode),
+            text: vec![MaybeUtf8::Utf8("Okay".into())],
         }
     }
 
     fn mail_okay(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED)
+        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
     }
 
     fn rcpt_okay(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_DEST_VALID)
+        self.okay(EnhancedReplyCode::SUCCESS_DEST_VALID.into())
     }
 
     fn data_okay(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::START_MAIL_INPUT,
             ecode: None,
-            text: vec!["Start mail input; end with <CRLF>.<CRLF>"],
+            text: vec![MaybeUtf8::Utf8(
+                "Start mail input; end with <CRLF>.<CRLF>".into(),
+            )],
         }
     }
 
     fn mail_accepted(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED)
+        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
     }
 
     fn bad_sequence(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::BAD_SEQUENCE,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND),
-            text: vec!["Bad sequence of commands"],
+            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
+            text: vec![MaybeUtf8::Utf8("Bad sequence of commands".into())],
         }
     }
 
@@ -135,16 +137,16 @@ pub trait Config: Send + Sync {
     fn command_unimplemented(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::COMMAND_UNIMPLEMENTED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND),
-            text: vec!["Command not implemented"],
+            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
+            text: vec![MaybeUtf8::Utf8("Command not implemented".into())],
         }
     }
 
     fn command_unrecognized(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::COMMAND_UNRECOGNIZED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND),
-            text: vec!["Command not recognized"],
+            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
+            text: vec![MaybeUtf8::Utf8("Command not recognized".into())],
         }
     }
 }

@@ -1698,6 +1698,19 @@ impl<S> EnhancedReplyCode<S> {
             _ => EnhancedReplyCodeSubject::Undefined,
         }
     }
+
+    #[inline]
+    pub fn into<T>(self) -> EnhancedReplyCode<T>
+    where
+        T: From<S>,
+    {
+        EnhancedReplyCode {
+            raw: self.raw.into(),
+            class: self.class,
+            raw_subject: self.raw_subject,
+            raw_detail: self.raw_detail,
+        }
+    }
 }
 
 impl<S> EnhancedReplyCode<S>
