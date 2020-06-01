@@ -1806,6 +1806,7 @@ where
 pub struct Reply<S> {
     pub code: ReplyCode,
     pub ecode: Option<EnhancedReplyCode<S>>,
+    // TODO: should we try to make constructing a constant reply noalloc?
     pub text: Vec<MaybeUtf8<S>>,
 }
 
