@@ -2,11 +2,9 @@
 
 mod crlflines;
 mod interact;
-mod metadata;
 mod sendreply;
 
 pub use interact::interact;
-pub use metadata::{ConnectionMetadata, MailMetadata};
 
 use std::{borrow::Cow, future::Future, pin::Pin};
 
@@ -18,6 +16,16 @@ use smtp_message::{Email, EnhancedReplyCode, EscapedDataReader, Reply, ReplyCode
 pub enum Decision {
     Accept,
     Reject(Reply<Cow<'static, str>>),
+}
+
+pub struct MailMetadata<U> {
+    pub user: U,
+    pub from: Option<Email>,
+    pub to: Vec<Email>,
+}
+
+pub struct ConnectionMetadata<U> {
+    pub user: U,
 }
 
 #[async_trait]
