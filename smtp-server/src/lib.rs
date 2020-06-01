@@ -1,18 +1,17 @@
 #![type_length_limit = "4194304"]
 
-extern crate bytes;
-extern crate futures;
-extern crate itertools;
-extern crate smtp_message;
-
 mod config;
 mod crlflines;
-mod decision;
 mod interact;
 mod metadata;
 mod sendreply;
 
 pub use config::Config;
-pub use decision::{Decision, Refusal};
 pub use interact::interact;
 pub use metadata::{ConnectionMetadata, MailMetadata};
+
+#[must_use]
+pub enum Decision {
+    Accept,
+    Reject(Reply<Cow<'static, str>>),
+}
