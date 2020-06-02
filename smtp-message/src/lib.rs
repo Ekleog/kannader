@@ -27,6 +27,8 @@ use nom::{
 use pin_project::pin_project;
 use regex_automata::{Regex, RegexBuilder, DFA};
 
+pub use nom;
+
 lazy_static! {
     static ref HOSTNAME_ASCII: Regex = RegexBuilder::new().anchored(true).build(
         r#"(?x)
@@ -169,13 +171,13 @@ impl MaybeUtf8<&str> {
 // thing
 impl<S> MaybeUtf8<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         iter::once(match self {
-            MaybeUtf8::Ascii(s) => IoSlice::new(s.as_ref()),
-            MaybeUtf8::Utf8(s) => IoSlice::new(s.as_ref()),
+            MaybeUtf8::Ascii(s) => IoSlice::new(s.as_ref().as_ref()),
+            MaybeUtf8::Utf8(s) => IoSlice::new(s.as_ref().as_ref()),
         })
     }
 }
@@ -286,11 +288,11 @@ impl<S> Hostname<S> {
 
 impl<S> Hostname<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        iter::once(IoSlice::new(self.raw().as_ref()))
+        iter::once(IoSlice::new(self.raw().as_ref().as_ref()))
     }
 }
 
@@ -393,11 +395,11 @@ impl<S> Localpart<S> {
 
 impl<S> Localpart<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        iter::once(IoSlice::new(self.raw().as_ref()))
+        iter::once(IoSlice::new(self.raw().as_ref().as_ref()))
     }
 }
 
@@ -479,7 +481,7 @@ impl<S> Email<S> {
 
 impl<S> Email<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     #[auto_enum]
@@ -524,7 +526,7 @@ impl<S> Path<S> {
 
 impl<S> Path<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
@@ -604,12 +606,12 @@ impl<S> ParameterName<S> {
 
 impl<S> ParameterName<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         iter::once(IoSlice::new(match self {
-            ParameterName::Other(s) => s.as_ref(),
+            ParameterName::Other(s) => s.as_ref().as_ref(),
         }))
     }
 }
@@ -673,7 +675,7 @@ impl<S> Parameters<S> {
 
 impl<S> Parameters<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     #[auto_enum]
@@ -877,7 +879,7 @@ impl<S> Command<S> {
 
 impl<S> Command<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[auto_enum(Iterator)]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
@@ -1715,11 +1717,11 @@ impl<S> EnhancedReplyCode<S> {
 
 impl<S> EnhancedReplyCode<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
-        iter::once(IoSlice::new(self.raw.as_ref()))
+        iter::once(IoSlice::new(self.raw.as_ref().as_ref()))
     }
 }
 
@@ -1785,7 +1787,7 @@ fn line_as_io_slices<'a, S>(
     text: &'a MaybeUtf8<S>,
 ) -> impl 'a + Iterator<Item = IoSlice<'a>>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     let is_last_char = match last {
         true => b" ",
@@ -1804,7 +1806,7 @@ where
 
 impl<S> ReplyLine<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
@@ -1854,7 +1856,7 @@ impl<S> Reply<S> {
 
 impl<S> Reply<S>
 where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
 {
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
