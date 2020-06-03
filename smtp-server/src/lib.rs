@@ -1,4 +1,5 @@
 #![feature(io_slice_advance)]
+#![type_length_limit = "200000000"]
 
 use std::{
     borrow::Cow,
@@ -382,5 +383,320 @@ where
                 send_reply!(io, cfg.command_unimplemented()).await?;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        self, str,
+        sync::{Arc, Mutex},
+    };
+
+    use async_trait::async_trait;
+    use duplexify::Duplex;
+    use futures::{executor, io::Cursor};
+
+    /// Used as `println!("{:?}", show_bytes(b))`
+    fn show_bytes(b: &[u8]) -> String {
+        if b.len() > 128 {
+            "{too long}".into()
+        } else if let Ok(s) = str::from_utf8(b) {
+            s.into()
+        } else {
+            format!("{:?}", b)
+        }
+    }
+
+    struct TestConfig {
+        mails: Arc<Mutex<Vec<(Option<Email>, Vec<Email>, Vec<u8>)>>>,
+    }
+
+    #[async_trait]
+    impl Config for TestConfig {
+        type ConnectionUserMeta = ();
+        type MailUserMeta = ();
+
+        fn hostname(&self) -> Cow<'static, str> {
+            "test.example.org".into()
+        }
+
+        async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
+
+        async fn filter_from(
+            &self,
+            addr: &mut Option<Email<&str>>,
+            _meta: &mut MailMetadata<()>,
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision {
+            // TODO: have a helper function for the Email::parse_until that just works(tm)
+            // for uses such as this one
+            if *addr == Some(Email::parse_bracketed(b"<bad@quux.example.org>").unwrap()) {
+                Decision::Reject(Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["User 'bad' banned".into()],
+                })
+            } else {
+                Decision::Accept
+            }
+        }
+
+        async fn filter_to(
+            &self,
+            email: &mut Email<&str>,
+            _meta: &mut MailMetadata<()>,
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision {
+            if *email.localpart.raw() == "baz" {
+                Decision::Reject(Reply {
+                    code: ReplyCode::MAILBOX_UNAVAILABLE,
+                    ecode: None,
+                    text: vec!["No user 'baz'".into()],
+                })
+            } else {
+                Decision::Accept
+            }
+        }
+
+        fn handle_mail<'a, 'b, R>(
+            &'a self,
+            reader: &'a mut EscapedDataReader<'b, R>,
+            meta: MailMetadata<()>,
+            _conn_meta: &'a mut ConnectionMetadata<()>,
+        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+        where
+            'b: 'a,
+            R: 'a + Send + Unpin + AsyncRead,
+        {
+            Box::pin(async move {
+                let mut mail_text = Vec::new();
+                if reader.read_to_end(&mut mail_text).await.is_err() {
+                    Decision::Reject(Reply {
+                        code: ReplyCode::BAD_SEQUENCE,
+                        ecode: None,
+                        text: vec!["Closed the channel before end of message".into()],
+                    })
+                } else if mail_text.windows(5).position(|x| x == b"World").is_some() {
+                    Decision::Reject(Reply {
+                        code: ReplyCode::POLICY_REASON,
+                        ecode: None,
+                        text: vec!["Don't you dare say 'World'!".into()],
+                    })
+                } else {
+                    self.mails
+                        .lock()
+                        .expect("failed to load mutex")
+                        .push((meta.from, meta.to, mail_text));
+                    Decision::Accept
+                }
+            })
+        }
+    }
+
+    #[test]
+    fn interacts_ok() {
+        let tests: &[(&[u8], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
+            (
+                b"MAIL FROM:<>\r\n\
+                  RCPT TO:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  RCPT TO:<foo3@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello world\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
+                  550 No user 'baz'\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
+                  250 Okay\r\n\
+                  502 Command not implemented\r\n",
+                &[(
+                    None,
+                    &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
+                    b"Hello world\r\n",
+                )],
+            ),
+            (
+                b"MAIL FROM:<test@example.org>\r\n\
+                  RCPT TO:<foo@example.org>\r\n\
+                  DATA\r\n\
+                  Hello World\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
+                  250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
+                  550 Don't you dare say 'World'!\r\n\
+                  502 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                b"HELP hello\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  502 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                b"MAIL FROM:<bad@quux.example.org>\r\n\
+                  MAIL FROM:<foo@bar.example.org>\r\n\
+                  MAIL FROM:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  550 User 'bad' banned\r\n\
+                  250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  250 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
+                  250 Okay\r\n\
+                  502 Command not implemented\r\n",
+                &[(
+                    Some(b"foo@bar.example.org"),
+                    &[b"foo2@bar.example.org"],
+                    b"Hello\r\n",
+                )],
+            ),
+            (
+                b"MAIL FROM:<foo@test.example.com>\r\n\
+                  DATA\r\n\
+                  QUIT\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n\
+                  503 Bad sequence of commands\r\n\
+                  502 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                b"MAIL FROM:<foo@test.example.com>\r\n\
+                  RCPT TO:<foo@bar.example.org>\r",
+                b"220 test.example.org Service ready\r\n\
+                  250 Okay\r\n",
+                &[],
+            ),
+        ];
+        for &(inp, out, mail) in tests {
+            println!("\nSending: {:?}", show_bytes(inp));
+            let resp_mail = Arc::new(Mutex::new(Vec::new()));
+            let cfg = TestConfig {
+                mails: resp_mail.clone(),
+            };
+            let mut resp = Vec::new();
+            let io = Duplex::new(Cursor::new(inp), Cursor::new(&mut resp));
+            executor::block_on(interact(io, (), &cfg)).unwrap();
+
+            println!("Expecting: {:?}", show_bytes(out));
+            println!("Got      : {:?}", show_bytes(&resp));
+            assert_eq!(resp, out);
+
+            println!("Checking mails:");
+            drop(cfg);
+            let resp_mail = Arc::try_unwrap(resp_mail).unwrap().into_inner().unwrap();
+            assert_eq!(resp_mail.len(), mail.len());
+            for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
+                println!("Mail\n---");
+
+                println!("From: expected {:?}, got {:?}", fo, fr);
+                assert_eq!(fo.map(|e| Email::parse_bracketed(e).unwrap()), fr);
+
+                println!("To: expected {:?}, got {:?}", to, tr);
+                assert_eq!(
+                    to.iter()
+                        .map(|e| Email::parse_bracketed(e).unwrap())
+                        .collect::<Vec<_>>(),
+                    tr
+                );
+
+                println!("Expected text: {:?}", show_bytes(co));
+                println!("Got text     : {:?}", show_bytes(&cr));
+                assert_eq!(co, &cr[..]);
+            }
+        }
+    }
+
+    // Fuzzer-found
+    #[test]
+    fn interrupted_data() {
+        let txt: &[u8] = b"MAIL FROM:foo\r\n\
+                           RCPT TO:bar\r\n\
+                           DATA\r\n\
+                           hello";
+        let cfg = TestConfig {
+            mails: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut resp = Vec::new();
+        let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
+        executor::block_on(interact(io, (), &cfg)).unwrap();
+    }
+
+    // Fuzzer-found
+    #[test]
+    fn no_stack_overflow() {
+        let txt: &[u8] =
+            b"\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
+              \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r";
+        let cfg = TestConfig {
+            mails: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut resp = Vec::new();
+        let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
+        executor::block_on(interact(io, (), &cfg)).unwrap();
     }
 }
