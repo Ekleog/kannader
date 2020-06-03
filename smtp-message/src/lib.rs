@@ -329,6 +329,28 @@ impl<S: Eq + PartialEq> Hostname<S> {
     }
 }
 
+impl Hostname<&str> {
+    pub fn to_owned(self) -> Hostname<String> {
+        match self {
+            Hostname::Utf8Domain { raw, punycode } => Hostname::Utf8Domain {
+                raw: (*raw).to_owned(),
+                punycode,
+            },
+            Hostname::AsciiDomain { raw } => Hostname::AsciiDomain {
+                raw: (*raw).to_owned(),
+            },
+            Hostname::Ipv4 { raw, ip } => Hostname::Ipv4 {
+                raw: (*raw).to_owned(),
+                ip,
+            },
+            Hostname::Ipv6 { raw, ip } => Hostname::Ipv6 {
+                raw: (*raw).to_owned(),
+                ip,
+            },
+        }
+    }
+}
+
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -449,6 +471,25 @@ where
     }
 }
 
+impl Localpart<&str> {
+    pub fn to_owned(&self) -> Localpart<String> {
+        match self {
+            Localpart::Ascii { raw } => Localpart::Ascii {
+                raw: (*raw).to_owned(),
+            },
+            Localpart::Utf8 { raw } => Localpart::Utf8 {
+                raw: (*raw).to_owned(),
+            },
+            Localpart::QuotedAscii { raw } => Localpart::QuotedAscii {
+                raw: (*raw).to_owned(),
+            },
+            Localpart::QuotedUtf8 { raw } => Localpart::QuotedUtf8 {
+                raw: (*raw).to_owned(),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Email<S = String> {
     pub localpart: Localpart<S>,
@@ -492,6 +533,15 @@ where
             None => iter::empty(),
         };
         self.localpart.as_io_slices().chain(hostname)
+    }
+}
+
+impl Email<&str> {
+    pub fn to_owned(self) -> Email<String> {
+        Email {
+            localpart: self.localpart.to_owned(),
+            hostname: self.hostname.map(|h| h.to_owned()),
+        }
     }
 }
 
