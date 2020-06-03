@@ -5,7 +5,6 @@ use std::{
     cmp,
     future::Future,
     io::{self, IoSlice},
-    ops::Range,
     pin::Pin,
 };
 
@@ -77,13 +76,14 @@ pub trait Config: Send + Sync {
     /// Note: the EscapedDataReader has an inner buffer size of
     /// [`RDBUF_SIZE`](RDBUF_SIZE), which means that reads should not happen
     /// with more than this buffer size.
-    fn handle_mail<'a, R>(
+    fn handle_mail<'a, 'b, R>(
         &'a self,
-        stream: &'a mut EscapedDataReader<'a, R>,
+        stream: &'a mut EscapedDataReader<'b, R>,
         meta: MailMetadata<Self::MailUserMeta>,
         conn_meta: &'a mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
     where
+        'b: 'a,
         R: 'a + Send + Unpin + AsyncRead;
 
     fn hostname(&self) -> Cow<'static, str>;
@@ -210,7 +210,7 @@ where
     Cfg: Config,
 {
     pin_mut!(io);
-    let mut rdbuf = &mut [0; RDBUF_SIZE];
+    let rdbuf = &mut [0; RDBUF_SIZE];
     let mut unhandled = 0..0;
     // TODO: should have a wrslices: Vec<IoSlice> here, so that we don't allocate
     // for each write, but it looks like the API for reusing a Vec's backing
