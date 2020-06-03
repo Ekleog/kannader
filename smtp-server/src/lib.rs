@@ -51,14 +51,14 @@ pub trait Config: Send + Sync {
 
     async fn filter_from(
         &self,
-        from: &mut Option<Email>,
+        from: &mut Option<Email<&str>>,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision;
 
     async fn filter_to(
         &self,
-        to: &mut Email,
+        to: &mut Email<&str>,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision;
@@ -194,23 +194,10 @@ where
     Ok(())
 }
 
-struct State<'a, IO, Cfg>
-where
-    Cfg: Config,
-    IO: AsyncRead + AsyncWrite,
-{
-    cfg: &'a Cfg,
-    io: Pin<&'a mut IO>,
-    rdbuf: &'a mut [u8; RDBUF_SIZE],
-    unhandled: Range<usize>,
-    // TODO: should have a wrslices: Vec<IoSlice> here, so that we don't allocate for each write,
-    // but it looks like the API for reusing a Vec's backing allocation isn't ready yet and
-    // IoSlice's lifetime is going to make this impossible. Maybe this would require writing a
-    // crate that allows such vec storage recycling, as there doesn't appear to be any on
-    // crates.io. Having the wrslices would allow us to avoid all the allocations at each
-    // .collect()
-    conn_meta: ConnectionMetadata<Cfg::ConnectionUserMeta>,
-    mail_meta: Option<MailMetadata<Cfg::MailUserMeta>>,
+macro_rules! send_reply {
+    ($writer:expr, $reply:expr) => {
+        write_vectored_all(&mut $writer, &mut $reply.as_io_slices().collect::<Vec<_>>())
+    };
 }
 
 pub async fn interact<IO, Cfg>(
@@ -219,67 +206,180 @@ pub async fn interact<IO, Cfg>(
     cfg: &Cfg,
 ) -> io::Result<()>
 where
-    IO: AsyncRead + AsyncWrite,
+    IO: Send + AsyncRead + AsyncWrite,
     Cfg: Config,
 {
     pin_mut!(io);
-    let mut st = State {
-        cfg,
-        io,
-        rdbuf: &mut [0; RDBUF_SIZE],
-        unhandled: 0..0,
-        conn_meta: ConnectionMetadata { user: metadata },
-        mail_meta: None,
-    };
+    let mut rdbuf = &mut [0; RDBUF_SIZE];
+    let mut unhandled = 0..0;
+    // TODO: should have a wrslices: Vec<IoSlice> here, so that we don't allocate
+    // for each write, but it looks like the API for reusing a Vec's backing
+    // allocation isn't ready yet and IoSlice's lifetime is going to make this
+    // impossible. Maybe this would require writing a crate that allows such vec
+    // storage recycling, as there doesn't appear to be any on crates.io. Having
+    // the wrslices would allow us to avoid all the allocations at each
+    // .collect() (present in `send_reply()`)
+    let mut conn_meta = ConnectionMetadata { user: metadata };
+    let mut mail_meta = None;
 
-    write_vectored_all(
-        &mut st.io,
-        &mut st.cfg.welcome_banner().as_io_slices().collect::<Vec<_>>(),
-    )
-    .await?;
+    send_reply!(io, cfg.welcome_banner()).await?;
 
     loop {
-        if st.unhandled.len() == 0 {
-            st.unhandled = 0..st.io.read(st.rdbuf).await?;
+        if unhandled.len() == 0 {
+            unhandled = 0..io.read(rdbuf).await?;
         }
 
-        match Command::<&str>::parse(&st.rdbuf[st.unhandled.clone()]) {
+        let cmd = match Command::<&str>::parse(&rdbuf[unhandled.clone()]) {
             Err(nom::Err::Incomplete(n)) => {
                 // Don't have enough data to handle command, let's fetch more
-                if st.unhandled.start != 0 {
+                if unhandled.start != 0 {
                     // Do we have to copy the data to the beginning of the buffer?
                     let missing = match n {
                         nom::Needed::Unknown => MINIMUM_FREE_BUFSPACE,
                         nom::Needed::Size(s) => cmp::max(MINIMUM_FREE_BUFSPACE, s),
                     };
-                    if missing > st.rdbuf.len() - st.unhandled.end {
-                        st.rdbuf.copy_within(st.unhandled.clone(), 0);
-                        st.unhandled.end = st.unhandled.len();
-                        st.unhandled.start = 0;
+                    if missing > rdbuf.len() - unhandled.end {
+                        rdbuf.copy_within(unhandled.clone(), 0);
+                        unhandled.end = unhandled.len();
+                        unhandled.start = 0;
                     }
                 }
-                if st.unhandled.end == st.rdbuf.len() {
+                if unhandled.end == rdbuf.len() {
                     // If we reach here, it means that unhandled is already
                     // basically the full buffer. Which means that we have to
                     // error out that the line is too long.
                     // TODO: error out only when the \r\n is received, and allow the communication
                     // to continue
-                    write_vectored_all(
-                        &mut st.io,
-                        &mut st.cfg.line_too_long().as_io_slices().collect::<Vec<_>>(),
-                    )
-                    .await?;
-                    return Ok(());
+                    send_reply!(io, cfg.line_too_long()).await?;
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "received too long line",
+                    ));
                 }
-                st.unhandled.end += st.io.read(&mut st.rdbuf[st.unhandled.end..]).await?;
+                unhandled.end += io.read(&mut rdbuf[unhandled.end..]).await?;
+                None
             }
             Err(_) => {
                 // Syntax error
-                unimplemented!()
+                // TODO: error out only when the \r\n is received, and allow the
+                // communication to continue
+                send_reply!(io, cfg.command_unrecognized()).await?;
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "received invalid command",
+                ));
             }
             Ok((rem, cmd)) => {
                 // Got a command
-                unimplemented!()
+                unhandled.start = unhandled.end - rem.len();
+                Some(cmd)
+            }
+        };
+
+        // This match is really just to avoid too much rightwards drift, otherwise it
+        // could have been included directly in the Ok((rem, cmd)) branch above.
+        // Unfortunately we can't make it a function, because `cmd` borrows `rdbuf`, and
+        // we need to use `rdbuf` in the `Command::Data` branch here
+        match cmd {
+            None => (),
+
+            Some(Command::Mail {
+                path: _path,
+                mut email,
+                params: _params,
+            }) => match mail_meta {
+                Some(_) => {
+                    send_reply!(io, cfg.already_in_mail()).await?;
+                }
+                None => {
+                    let mut mail_metadata = MailMetadata {
+                        user: cfg.new_mail(&mut conn_meta).await,
+                        from: None,
+                        to: Vec::with_capacity(4),
+                    };
+                    match cfg
+                        .filter_from(&mut email, &mut mail_metadata, &mut conn_meta)
+                        .await
+                    {
+                        Decision::Reject(r) => {
+                            send_reply!(io, r).await?;
+                        }
+                        Decision::Accept => {
+                            mail_metadata.from = email.map(|e| e.to_owned());
+                            mail_meta = Some(mail_metadata);
+                            send_reply!(io, cfg.mail_okay()).await?;
+                        }
+                    }
+                }
+            },
+
+            Some(Command::Rcpt {
+                path: _path,
+                mut email,
+                params: _params,
+            }) => match mail_meta {
+                None => {
+                    send_reply!(io, cfg.rcpt_before_mail()).await?;
+                }
+                Some(ref mut mail_meta_unw) => {
+                    match cfg
+                        .filter_to(&mut email, mail_meta_unw, &mut conn_meta)
+                        .await
+                    {
+                        Decision::Reject(r) => {
+                            send_reply!(io, r).await?;
+                        }
+                        Decision::Accept => {
+                            mail_meta_unw.to.push(email.to_owned());
+                            send_reply!(io, cfg.rcpt_okay()).await?;
+                        }
+                    }
+                }
+            },
+
+            Some(Command::Data) => match mail_meta.take() {
+                None => {
+                    send_reply!(io, cfg.data_before_mail()).await?;
+                }
+                Some(ref mail_meta_unw) if mail_meta_unw.to.is_empty() => {
+                    send_reply!(io, cfg.data_before_rcpt()).await?;
+                }
+                Some(mut mail_meta_unw) => {
+                    match cfg.filter_data(&mut mail_meta_unw, &mut conn_meta).await {
+                        Decision::Reject(r) => {
+                            mail_meta = Some(mail_meta_unw);
+                            send_reply!(io, r).await?;
+                        }
+                        Decision::Accept => {
+                            send_reply!(io, cfg.data_okay()).await?;
+                            let mut reader =
+                                EscapedDataReader::new(rdbuf, unhandled.clone(), &mut io);
+                            let decision = cfg
+                                .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta)
+                                .await;
+                            // TODO: unhandled = reader.complete();
+                            match decision {
+                                Decision::Accept => {
+                                    send_reply!(io, cfg.mail_accepted()).await?;
+                                }
+                                Decision::Reject(r) => {
+                                    send_reply!(io, r).await?;
+                                    // Other mail systems (at least postfix,
+                                    // OpenSMTPD and gmail) appear to drop the
+                                    // state on an unsuccessful DATA command
+                                    // (eg. too long, non-RFC5322-compliant,
+                                    // etc.). Couldn't find the RFC reference
+                                    // anywhere, though.
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+
+            Some(_) => {
+                // TODO: this probably shouldn't be required
+                send_reply!(io, cfg.command_unimplemented()).await?;
             }
         }
     }
