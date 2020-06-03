@@ -518,6 +518,25 @@ impl<S> Email<S> {
             },
         )
     }
+
+    // TODO: test parse_bracketed?
+    #[inline]
+    pub fn parse_bracketed<'a>(
+        buf: &'a [u8],
+    ) -> Result<Email<S>, nom::Err<(&'a [u8], nom::error::ErrorKind)>>
+    where
+        S: From<&'a str>,
+    {
+        match preceded(
+            tag(b"<"),
+            terminated(Email::parse_until(b">", b"@>"), tag(b">")),
+        )(buf)
+        {
+            Err(e) => Err(e),
+            Ok((&[], r)) => Ok(r),
+            Ok((rem, _)) => Err(nom::Err::Failure((rem, nom::error::ErrorKind::TooLarge))),
+        }
+    }
 }
 
 impl<S> Email<S>
