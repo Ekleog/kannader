@@ -6,6 +6,7 @@ use std::{
     cmp,
     future::Future,
     io::{self, IoSlice},
+    ops::Range,
     pin::Pin,
 };
 
@@ -15,7 +16,8 @@ use futures::{
     pin_mut,
 };
 use smtp_message::{
-    nom, Command, Email, EnhancedReplyCode, EscapedDataReader, MaybeUtf8, Reply, ReplyCode,
+    next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, MaybeUtf8, NextCrLfState,
+    Reply, ReplyCode,
 };
 
 pub const RDBUF_SIZE: usize = 16 * 1024;
@@ -201,6 +203,32 @@ macro_rules! send_reply {
     };
 }
 
+async fn advance_until_crlf<R>(
+    r: &mut R,
+    buf: &mut [u8],
+    unhandled: &mut Range<usize>,
+) -> io::Result<()>
+where
+    R: Unpin + AsyncRead,
+{
+    let mut state = NextCrLfState::Start;
+    loop {
+        if let Some(p) = next_crlf(&buf[unhandled.clone()], &mut state) {
+            unhandled.start += p + 1;
+            return Ok(());
+        } else {
+            let read = r.read(buf).await?;
+            if read == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "connection shutdown while waiting for crlf after invalid command",
+                ));
+            }
+            *unhandled = 0..read;
+        }
+    }
+}
+
 pub async fn interact<IO, Cfg>(
     io: IO,
     metadata: Cfg::ConnectionUserMeta,
@@ -228,6 +256,9 @@ where
     loop {
         if unhandled.len() == 0 {
             unhandled = 0..io.read(rdbuf).await?;
+            if unhandled.len() == 0 {
+                return Ok(());
+            }
         }
 
         let cmd = match Command::<&str>::parse(&rdbuf[unhandled.clone()]) {
@@ -249,26 +280,25 @@ where
                     // If we reach here, it means that unhandled is already
                     // basically the full buffer. Which means that we have to
                     // error out that the line is too long.
-                    // TODO: error out only when the \r\n is received, and allow the communication
-                    // to continue
+                    advance_until_crlf(&mut io, rdbuf, &mut unhandled).await?;
                     send_reply!(io, cfg.line_too_long()).await?;
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "received too long line",
-                    ));
+                } else {
+                    let read = io.read(&mut rdbuf[unhandled.end..]).await?;
+                    if read == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            "connection shutdown with partial command",
+                        ));
+                    }
+                    unhandled.end += read;
                 }
-                unhandled.end += io.read(&mut rdbuf[unhandled.end..]).await?;
                 None
             }
             Err(_) => {
                 // Syntax error
-                // TODO: error out only when the \r\n is received, and allow the
-                // communication to continue
+                advance_until_crlf(&mut io, rdbuf, &mut unhandled).await?;
                 send_reply!(io, cfg.command_unrecognized()).await?;
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "received invalid command",
-                ));
+                None
             }
             Ok((rem, cmd)) => {
                 // Got a command
@@ -358,7 +388,7 @@ where
                             let decision = cfg
                                 .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta)
                                 .await;
-                            // TODO: unhandled = reader.complete();
+                            unhandled = reader.complete();
                             match decision {
                                 Decision::Accept => {
                                     send_reply!(io, cfg.mail_accepted()).await?;
@@ -399,9 +429,9 @@ mod tests {
     use futures::{executor, io::Cursor};
 
     /// Used as `println!("{:?}", show_bytes(b))`
-    fn show_bytes(b: &[u8]) -> String {
-        if b.len() > 128 {
-            "{too long}".into()
+    pub fn show_bytes(b: &[u8]) -> String {
+        if b.len() > 512 {
+            format!("{{too long, size = {}}}", b.len())
         } else if let Ok(s) = str::from_utf8(b) {
             s.into()
         } else {
@@ -508,17 +538,17 @@ mod tests {
                   .\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
-                  250 Okay\r\n\
+                  250 2.0.0 Okay\r\n\
                   550 No user 'baz'\r\n\
-                  250 Okay\r\n\
-                  250 Okay\r\n\
+                  250 2.1.5 Okay\r\n\
+                  250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
-                  250 Okay\r\n\
-                  502 Command not implemented\r\n",
+                  250 2.0.0 Okay\r\n\
+                  502 5.5.1 Command not implemented\r\n",
                 &[(
                     None,
-                    &[b"foo2@bar.example.org", b"foo3@bar.example.org"],
-                    b"Hello world\r\n",
+                    &[b"<foo2@bar.example.org>", b"<foo3@bar.example.org>"],
+                    b"Hello world\r\n.\r\n",
                 )],
             ),
             (
@@ -529,17 +559,17 @@ mod tests {
                   .\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
-                  250 Okay\r\n\
-                  250 Okay\r\n\
+                  250 2.0.0 Okay\r\n\
+                  250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   550 Don't you dare say 'World'!\r\n\
-                  502 Command not implemented\r\n",
+                  502 5.5.1 Command not implemented\r\n",
                 &[],
             ),
             (
                 b"HELP hello\r\n",
                 b"220 test.example.org Service ready\r\n\
-                  502 Command not implemented\r\n",
+                  502 5.5.1 Command not implemented\r\n",
                 &[],
             ),
             (
@@ -553,16 +583,16 @@ mod tests {
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
                   550 User 'bad' banned\r\n\
-                  250 Okay\r\n\
-                  503 Bad sequence of commands\r\n\
-                  250 Okay\r\n\
+                  250 2.0.0 Okay\r\n\
+                  503 5.5.1 Bad sequence of commands\r\n\
+                  250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
-                  250 Okay\r\n\
-                  502 Command not implemented\r\n",
+                  250 2.0.0 Okay\r\n\
+                  502 5.5.1 Command not implemented\r\n",
                 &[(
-                    Some(b"foo@bar.example.org"),
-                    &[b"foo2@bar.example.org"],
-                    b"Hello\r\n",
+                    Some(b"<foo@bar.example.org>"),
+                    &[b"<foo2@bar.example.org>"],
+                    b"Hello\r\n.\r\n",
                 )],
             ),
             (
@@ -570,16 +600,27 @@ mod tests {
                   DATA\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
-                  250 Okay\r\n\
-                  503 Bad sequence of commands\r\n\
-                  502 Command not implemented\r\n",
+                  250 2.0.0 Okay\r\n\
+                  503 5.5.1 Bad sequence of commands\r\n\
+                  502 5.5.1 Command not implemented\r\n",
                 &[],
             ),
             (
                 b"MAIL FROM:<foo@test.example.com>\r\n\
-                  RCPT TO:<foo@bar.example.org>\r",
+                  RCPT TO:<foo@bar.example.org>\r\n",
                 b"220 test.example.org Service ready\r\n\
-                  250 Okay\r\n",
+                  250 2.0.0 Okay\r\n\
+                  250 2.1.5 Okay\r\n",
+                &[],
+            ),
+            (
+                b"MAIL FROM:<foo@test.example.com>\r\n\
+                  THISISNOTACOMMAND\r\n\
+                  RCPT TO:<foo@bar.example.org>\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 2.0.0 Okay\r\n\
+                  500 5.5.1 Command not recognized\r\n\
+                  250 2.1.5 Okay\r\n",
                 &[],
             ),
         ];
@@ -607,13 +648,12 @@ mod tests {
                 println!("From: expected {:?}, got {:?}", fo, fr);
                 assert_eq!(fo.map(|e| Email::parse_bracketed(e).unwrap()), fr);
 
+                let to = to
+                    .iter()
+                    .map(|e| Email::parse_bracketed(e).unwrap())
+                    .collect::<Vec<_>>();
                 println!("To: expected {:?}, got {:?}", to, tr);
-                assert_eq!(
-                    to.iter()
-                        .map(|e| Email::parse_bracketed(e).unwrap())
-                        .collect::<Vec<_>>(),
-                    tr
-                );
+                assert_eq!(to, tr);
 
                 println!("Expected text: {:?}", show_bytes(co));
                 println!("Got text     : {:?}", show_bytes(&cr));
