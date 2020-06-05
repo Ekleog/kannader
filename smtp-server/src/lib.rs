@@ -4,10 +4,8 @@
 use std::{
     borrow::Cow,
     cmp,
-    future::Future,
     io::{self, IoSlice},
     ops::Range,
-    pin::Pin,
 };
 
 use async_trait::async_trait;
@@ -79,15 +77,14 @@ pub trait Config: Send + Sync {
     /// Note: the EscapedDataReader has an inner buffer size of
     /// [`RDBUF_SIZE`](RDBUF_SIZE), which means that reads should not happen
     /// with more than this buffer size.
-    fn handle_mail<'a, 'b, R>(
-        &'a self,
-        stream: &'a mut EscapedDataReader<'b, R>,
+    async fn handle_mail<'a, R>(
+        &self,
+        stream: &mut EscapedDataReader<'a, R>,
         meta: MailMetadata<Self::MailUserMeta>,
-        conn_meta: &'a mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision
     where
-        'b: 'a,
-        R: 'a + Send + Unpin + AsyncRead;
+        R: Send + Unpin + AsyncRead;
 
     fn hostname(&self) -> Cow<'static, str>;
 
@@ -516,46 +513,43 @@ mod tests {
             }
         }
 
-        fn handle_mail<'a, 'b, R>(
-            &'a self,
-            reader: &'a mut EscapedDataReader<'b, R>,
+        async fn handle_mail<'a, R>(
+            &self,
+            reader: &mut EscapedDataReader<'a, R>,
             meta: MailMetadata<()>,
-            _conn_meta: &'a mut ConnectionMetadata<()>,
-        ) -> Pin<Box<dyn 'a + Future<Output = Decision>>>
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision
         where
-            'b: 'a,
-            R: 'a + Send + Unpin + AsyncRead,
+            R: Send + Unpin + AsyncRead,
         {
-            Box::pin(async move {
-                let mut mail_text = Vec::new();
-                let res = reader.read_to_end(&mut mail_text).await;
-                if !reader.is_finished() {
-                    // Note: this is a stupid buggy implementation.
-                    // But it allows us to test more code in
-                    // interrupted_data.
-                    return Decision::Accept;
-                }
-                reader.complete();
-                if res.is_err() {
-                    Decision::Reject(Reply {
-                        code: ReplyCode::BAD_SEQUENCE,
-                        ecode: None,
-                        text: vec!["Closed the channel before end of message".into()],
-                    })
-                } else if mail_text.windows(5).position(|x| x == b"World").is_some() {
-                    Decision::Reject(Reply {
-                        code: ReplyCode::POLICY_REASON,
-                        ecode: None,
-                        text: vec!["Don't you dare say 'World'!".into()],
-                    })
-                } else {
-                    self.mails
-                        .lock()
-                        .expect("failed to load mutex")
-                        .push((meta.from, meta.to, mail_text));
-                    Decision::Accept
-                }
-            })
+            let mut mail_text = Vec::new();
+            let res = reader.read_to_end(&mut mail_text).await;
+            if !reader.is_finished() {
+                // Note: this is a stupid buggy implementation.
+                // But it allows us to test more code in
+                // interrupted_data.
+                return Decision::Accept;
+            }
+            reader.complete();
+            if res.is_err() {
+                Decision::Reject(Reply {
+                    code: ReplyCode::BAD_SEQUENCE,
+                    ecode: None,
+                    text: vec!["Closed the channel before end of message".into()],
+                })
+            } else if mail_text.windows(5).position(|x| x == b"World").is_some() {
+                Decision::Reject(Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["Don't you dare say 'World'!".into()],
+                })
+            } else {
+                self.mails
+                    .lock()
+                    .expect("failed to load mutex")
+                    .push((meta.from, meta.to, mail_text));
+                Decision::Accept
+            }
         }
     }
 
