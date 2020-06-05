@@ -19,6 +19,7 @@ enum EscapedDataReaderState {
     CrLfDot,
     CrLfDotCr,
     End,
+    Completed,
 }
 
 /// `AsyncRead` instance that returns an unescaped `DATA` stream.
@@ -46,6 +47,7 @@ impl<'a, R> EscapedDataReader<'a, R>
 where
     R: AsyncRead,
 {
+    #[inline]
     pub fn new(buf: &'a mut [u8], unhandled: Range<usize>, read: R) -> Self {
         EscapedDataReader {
             buf,
@@ -55,12 +57,35 @@ where
         }
     }
 
-    /// Asserts that the full message has been read, then returns the range of
-    /// data in the `buf` passed to `new` that contains data that hasn't been
-    /// handled yet (ie. what followed the end-of-data marker)
-    pub fn complete(&self) -> Range<usize> {
-        assert_eq!(self.state, EscapedDataReaderState::End);
-        self.unhandled.clone()
+    /// Returns `true` iff the message has been successfully streamed
+    /// to completion
+    #[inline]
+    pub fn is_finished(&self) -> bool {
+        self.state == EscapedDataReaderState::End || self.state == EscapedDataReaderState::Completed
+    }
+
+    /// Asserts that the full message has been read, then marks this
+    /// reader as complete. Note that this should be called only once
+    /// the stream has been successfully saved, as subsequent users
+    /// will assume that a completed stream means that the email has
+    /// entered the queue.
+    #[inline]
+    pub fn complete(&mut self) {
+        assert!(self.is_finished());
+        self.state = EscapedDataReaderState::Completed;
+    }
+
+    /// Returns the range of data in the `buf` passed to `new` that
+    /// contains data that hasn't been handled yet (ie. what followed
+    /// the end-of-data marker) if `complete()` has been called, and
+    /// `None` otherwise.
+    #[inline]
+    pub fn get_unhandled(&self) -> Option<Range<usize>> {
+        if self.state == EscapedDataReaderState::Completed {
+            Some(self.unhandled.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -81,12 +106,12 @@ where
         cx: &mut Context,
         bufs: &mut [IoSliceMut],
     ) -> Poll<io::Result<usize>> {
-        let this = self.project();
-
         // If we have already finished, return early
-        if *this.state == EscapedDataReaderState::End {
+        if self.is_finished() {
             return Poll::Ready(Ok(0));
         }
+
+        let this = self.project();
 
         // First, fill the bufs with incoming data
         let raw_size = {
@@ -517,6 +542,7 @@ mod tests {
                 );
                 res_out.extend_from_slice(&enclosed_buf[..r]);
             }
+            data_reader.complete();
             println!(
                 "total out is: {:?}, hoping for: {:?}",
                 show_bytes(&res_out),
@@ -524,7 +550,7 @@ mod tests {
             );
             assert_eq!(&res_out[..], out);
 
-            let unhandled = data_reader.complete();
+            let unhandled = data_reader.get_unhandled().unwrap();
             let mut res_rem = Vec::<u8>::new();
             res_rem.extend_from_slice(&surrounding_buf[unhandled]);
 

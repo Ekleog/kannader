@@ -162,7 +162,8 @@ pub mod fuzz {
                 i += 1;
             }
             // println!("  Exiting the loop");
-            assert!(reader.complete().len() == 0);
+            reader.complete();
+            assert!(reader.get_unhandled().unwrap().len() == 0);
         }
 
         // println!("Checking that the output matches");
