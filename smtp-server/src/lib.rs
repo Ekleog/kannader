@@ -180,6 +180,14 @@ pub trait Config: Send + Sync {
             text: vec![MaybeUtf8::Utf8("Line too long".into())],
         }
     }
+
+    fn handle_mail_did_not_call_complete(&self) -> Reply<Cow<'static, str>> {
+        Reply {
+            code: ReplyCode::LOCAL_ERROR,
+            ecode: Some(EnhancedReplyCode::TRANSIENT_SYSTEM_INCORRECTLY_CONFIGURED.into()),
+            text: vec![MaybeUtf8::Utf8("System incorrectly configured".into())],
+        }
+    }
 }
 
 // TODO: upstream in AsyncWriteExt?
@@ -220,7 +228,7 @@ where
             let read = r.read(buf).await?;
             if read == 0 {
                 return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
+                    io::ErrorKind::ConnectionAborted,
                     "connection shutdown while waiting for crlf after invalid command",
                 ));
             }
@@ -286,7 +294,7 @@ where
                     let read = io.read(&mut rdbuf[unhandled.end..]).await?;
                     if read == 0 {
                         return Err(io::Error::new(
-                            io::ErrorKind::BrokenPipe,
+                            io::ErrorKind::ConnectionAborted,
                             "connection shutdown with partial command",
                         ));
                     }
@@ -388,20 +396,38 @@ where
                             let decision = cfg
                                 .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta)
                                 .await;
-                            unhandled = reader.complete();
-                            match decision {
-                                Decision::Accept => {
-                                    send_reply!(io, cfg.mail_accepted()).await?;
+                            if let Some(u) = reader.get_unhandled() {
+                                unhandled = u;
+                                match decision {
+                                    Decision::Accept => {
+                                        send_reply!(io, cfg.mail_accepted()).await?;
+                                    }
+                                    Decision::Reject(r) => {
+                                        send_reply!(io, r).await?;
+                                        // Other mail systems (at least postfix,
+                                        // OpenSMTPD and gmail) appear to drop
+                                        // the state on an unsuccessful DATA
+                                        // command (eg. too long,
+                                        // non-RFC5322-compliant, etc.).
+                                        // Couldn't find the RFC reference
+                                        // anywhere, though.
+                                    }
                                 }
-                                Decision::Reject(r) => {
-                                    send_reply!(io, r).await?;
-                                    // Other mail systems (at least postfix,
-                                    // OpenSMTPD and gmail) appear to drop the
-                                    // state on an unsuccessful DATA command
-                                    // (eg. too long, non-RFC5322-compliant,
-                                    // etc.). Couldn't find the RFC reference
-                                    // anywhere, though.
+                            } else {
+                                // handle_mail did not call complete, let's read until the end and
+                                // then return an error
+                                let ignore_buf = &mut [0u8; 128];
+                                while reader.read(ignore_buf).await? != 0 {}
+                                if !reader.is_finished() {
+                                    // Stream cut mid-connection
+                                    return Err(io::Error::new(
+                                        io::ErrorKind::ConnectionAborted,
+                                        "connection shutdown during email reception",
+                                    ));
                                 }
+                                reader.complete();
+                                unhandled = reader.get_unhandled().unwrap();
+                                send_reply!(io, cfg.handle_mail_did_not_call_complete()).await?;
                             }
                         }
                     }
@@ -674,7 +700,12 @@ mod tests {
         };
         let mut resp = Vec::new();
         let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
-        executor::block_on(interact(io, (), &cfg)).unwrap();
+        assert_eq!(
+            executor::block_on(interact(io, (), &cfg))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::ConnectionAborted,
+        );
     }
 
     // Fuzzer-found
