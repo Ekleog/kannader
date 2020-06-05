@@ -112,6 +112,35 @@ where
     peek(one_of(term))
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum NextCrLfState {
+    Start,
+    CrPassed,
+}
+
+/// Returns the index of the \n in the first \r\n of buf, or `None` if
+/// there was none yet. This will update `state`, the first call
+/// should pass in `NextCrLfState::Start`, and subsequent calls (until
+/// a non-`None` value is found) should just keep using the same
+/// reference.
+pub fn next_crlf(buf: &[u8], state: &mut NextCrLfState) -> Option<usize> {
+    if buf.len() == 0 {
+        return None;
+    }
+    if *state == NextCrLfState::CrPassed && buf[0] == b'\n' {
+        return Some(0);
+    }
+    if let Some(p) = buf.windows(2).position(|s| s == b"\r\n") {
+        Some(p + 1)
+    } else {
+        *state = match buf[buf.len() - 1] {
+            b'\r' => NextCrLfState::CrPassed,
+            _ => NextCrLfState::Start,
+        };
+        None
+    }
+}
+
 // TODO: find out an AsciiString type, and use it here (and below)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MaybeUtf8<S = String> {

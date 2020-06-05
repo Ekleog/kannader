@@ -14,7 +14,7 @@ use misc::*;
 
 pub use command::{Command, ParameterName, Parameters};
 pub use data::{DataUnescapeRes, DataUnescaper, EscapedDataReader, EscapingDataWriter};
-pub use misc::{Email, Hostname, Localpart, MaybeUtf8, Path};
+pub use misc::{next_crlf, Email, Hostname, Localpart, MaybeUtf8, NextCrLfState, Path};
 pub use reply::{
     EnhancedReplyCode, EnhancedReplyCodeClass, EnhancedReplyCodeSubject, Reply, ReplyCode,
     ReplyCodeCategory, ReplyCodeKind, ReplyLine,
