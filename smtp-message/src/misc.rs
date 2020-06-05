@@ -112,7 +112,7 @@ where
     peek(one_of(term))
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NextCrLfState {
     Start,
     CrPassed,
@@ -646,6 +646,52 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_crlf_works() {
+        let tests: &[(&[u8], NextCrLfState, Option<usize>, NextCrLfState)] = &[
+            (
+                b"hello world",
+                NextCrLfState::Start,
+                None,
+                NextCrLfState::Start,
+            ),
+            (
+                b"hello world\r",
+                NextCrLfState::Start,
+                None,
+                NextCrLfState::CrPassed,
+            ),
+            (
+                b"hello world\r\n",
+                NextCrLfState::Start,
+                Some(12),
+                NextCrLfState::Start,
+            ),
+            (
+                b"\nhello world",
+                NextCrLfState::CrPassed,
+                Some(0),
+                NextCrLfState::CrPassed,
+            ),
+            (
+                b"\r\nhello world",
+                NextCrLfState::CrPassed,
+                Some(1),
+                NextCrLfState::CrPassed,
+            ),
+        ];
+        for (inp, mut st, out, endst) in tests {
+            println!();
+            println!("Start: {:?}, input: {:?}", st, show_bytes(inp));
+            println!("---");
+            let res = next_crlf(inp, &mut st);
+            println!("Expected: {:?} / {:?}", out, endst);
+            println!("Got     : {:?} / {:?}", res, st);
+            assert_eq!(res, *out);
+            assert_eq!(st, *endst);
+        }
+    }
 
     #[test]
     fn hostname_valid() {
