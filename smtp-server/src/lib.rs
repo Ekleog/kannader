@@ -529,6 +529,12 @@ mod tests {
             Box::pin(async move {
                 let mut mail_text = Vec::new();
                 let res = reader.read_to_end(&mut mail_text).await;
+                if !reader.is_finished() {
+                    // Note: this is a stupid buggy implementation.
+                    // But it allows us to test more code in
+                    // interrupted_data.
+                    return Decision::Accept;
+                }
                 reader.complete();
                 if res.is_err() {
                     Decision::Reject(Reply {
