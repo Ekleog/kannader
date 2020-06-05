@@ -143,6 +143,7 @@ pub fn next_crlf(buf: &[u8], state: &mut NextCrLfState) -> Option<usize> {
 
 // TODO: find out an AsciiString type, and use it here (and below)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum MaybeUtf8<S = String> {
     Ascii(S),
     Utf8(S),
@@ -195,6 +196,7 @@ where
 /// `Hostname` would then not actually represent a real hostname, so you
 /// probably would have had surprising results anyway.
 #[derive(Clone, Debug, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum Hostname<S = String> {
     Utf8Domain { raw: S, punycode: String },
     AsciiDomain { raw: S },
@@ -344,6 +346,7 @@ impl Hostname<&str> {
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum Localpart<S = String> {
     Ascii { raw: S },
     QuotedAscii { raw: S },
@@ -481,6 +484,7 @@ impl Localpart<&str> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Email<S = String> {
     pub localpart: Localpart<S>,
     pub hostname: Option<Hostname<S>>,
