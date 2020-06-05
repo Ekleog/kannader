@@ -64,11 +64,14 @@ where
         self.state == EscapedDataReaderState::End || self.state == EscapedDataReaderState::Completed
     }
 
-    /// Asserts that the full message has been read, then marks this
-    /// reader as complete. Note that this should be called only once
-    /// the stream has been successfully saved, as subsequent users
-    /// will assume that a completed stream means that the email has
-    /// entered the queue.
+    /// Asserts that the full message has been read (ie.
+    /// [`.is_finished()`](Self::is_finished) would return `true`),
+    /// then marks this reader as complete.
+    ///
+    /// Note that this should be called before saving the stream,
+    /// given that until `.is_finished()` has returned `true` it's not
+    /// yet sure whether the stream ended due to connection loss or
+    /// thanks to the end of data marker being reached.
     #[inline]
     pub fn complete(&mut self) {
         assert!(self.is_finished());
