@@ -528,7 +528,9 @@ mod tests {
         {
             Box::pin(async move {
                 let mut mail_text = Vec::new();
-                if reader.read_to_end(&mut mail_text).await.is_err() {
+                let res = reader.read_to_end(&mut mail_text).await;
+                reader.complete();
+                if res.is_err() {
                     Decision::Reject(Reply {
                         code: ReplyCode::BAD_SEQUENCE,
                         ecode: None,
