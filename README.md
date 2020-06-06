@@ -1,17 +1,13 @@
 # yuubind
 
-- [RFC 5321](https://tools.ietf.org/html/rfc5321) - WIP
-- [RFC 5322](https://tools.ietf.org/html/rfc5322) - WIP
-
-
 ## Documentation
 
-- [mdbook](https://ekleog.github.io/yuubind/book)
-
+- [User documentation](https://ekleog.github.io/yuubind/book)
+- [Developer documentation](https://ekleog.github.io/yuubind/dev-doc/index.html)
 
 ## Community
 
-### IRC 
+### IRC
 
 Join `#yuubind` on [Freenode](https://freenode.net/)
 

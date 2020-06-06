@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v8
-      - run: nix-shell --pure --run 'cargo doc --all --all-features'
+      - run: nix-shell --pure --run 'RUSTDOCFLAGS="-Zunstable-options --enable-index-page" cargo doc --all-features'
       - run: nix-shell --pure --run 'mdbook build book'
       - run: nix-shell --pure --run 'cd doc/dashboard && npm install && npm run build'
       - run: mv doc/dashboard doc/dashboard.old && mv doc/dashboard.old/build doc/dashboard && rm -rf doc/dashboard.old
