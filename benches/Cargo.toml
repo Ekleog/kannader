@@ -1,0 +1,16 @@
+[package]
+name = "benches"
+version = "0.0.1"
+authors = []
+edition = "2018"
+publish = false
+
+[dependencies]
+criterion = "0.3.2"
+rustyknife = "0.2.8"
+
+smtp-message = { path = "../smtp-message" }
+
+[[bench]]
+name = "smtp-message"
+harness = false

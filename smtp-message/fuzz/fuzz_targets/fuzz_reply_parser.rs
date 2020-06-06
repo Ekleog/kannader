@@ -1,10 +1,9 @@
 #![no_main]
 
-use bytes::Bytes;
 use libfuzzer_sys::fuzz_target;
 
-use smtp_message::ReplyLine;
+use smtp_message::Reply;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = ReplyLine::parse(Bytes::copy_from_slice(data));
+    let _ = Reply::<&str>::parse(data);
 });
