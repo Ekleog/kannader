@@ -345,7 +345,7 @@ impl Hostname<&str> {
 
 // TODO: consider adding `Sane` variant like OpenSMTPD does, that would not be
 // matched by weird characters
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum Localpart<S = String> {
     Ascii { raw: S },
@@ -415,6 +415,12 @@ where
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         iter::once(IoSlice::new(self.raw().as_ref().as_ref()))
+    }
+}
+
+impl<S: PartialEq> std::cmp::PartialEq for Localpart<S> {
+    fn eq(&self, o: &Localpart<S>) -> bool {
+        self.raw() == o.raw()
     }
 }
 
