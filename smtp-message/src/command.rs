@@ -632,7 +632,15 @@ mod tests {
         }
     }
 
-    // TODO: test command with invalid
+    #[test]
+    fn command_invalid() {
+        let tests: &[&[u8]] = &[b"HELPfoo"];
+        for inp in tests {
+            let r = Command::<&str>::parse(inp);
+            println!("{:?}:  {:?}", show_bytes(inp), r);
+            assert!(!r.unwrap_err().is_incomplete());
+        }
+    }
 
     #[test]
     fn command_build() {
