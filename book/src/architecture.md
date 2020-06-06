@@ -15,10 +15,11 @@ runs a queue for use by SMTP servers, delegating to a storage handler
 and a transport for sending messages that have reached their scheduled
 time for sending.
 
-### Not yet implemented
+- [`smtp-queue-fs`](https://ekleog.github.io/yuubind/dev-doc/smtp_queue_fs/index.html)
+implements a storage handler for `smtp-queue` that relies on the
+filesystem.
 
-- `smtp-queue-fs` implements a storage handler for `smtp-queue` that
-relies on the filesystem.
+### Not yet implemented
 
 - `smtp-client` relays emails to external email servers.
 
