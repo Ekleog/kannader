@@ -65,8 +65,8 @@ where
     }
 
     /// Asserts that the full message has been read (ie.
-    /// [`.is_finished()`](Self::is_finished) would return `true`),
-    /// then marks this reader as complete.
+    /// [`.is_finished()`](EscapedDataReader::is_finished) would
+    /// return `true`), then marks this reader as complete.
     ///
     /// Note that this should be called before saving the stream,
     /// given that until `.is_finished()` has returned `true` it's not
