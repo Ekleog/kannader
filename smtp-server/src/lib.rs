@@ -72,8 +72,6 @@ pub trait Config: Send + Sync {
         Decision::Accept
     }
 
-    // TODO: can this be an async fn?
-    // see https://github.com/rust-lang/rust/issues/71058
     /// Note: the EscapedDataReader has an inner buffer size of
     /// [`RDBUF_SIZE`](RDBUF_SIZE), which means that reads should not happen
     /// with more than this buffer size.
