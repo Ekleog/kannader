@@ -13,7 +13,7 @@ use futures::{
 use futures_test::io::AsyncReadTestExt;
 use libfuzzer_sys::fuzz_target;
 
-use smtp_message::{Email, EscapedDataReader, Hostname, Reply, ReplyCode};
+use smtp_message::{Email, EscapedDataReader, Reply, ReplyCode};
 use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata};
 
 struct FuzzConfig;
@@ -28,15 +28,6 @@ impl smtp_server::Config for FuzzConfig {
     }
 
     async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
-
-    async fn filter_hello(
-        &self,
-        _is_ehlo: bool,
-        _hostname: &mut Hostname<&str>,
-        _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
-        Decision::Accept
-    }
 
     async fn filter_from(
         &self,

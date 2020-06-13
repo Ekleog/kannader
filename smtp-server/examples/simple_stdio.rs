@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use duplexify::Duplex;
 use futures::{executor, io, AsyncRead, AsyncReadExt};
 
-use smtp_message::{Email, EscapedDataReader, Hostname, Reply, ReplyCode};
+use smtp_message::{Email, EscapedDataReader, Reply, ReplyCode};
 use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata};
 
 struct SimpleConfig;
@@ -21,15 +21,6 @@ impl smtp_server::Config for SimpleConfig {
     }
 
     async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
-
-    async fn filter_hello(
-        &self,
-        _is_ehlo: bool,
-        _hostname: &mut Hostname<&str>,
-        _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
-        Decision::Accept
-    }
 
     async fn filter_from(
         &self,

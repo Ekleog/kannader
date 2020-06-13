@@ -55,12 +55,15 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Self::MailUserMeta;
 
+    #[allow(unused_variables)]
     async fn filter_hello(
         &self,
         is_ehlo: bool,
         hostname: &mut Hostname<&str>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision;
+    ) -> Decision {
+        Decision::Accept
+    }
 
     async fn filter_from(
         &self,
@@ -589,15 +592,6 @@ mod tests {
         }
 
         async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
-
-        async fn filter_hello(
-            &self,
-            _is_ehlo: bool,
-            _hostname: &mut Hostname<&str>,
-            _conn_meta: &mut ConnectionMetadata<()>,
-        ) -> Decision {
-            Decision::Accept
-        }
 
         async fn filter_from(
             &self,
