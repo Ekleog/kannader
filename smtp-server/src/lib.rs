@@ -14,8 +14,8 @@ use futures::{
     pin_mut,
 };
 use smtp_message::{
-    next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, MaybeUtf8, NextCrLfState,
-    Reply, ReplyCode,
+    next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, Hostname, MaybeUtf8,
+    NextCrLfState, Reply, ReplyCode,
 };
 
 pub const RDBUF_SIZE: usize = 16 * 1024;
@@ -33,8 +33,14 @@ pub struct MailMetadata<U> {
     pub to: Vec<Email>,
 }
 
+pub struct HelloInfo {
+    pub is_ehlo: bool,
+    pub hostname: Hostname,
+}
+
 pub struct ConnectionMetadata<U> {
     pub user: U,
+    pub hello: Option<HelloInfo>,
 }
 
 #[async_trait]
@@ -48,6 +54,13 @@ pub trait Config: Send + Sync {
         &self,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Self::MailUserMeta;
+
+    async fn filter_hello(
+        &self,
+        is_ehlo: bool,
+        hostname: &mut Hostname<&str>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision;
 
     async fn filter_from(
         &self,
@@ -106,6 +119,54 @@ pub trait Config: Send + Sync {
         }
     }
 
+    #[allow(unused_variables)]
+    fn hello_banner(
+        &self,
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Cow<'static, str> {
+        "".into()
+    }
+
+    fn helo_okay(
+        &self,
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply<Cow<'static, str>> {
+        let mut banner = self.hostname();
+        let additional_banner = self.hello_banner(conn_meta);
+        if additional_banner.len() > 0 {
+            banner += " ";
+            banner += additional_banner;
+        }
+        Reply {
+            code: ReplyCode::OKAY,
+            ecode: None,
+            text: vec![MaybeUtf8::Utf8(banner)],
+        }
+    }
+
+    fn ehlo_okay(
+        &self,
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply<Cow<'static, str>> {
+        let mut banner = self.hostname();
+        let additional_banner = self.hello_banner(conn_meta);
+        if additional_banner.len() > 0 {
+            banner += " ";
+            banner += additional_banner;
+        }
+        Reply {
+            code: ReplyCode::OKAY,
+            ecode: None,
+            text: vec![
+                MaybeUtf8::Utf8(banner),
+                MaybeUtf8::Utf8("8BITMIME".into()),
+                MaybeUtf8::Utf8("ENHANCEDSTATUSCODES".into()),
+                MaybeUtf8::Utf8("PIPELINING".into()),
+                MaybeUtf8::Utf8("SMTPUTF8".into()),
+            ],
+        }
+    }
+
     fn mail_okay(&self) -> Reply<Cow<'static, str>> {
         self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
     }
@@ -134,6 +195,14 @@ pub trait Config: Send + Sync {
             ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
             text: vec![MaybeUtf8::Utf8("Bad sequence of commands".into())],
         }
+    }
+
+    fn already_did_hello(&self) -> Reply<Cow<'static, str>> {
+        self.bad_sequence()
+    }
+
+    fn mail_before_hello(&self) -> Reply<Cow<'static, str>> {
+        self.bad_sequence()
     }
 
     fn already_in_mail(&self) -> Reply<Cow<'static, str>> {
@@ -251,7 +320,10 @@ where
     // storage recycling, as there doesn't appear to be any on crates.io. Having
     // the wrslices would allow us to avoid all the allocations at each
     // .collect() (present in `send_reply()`)
-    let mut conn_meta = ConnectionMetadata { user: metadata };
+    let mut conn_meta = ConnectionMetadata {
+        user: metadata,
+        hello: None,
+    };
     let mut mail_meta = None;
 
     send_reply!(io, cfg.welcome_banner()).await?;
@@ -317,35 +389,78 @@ where
         match cmd {
             None => (),
 
+            // TODO: find some way to unify with the below branch
+            Some(Command::Ehlo { mut hostname }) => match conn_meta.hello {
+                Some(_) => {
+                    send_reply!(io, cfg.already_did_hello()).await?;
+                }
+                None => match cfg.filter_hello(true, &mut hostname, &mut conn_meta).await {
+                    Decision::Reject(r) => {
+                        send_reply!(io, r).await?;
+                    }
+                    Decision::Accept => {
+                        conn_meta.hello = Some(HelloInfo {
+                            is_ehlo: true,
+                            hostname: hostname.to_owned(),
+                        });
+                        send_reply!(io, cfg.ehlo_okay(&conn_meta)).await?;
+                    }
+                },
+            },
+
+            Some(Command::Helo { mut hostname }) => match conn_meta.hello {
+                Some(_) => {
+                    send_reply!(io, cfg.already_did_hello()).await?;
+                }
+                None => match cfg.filter_hello(false, &mut hostname, &mut conn_meta).await {
+                    Decision::Reject(r) => {
+                        send_reply!(io, r).await?;
+                    }
+                    Decision::Accept => {
+                        conn_meta.hello = Some(HelloInfo {
+                            is_ehlo: false,
+                            hostname: hostname.to_owned(),
+                        });
+                        send_reply!(io, cfg.helo_okay(&conn_meta)).await?;
+                    }
+                },
+            },
+
             Some(Command::Mail {
                 path: _path,
                 mut email,
                 params: _params,
-            }) => match mail_meta {
-                Some(_) => {
-                    send_reply!(io, cfg.already_in_mail()).await?;
-                }
-                None => {
-                    let mut mail_metadata = MailMetadata {
-                        user: cfg.new_mail(&mut conn_meta).await,
-                        from: None,
-                        to: Vec::with_capacity(4),
-                    };
-                    match cfg
-                        .filter_from(&mut email, &mut mail_metadata, &mut conn_meta)
-                        .await
-                    {
-                        Decision::Reject(r) => {
-                            send_reply!(io, r).await?;
+            }) => {
+                if !conn_meta.hello.is_some() {
+                    send_reply!(io, cfg.mail_before_hello()).await?;
+                } else {
+                    match mail_meta {
+                        Some(_) => {
+                            send_reply!(io, cfg.already_in_mail()).await?;
                         }
-                        Decision::Accept => {
-                            mail_metadata.from = email.map(|e| e.to_owned());
-                            mail_meta = Some(mail_metadata);
-                            send_reply!(io, cfg.mail_okay()).await?;
+                        None => {
+                            let mut mail_metadata = MailMetadata {
+                                user: cfg.new_mail(&mut conn_meta).await,
+                                from: None,
+                                to: Vec::with_capacity(4),
+                            };
+                            match cfg
+                                .filter_from(&mut email, &mut mail_metadata, &mut conn_meta)
+                                .await
+                            {
+                                Decision::Reject(r) => {
+                                    send_reply!(io, r).await?;
+                                }
+                                Decision::Accept => {
+                                    mail_metadata.from = email.map(|e| e.to_owned());
+                                    mail_meta = Some(mail_metadata);
+                                    send_reply!(io, cfg.mail_okay()).await?;
+                                }
+                            }
                         }
                     }
                 }
-            },
+            }
 
             Some(Command::Rcpt {
                 path: _path,
@@ -475,6 +590,15 @@ mod tests {
 
         async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
 
+        async fn filter_hello(
+            &self,
+            _is_ehlo: bool,
+            _hostname: &mut Hostname<&str>,
+            _conn_meta: &mut ConnectionMetadata<()>,
+        ) -> Decision {
+            Decision::Accept
+        }
+
         async fn filter_from(
             &self,
             addr: &mut Option<Email<&str>>,
@@ -555,7 +679,8 @@ mod tests {
     fn interacts_ok() {
         let tests: &[(&[u8], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
             (
-                b"MAIL FROM:<>\r\n\
+                b"EHLO test\r\n\
+                  MAIL FROM:<>\r\n\
                   RCPT TO:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
                   RCPT TO:<foo3@bar.example.org>\r\n\
@@ -564,6 +689,11 @@ mod tests {
                   .\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250-test.example.org\r\n\
+                  250-8BITMIME\r\n\
+                  250-ENHANCEDSTATUSCODES\r\n\
+                  250-PIPELINING\r\n\
+                  250 SMTPUTF8\r\n\
                   250 2.0.0 Okay\r\n\
                   550 No user 'baz'\r\n\
                   250 2.1.5 Okay\r\n\
@@ -578,13 +708,15 @@ mod tests {
                 )],
             ),
             (
-                b"MAIL FROM:<test@example.org>\r\n\
+                b"HELO test\r\n\
+                  MAIL FROM:<test@example.org>\r\n\
                   RCPT TO:<foo@example.org>\r\n\
                   DATA\r\n\
                   Hello World\r\n\
                   .\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
                   250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
@@ -599,7 +731,8 @@ mod tests {
                 &[],
             ),
             (
-                b"MAIL FROM:<bad@quux.example.org>\r\n\
+                b"HELO test\r\n\
+                  MAIL FROM:<bad@quux.example.org>\r\n\
                   MAIL FROM:<foo@bar.example.org>\r\n\
                   MAIL FROM:<baz@quux.example.org>\r\n\
                   RCPT TO:<foo2@bar.example.org>\r\n\
@@ -608,6 +741,7 @@ mod tests {
                   .\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
                   550 User 'bad' banned\r\n\
                   250 2.0.0 Okay\r\n\
                   503 5.5.1 Bad sequence of commands\r\n\
@@ -622,31 +756,43 @@ mod tests {
                 )],
             ),
             (
-                b"MAIL FROM:<foo@test.example.com>\r\n\
+                b"HELO test\r\n\
+                  MAIL FROM:<foo@test.example.com>\r\n\
                   DATA\r\n\
                   QUIT\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
                   503 5.5.1 Bad sequence of commands\r\n\
                   502 5.5.1 Command not implemented\r\n",
                 &[],
             ),
             (
-                b"MAIL FROM:<foo@test.example.com>\r\n\
+                b"HELO test\r\n\
+                  MAIL FROM:<foo@test.example.com>\r\n\
                   RCPT TO:<foo@bar.example.org>\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
                   250 2.1.5 Okay\r\n",
                 &[],
             ),
             (
-                b"MAIL FROM:<foo@test.example.com>\r\n\
+                b"HELO test\r\n\
+                  MAIL FROM:<foo@test.example.com>\r\n\
                   THISISNOTACOMMAND\r\n\
                   RCPT TO:<foo@bar.example.org>\r\n",
                 b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
                   500 5.5.1 Command not recognized\r\n\
                   250 2.1.5 Okay\r\n",
+                &[],
+            ),
+            (
+                b"MAIL FROM:<foo@test.example.com>\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  503 5.5.1 Bad sequence of commands\r\n",
                 &[],
             ),
         ];
