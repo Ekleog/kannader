@@ -221,7 +221,7 @@ macro_rules! io_retry_loop {
                     $mail = mail;
                 }
             }
-            smol::Timer::after(delay).await;
+            smol::Timer::new(delay).await;
             delay = $this.q.config.io_error_next_retry_delay(delay);
         }
     }};
@@ -239,7 +239,7 @@ macro_rules! io_retry_loop_raw {
                     $this.q.config.log_io_error(e, Some($id)).await;
                 }
             }
-            smol::Timer::after(delay).await;
+            smol::Timer::new(delay).await;
             delay = $this.q.config.io_error_next_retry_delay(delay);
         }
     }};
@@ -305,7 +305,7 @@ where
         while let Some(inflight) = found_inflight_stream.next().await {
             let this = self.clone();
             smol::Task::spawn(async move {
-                smol::Timer::after(this.q.config.found_inflight_check_delay()).await;
+                smol::Timer::new(this.q.config.found_inflight_check_delay()).await;
                 match inflight {
                     Err((e, id)) => this.q.config.log_io_error(e, id).await,
                     Ok(inflight) => {
@@ -364,7 +364,7 @@ where
             let wait_time = (mail.schedule().at - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::from_secs(0));
-            smol::Timer::after(wait_time).await;
+            smol::Timer::new(wait_time).await;
             match self.try_send(mail).await {
                 Ok(()) => return,
                 Err(m) => mail = m,

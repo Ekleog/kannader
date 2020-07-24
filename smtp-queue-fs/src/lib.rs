@@ -10,7 +10,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{io::IoSlice, prelude::*};
 use openat::Dir;
-use smol::blocking;
+use smol::unblock;
 use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -40,23 +40,23 @@ impl<U> FsStorage<U> {
     pub async fn new(path: Arc<PathBuf>) -> io::Result<FsStorage<U>> {
         let main_dir = {
             let path = path.clone();
-            Arc::new(blocking!(Dir::open(&*path))?)
+            Arc::new(unblock!(Dir::open(&*path))?)
         };
         let data = {
             let main_dir = main_dir.clone();
-            Arc::new(blocking!(main_dir.sub_dir(DATA_DIR))?)
+            Arc::new(unblock!(main_dir.sub_dir(DATA_DIR))?)
         };
         let queue = {
             let main_dir = main_dir.clone();
-            Arc::new(blocking!(main_dir.sub_dir(QUEUE_DIR))?)
+            Arc::new(unblock!(main_dir.sub_dir(QUEUE_DIR))?)
         };
         let inflight = {
             let main_dir = main_dir.clone();
-            Arc::new(blocking!(main_dir.sub_dir(INFLIGHT_DIR))?)
+            Arc::new(unblock!(main_dir.sub_dir(INFLIGHT_DIR))?)
         };
         let cleanup = {
             let main_dir = main_dir.clone();
-            Arc::new(blocking!(main_dir.sub_dir(CLEANUP_DIR))?)
+            Arc::new(unblock!(main_dir.sub_dir(CLEANUP_DIR))?)
         };
         Ok(FsStorage {
             path,
@@ -128,11 +128,11 @@ where
         let mail_dir = {
             let inflight = self.inflight.clone();
             let mail = mail.id.0.clone();
-            Arc::new(blocking!(inflight.sub_dir(&*mail))?)
+            Arc::new(unblock!(inflight.sub_dir(&*mail))?)
         };
         let metadata = {
             let mail_dir = mail_dir.clone();
-            blocking!(
+            unblock!(
                 mail_dir
                     .open_file(METADATA_FILE)
                     .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
@@ -140,8 +140,8 @@ where
         };
         let reader = {
             let mail_dir = mail_dir.clone();
-            let contents = blocking!(mail_dir.open_file(CONTENTS_FILE))?;
-            Box::pin(smol::reader(contents))
+            let contents = unblock!(mail_dir.open_file(CONTENTS_FILE))?;
+            Box::pin(smol::Async::new(contents)?)
         };
         Ok((metadata, reader))
     }
@@ -154,7 +154,7 @@ where
         let data = self.data.clone();
         let queue = self.queue.clone();
 
-        blocking!({
+        unblock!({
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
                 .to_hyphenated_ref()
@@ -173,7 +173,7 @@ where
             Ok(FsEnqueuer {
                 queue,
                 uuid: uuid.to_owned(),
-                writer: Box::pin(smol::writer(contents_file)),
+                writer: Box::pin(smol::Async::new(contents_file)?),
                 schedule,
             })
         })
@@ -185,10 +185,10 @@ where
         let mail_dir = {
             let queue = self.queue.clone();
             let id = mail.id.0.clone();
-            blocking!(queue.sub_dir(&*id))?
+            unblock!(queue.sub_dir(&*id))?
         };
 
-        blocking!({
+        unblock!({
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
@@ -212,7 +212,7 @@ where
     ) -> Result<Option<FsInflightMail>, (FsQueuedMail, io::Error)> {
         let queue = self.queue.clone();
         let inflight = self.inflight.clone();
-        blocking!({
+        unblock!({
             match openat::rename(&*queue, &*mail.id.0, &*inflight, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_inflight())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -227,7 +227,7 @@ where
     ) -> Result<Option<FsPendingCleanupMail>, (FsInflightMail, io::Error)> {
         let inflight = self.inflight.clone();
         let cleanup = self.cleanup.clone();
-        blocking!({
+        unblock!({
             match openat::rename(&*inflight, &*mail.id.0, &*cleanup, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_pending_cleanup())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -242,7 +242,7 @@ where
     ) -> Result<Option<FsQueuedMail>, (FsInflightMail, io::Error)> {
         let inflight = self.inflight.clone();
         let queue = self.queue.clone();
-        blocking!({
+        unblock!({
             match openat::rename(&*inflight, &*mail.id.0, &*queue, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_queued())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -257,7 +257,7 @@ where
     ) -> Result<Option<FsPendingCleanupMail>, (FsQueuedMail, io::Error)> {
         let queue = self.queue.clone();
         let cleanup = self.cleanup.clone();
-        blocking!({
+        unblock!({
             match openat::rename(&*queue, &*mail.id.0, &*cleanup, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_pending_cleanup())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -272,7 +272,7 @@ where
     ) -> Result<bool, (FsPendingCleanupMail, io::Error)> {
         let cleanup = self.cleanup.clone();
         let data = self.data.clone();
-        blocking!({
+        unblock!({
             match cleanup.sub_dir(&*mail.id.0) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => (), // already removed
                 Err(e) => return Err((mail, e)),
@@ -338,8 +338,8 @@ async fn scan_folder<P>(
 where
     P: 'static + Send + AsRef<Path>,
 {
-    let it = blocking!(WalkDir::new(path).into_iter());
-    smol::iter(it)
+    let it = unblock!(WalkDir::new(path).into_iter());
+    smol::stream::iter(it)
         .then(move |p| async move {
             let p = p.map_err(|e| (io::Error::from(e), None))?;
             if !p.path_is_symlink() {
@@ -367,7 +367,7 @@ where
         async move {
             let id = id?;
             let schedule_path = Path::new(&*id.0).join(SCHEDULE_FILE);
-            let schedule = blocking!(
+            let schedule = unblock!(
                 dir.open_file(&schedule_path)
                     .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
             )
@@ -470,7 +470,7 @@ pub struct FsEnqueuer {
 impl smtp_queue::StorageEnqueuer<FsQueuedMail> for FsEnqueuer {
     async fn commit(mut self) -> io::Result<FsQueuedMail> {
         self.flush().await?;
-        blocking!({
+        unblock!({
             let mut symlink_value = String::from(DATA_DIR_FROM_OTHER_QUEUE);
             symlink_value.push_str(&self.uuid);
             self.queue.symlink(&self.uuid, symlink_value)?;
