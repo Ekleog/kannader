@@ -16,7 +16,7 @@ auto_enums = "0.7.4"
 futures = "0.3.4"
 idna = "0.2.0"
 lazy_static = "1.4.0"
-nom = "5.1.1"
+nom = "6.0.1"
 pin-project = "0.4.17"
 quickcheck_macros = "0.9.1"
 serde = { version = "1.0.110", features = ["derive"], optional = true }
