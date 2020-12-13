@@ -10,6 +10,10 @@ use smtp_message::{Email, ReplyCode};
 //  - Have one queue per server instead of per email, trying to eliminate all
 //    emails at once by using SendFailLevel to identify whether it makes sense
 //    to continue sending email to this mailbox/server
+//  - Decouple the concept of sub-queue (which is the thing by which emails get
+//    rescheduled and batched to the transport) from the destination server
+//    (because eg. it happens that we want all email delivered to the local
+//    antivirus regardless of the destination hostname)
 
 // Use cases to take into account:
 //  * By mistake, multiple instances have been started with the same queue
