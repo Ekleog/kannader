@@ -1,5 +1,5 @@
 use std::{
-    io,
+    io::{self, Write},
     marker::PhantomData,
     path::{Path, PathBuf},
     pin::Pin,
@@ -25,6 +25,7 @@ pub const DATA_DIR_FROM_OTHER_QUEUE: &'static str = "../data";
 pub const CONTENTS_FILE: &'static str = "contents";
 pub const METADATA_FILE: &'static str = "metadata";
 pub const SCHEDULE_FILE: &'static str = "schedule";
+pub const TMP_METADATA_FILE_PREFIX: &'static str = "metadata.";
 pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
 
 pub struct FsStorage<U> {
@@ -204,6 +205,34 @@ where
             Ok::<_, io::Error>(())
         })?;
         Ok(())
+    }
+
+    async fn remeta(&self, mail: &mut FsInflightMail, meta: &MailMetadata<U>) -> io::Result<()> {
+        let mail_dir = {
+            let inflight = self.inflight.clone();
+            let id = mail.id.0.clone();
+            unblock!(inflight.sub_dir(&*id))?
+        };
+
+        // TODO: figure out a way to scope tasks so that we don't have to create this
+        // all in memory ahead of time
+        let new_meta_bytes = serde_json::to_vec(meta)?;
+
+        unblock!({
+            let mut tmp_meta_file = String::from(TMP_METADATA_FILE_PREFIX);
+            let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
+            let uuid = Uuid::new_v4()
+                .to_hyphenated_ref()
+                .encode_lower(&mut uuid_buf);
+            tmp_meta_file.push_str(uuid);
+
+            let mut tmp_file = mail_dir.new_file(&tmp_meta_file, 0600)?;
+            tmp_file.write_all(&new_meta_bytes)?;
+
+            mail_dir.local_rename(&tmp_meta_file, METADATA_FILE)?;
+
+            Ok::<(), io::Error>(())
+        })
     }
 
     async fn send_start(

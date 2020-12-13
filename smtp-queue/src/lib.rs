@@ -5,6 +5,12 @@ use chrono::{DateTime, Utc};
 use futures::{io, join, pin_mut, prelude::*};
 use smtp_message::{Email, ReplyCode};
 
+// TODO:
+//  - Record SendFailLevel (Server/Mailbox/Email)
+//  - Have one queue per server instead of per email, trying to eliminate all
+//    emails at once by using SendFailLevel to identify whether it makes sense
+//    to continue sending email to this mailbox/server
+
 // Use cases to take into account:
 //  * By mistake, multiple instances have been started with the same queue
 //    directory
@@ -71,10 +77,6 @@ pub trait Config<U>: 'static + Send + Sync {
     // function probably should bounce!
     async fn next_interval(&self, s: ScheduleInfo) -> Option<Duration>;
 
-    async fn bounce(&self, id: QueueId, meta: MailMetadata<U>, code: ReplyCode, err: io::Error);
-
-    async fn log_permanent_error(&self, id: QueueId, c: ReplyCode, err: &io::Error);
-    async fn log_transient_error(&self, id: QueueId, c: ReplyCode, err: io::Error);
     async fn log_io_error(&self, err: io::Error, id: Option<QueueId>);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
@@ -133,6 +135,12 @@ pub trait Storage<U>: 'static + Send + Sync {
         schedule: ScheduleInfo,
     ) -> Result<(), io::Error>;
 
+    async fn remeta(
+        &self,
+        mail: &mut Self::InflightMail,
+        meta: &MailMetadata<U>,
+    ) -> Result<(), io::Error>;
+
     async fn send_start(
         &self,
         mail: Self::QueuedMail,
@@ -180,7 +188,6 @@ pub trait StorageEnqueuer<QueuedMail>: Send + AsyncWrite {
 pub enum TransportFailure {
     Local(io::Error),
     RemoteTransient(ReplyCode, io::Error),
-    RemotePermanent(ReplyCode, io::Error),
 }
 
 #[async_trait]
@@ -189,11 +196,12 @@ pub trait Transport<U>: 'static + Send + Sync {
         &self,
         meta: &MailMetadata<U>,
         mail: Reader,
-    ) -> Result<(), TransportFailure>
+    ) -> Result<(), Vec<(Email, TransportFailure)>>
     where
         Reader: AsyncRead;
 }
 
+// Interval used when the duration doesn't match (ie. only in error conditions)
 const INTERVAL_ON_TOO_BIG_DURATION: Duration = Duration::from_secs(4 * 3600);
 
 struct QueueImpl<C, S, T> {
@@ -303,12 +311,12 @@ where
         let found_inflight_stream = self.q.storage.find_inflight().await;
         pin_mut!(found_inflight_stream);
         while let Some(inflight) = found_inflight_stream.next().await {
-            let this = self.clone();
-            smol::Task::spawn(async move {
-                smol::Timer::new(this.q.config.found_inflight_check_delay()).await;
-                match inflight {
-                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
-                    Ok(inflight) => {
+            match inflight {
+                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Ok(inflight) => {
+                    let this = self.clone();
+                    smol::Task::spawn(async move {
+                        smol::Timer::new(this.q.config.found_inflight_check_delay()).await;
                         let queued =
                             io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
                         match queued {
@@ -321,10 +329,10 @@ where
                             // sending it
                             None => (),
                         }
-                    }
+                    })
+                    .detach();
                 }
-            })
-            .detach();
+            }
         }
     }
 
@@ -332,14 +340,16 @@ where
         let queued_stream = self.q.storage.list_queue().await;
         pin_mut!(queued_stream);
         while let Some(queued) = queued_stream.next().await {
-            let this = self.clone();
-            smol::Task::spawn(async move {
-                match queued {
-                    Ok(queued) => this.send(queued).await,
-                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
+            match queued {
+                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Ok(queued) => {
+                    let this = self.clone();
+                    smol::Task::spawn(async move {
+                        this.send(queued).await;
+                    })
+                    .detach();
                 }
-            })
-            .detach();
+            }
         }
     }
 
@@ -347,14 +357,16 @@ where
         let pcm_stream = self.q.storage.find_pending_cleanup().await;
         pin_mut!(pcm_stream);
         while let Some(pcm) = pcm_stream.next().await {
-            let this = self.clone();
-            smol::Task::spawn(async move {
-                match pcm {
-                    Ok(pcm) => this.cleanup(pcm).await,
-                    Err((e, id)) => this.q.config.log_io_error(e, id).await,
+            match pcm {
+                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Ok(pcm) => {
+                    let this = self.clone();
+                    smol::Task::spawn(async move {
+                        this.cleanup(pcm).await;
+                    })
+                    .detach();
                 }
-            })
-            .detach();
+            }
         }
     }
 
@@ -380,7 +392,7 @@ where
                                 .config
                                 .log_too_big_duration(mail.id(), next_interval, new_next_interval)
                                 .await;
-                            chrono::Duration::from_std(next_interval).unwrap()
+                            chrono::Duration::from_std(new_next_interval).unwrap()
                         }
                     };
                     let next_attempt = this_attempt + next_interval;
@@ -423,7 +435,7 @@ where
             }
         };
 
-        let (inflight, meta, reader) = io_retry_loop!(self, inflight, |i| match self
+        let (mut inflight, mut meta, reader) = io_retry_loop!(self, inflight, |i| match self
             .q
             .storage
             .read_inflight(&i)
@@ -446,23 +458,29 @@ where
                 };
                 return Ok(());
             }
-            Err(TransportFailure::RemotePermanent(c, e)) => {
-                self.q
-                    .config
-                    .log_permanent_error(inflight.id(), c, &e)
-                    .await;
-                self.q.config.bounce(inflight.id(), meta, c, e).await;
-                return Ok(());
-            }
-            Err(TransportFailure::Local(e)) => {
-                self.q.config.log_io_error(e, Some(inflight.id())).await;
-            }
-            Err(TransportFailure::RemoteTransient(c, e)) => {
-                self.q.config.log_transient_error(inflight.id(), c, e).await;
+            Err(v) => {
+                let (emails, errs): (Vec<Email>, Vec<TransportFailure>) = v.into_iter().unzip();
+                for err in errs {
+                    match err {
+                        TransportFailure::Local(e) => {
+                            self.q.config.log_io_error(e, Some(inflight.id())).await;
+                        }
+                        TransportFailure::RemoteTransient(_c, _e) => {
+                            // TODO: actually use the code in particular (see
+                            // TODO comment at the top of the file)
+                        }
+                    }
+                }
+                meta.to = emails;
             }
         }
         // The above match falls through only in cases where we ought to retry
         let id = inflight.id();
+        io_retry_loop_raw!(
+            self,
+            inflight.id(),
+            self.q.storage.remeta(&mut inflight, &meta).await
+        );
         let queued = io_retry_loop!(self, inflight, |i| self.q.storage.send_cancel(i).await);
         match queued {
             Some(queued) => Err(queued),
@@ -474,6 +492,7 @@ where
     }
 }
 
+// This cannot be a #[derive] due to the absence of bounds on U,C,S,T
 impl<U, C, S, T> Clone for Queue<U, C, S, T> {
     fn clone(&self) -> Self {
         Self {
