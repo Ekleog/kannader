@@ -770,7 +770,7 @@ mod tests {
             println!("Test: {:?}", inp);
             let res = inp
                 .as_io_slices()
-                .flat_map(|s| s.to_owned().into_iter())
+                .flat_map(|s| s.iter().cloned().collect::<Vec<_>>().into_iter())
                 .collect::<Vec<u8>>();
             println!("Result  : {:?}", show_bytes(&res));
             println!("Expected: {:?}", show_bytes(out));
