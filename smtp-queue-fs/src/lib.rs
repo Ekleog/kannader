@@ -75,7 +75,7 @@ impl<U> smtp_queue::Storage<U> for FsStorage<U>
 where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
-    type Enqueuer = FsEnqueuer;
+    type Enqueuer = FsEnqueuer<U>;
     type InflightLister =
         Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
     type InflightMail = FsInflightMail;
@@ -147,11 +147,7 @@ where
         Ok((metadata, reader))
     }
 
-    async fn enqueue(
-        &self,
-        metadata: MailMetadata<U>,
-        schedule: ScheduleInfo,
-    ) -> io::Result<FsEnqueuer> {
+    async fn enqueue(&self) -> io::Result<FsEnqueuer<U>> {
         let data = self.data.clone();
         let queue = self.queue.clone();
 
@@ -164,18 +160,13 @@ where
             data.create_dir(&*uuid, 0600)?;
             let mail_dir = data.sub_dir(&*uuid)?;
 
-            let schedule_file = mail_dir.new_file(SCHEDULE_FILE, 0600)?;
-            serde_json::to_writer(schedule_file, &schedule)?;
-
-            let metadata_file = mail_dir.new_file(METADATA_FILE, 0600)?;
-            serde_json::to_writer(metadata_file, &metadata)?;
-
             let contents_file = mail_dir.new_file(CONTENTS_FILE, 0600)?;
             Ok(FsEnqueuer {
                 queue,
                 uuid: uuid.to_owned(),
+                mail_dir,
                 writer: Box::pin(smol::Async::new(contents_file)?),
-                schedule,
+                phantom: PhantomData,
             })
         })
     }
@@ -488,31 +479,47 @@ impl smtp_queue::PendingCleanupMail for FsPendingCleanupMail {
     }
 }
 
-pub struct FsEnqueuer {
+pub struct FsEnqueuer<U> {
     queue: Arc<Dir>,
     uuid: String,
+    mail_dir: Dir,
     writer: Pin<Box<dyn 'static + Send + AsyncWrite>>,
-    schedule: ScheduleInfo,
+    // FsEnqueuer needs the U type parameter just so as to be able to take it as a parameter later
+    // on
+    phantom: PhantomData<fn(U)>,
 }
 
 #[async_trait]
-impl smtp_queue::StorageEnqueuer<FsQueuedMail> for FsEnqueuer {
-    async fn commit(mut self) -> io::Result<FsQueuedMail> {
+impl<U> smtp_queue::StorageEnqueuer<U, FsQueuedMail> for FsEnqueuer<U>
+where
+    U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
+{
+    async fn commit(
+        mut self,
+        metadata: MailMetadata<U>,
+        schedule: ScheduleInfo,
+    ) -> io::Result<FsQueuedMail> {
         self.flush().await?;
         unblock!({
+            let schedule_file = self.mail_dir.new_file(SCHEDULE_FILE, 0600)?;
+            serde_json::to_writer(schedule_file, &schedule)?;
+
+            let metadata_file = self.mail_dir.new_file(METADATA_FILE, 0600)?;
+            serde_json::to_writer(metadata_file, &metadata)?;
+
             let mut symlink_value = String::from(DATA_DIR_FROM_OTHER_QUEUE);
             symlink_value.push_str(&self.uuid);
             self.queue.symlink(&self.uuid, symlink_value)?;
 
             Ok(FsQueuedMail::found(FoundMail {
                 id: QueueId(Arc::new(self.uuid)),
-                schedule: self.schedule,
+                schedule,
             }))
         })
     }
 }
 
-impl AsyncWrite for FsEnqueuer {
+impl<U> AsyncWrite for FsEnqueuer<U> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
         unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write(cx, buf)
     }

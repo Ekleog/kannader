@@ -115,7 +115,7 @@ pub trait Storage<U>: 'static + Send + Sync {
     type PendingCleanupLister: Send
         + Stream<Item = Result<Self::PendingCleanupMail, (io::Error, Option<QueueId>)>>;
 
-    type Enqueuer: StorageEnqueuer<Self::QueuedMail>;
+    type Enqueuer: StorageEnqueuer<U, Self::QueuedMail>;
     type Reader: Send + AsyncRead;
 
     async fn list_queue(&self) -> Self::QueueLister;
@@ -127,11 +127,7 @@ pub trait Storage<U>: 'static + Send + Sync {
         mail: &Self::InflightMail,
     ) -> Result<(MailMetadata<U>, Self::Reader), io::Error>;
 
-    async fn enqueue(
-        &self,
-        meta: MailMetadata<U>,
-        s: ScheduleInfo,
-    ) -> Result<Self::Enqueuer, io::Error>;
+    async fn enqueue(&self) -> Result<Self::Enqueuer, io::Error>;
 
     async fn reschedule(
         &self,
@@ -185,8 +181,12 @@ pub trait PendingCleanupMail: Send + Sync {
 }
 
 #[async_trait]
-pub trait StorageEnqueuer<QueuedMail>: Send + AsyncWrite {
-    async fn commit(self) -> Result<QueuedMail, io::Error>;
+pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
+    async fn commit(
+        self,
+        metadata: MailMetadata<U>,
+        schedule: ScheduleInfo,
+    ) -> Result<QueuedMail, io::Error>;
 }
 
 pub enum TransportFailure {
@@ -300,14 +300,10 @@ where
         this
     }
 
-    pub async fn enqueue(
-        &self,
-        meta: MailMetadata<U>,
-        s: ScheduleInfo,
-    ) -> Result<Enqueuer<U, C, S, T>, io::Error> {
+    pub async fn enqueue(&self) -> Result<Enqueuer<U, C, S, T>, io::Error> {
         Ok(Enqueuer {
             queue: self.clone(),
-            enqueuer: Some(self.q.storage.enqueue(meta, s).await?),
+            enqueuer: Some(self.q.storage.enqueue().await?),
         })
     }
 
@@ -521,9 +517,13 @@ where
     S: Storage<U>,
     T: Transport<U>,
 {
-    pub async fn commit(self) -> Result<(), io::Error> {
+    pub async fn commit(
+        self,
+        meta: MailMetadata<U>,
+        schedule: ScheduleInfo,
+    ) -> Result<(), io::Error> {
         let mut this = self;
-        let mail = this.enqueuer.take().unwrap().commit().await?;
+        let mail = this.enqueuer.take().unwrap().commit(meta, schedule).await?;
         smol::Task::spawn(async move { this.queue.send(mail).await }).detach();
         Ok(())
     }
