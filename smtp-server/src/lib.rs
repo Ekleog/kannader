@@ -9,10 +9,12 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     pin_mut,
 };
+use smol::future::FutureExt;
 use smtp_message::{
     next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, Hostname, MaybeUtf8,
     NextCrLfState, Reply, ReplyCode,
@@ -91,6 +93,10 @@ pub trait Config: Send + Sync {
     /// Note: the EscapedDataReader has an inner buffer size of
     /// [`RDBUF_SIZE`](RDBUF_SIZE), which means that reads should not happen
     /// with more than this buffer size.
+    ///
+    /// Also, note that there is no timeout applied here, so the implementation
+    /// of this function is responsible for making sure that the client does not
+    /// just stop sending anything to DOS the system.
     async fn handle_mail<'a, R>(
         &self,
         stream: &mut EscapedDataReader<'a, R>,
@@ -255,6 +261,14 @@ pub trait Config: Send + Sync {
             text: vec![MaybeUtf8::Utf8("System incorrectly configured".into())],
         }
     }
+
+    fn reply_write_timeout(&self) -> chrono::Duration {
+        chrono::Duration::minutes(5)
+    }
+
+    fn command_read_timeout(&self) -> chrono::Duration {
+        chrono::Duration::minutes(5)
+    }
 }
 
 // TODO: upstream in AsyncWriteExt?
@@ -270,12 +284,6 @@ where
         len -= toskip;
     }
     Ok(())
-}
-
-macro_rules! send_reply {
-    ($writer:expr, $reply:expr) => {
-        write_vectored_all(&mut $writer, &mut $reply.as_io_slices().collect::<Vec<_>>())
-    };
 }
 
 async fn advance_until_crlf<R>(
@@ -329,11 +337,59 @@ where
     };
     let mut mail_meta = None;
 
+    let mut waiting_for_command_since = Utc::now();
+
+    macro_rules! read_for_command {
+        ($e:expr) => {
+            $e.or(async {
+                // TODO: this should be smol::Timer::at, but we would need to convert from
+                // Chrono::DateTime<Utc> to std::time::Instant and I can't find how right now
+                let max_delay: std::time::Duration =
+                    (waiting_for_command_since + cfg.command_read_timeout() - Utc::now())
+                        .to_std()
+                        .unwrap_or(std::time::Duration::from_secs(0));
+                smol::Timer::after(max_delay).await;
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "timed out waiting for a command",
+                ))
+            })
+        };
+    }
+
+    macro_rules! send_reply {
+        ($writer:expr, $reply:expr) => {
+            smol::future::or(
+                async {
+                    write_vectored_all(
+                        &mut $writer,
+                        &mut $reply.as_io_slices().collect::<Vec<_>>(),
+                    )
+                    .await?;
+                    waiting_for_command_since = Utc::now();
+                    Ok(())
+                },
+                async {
+                    smol::Timer::after(
+                        cfg.reply_write_timeout()
+                            .to_std()
+                            .unwrap_or(std::time::Duration::from_secs(0)),
+                    )
+                    .await;
+                    Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "timed out sending a reply",
+                    ))
+                },
+            )
+        };
+    }
+
     send_reply!(io, cfg.welcome_banner()).await?;
 
     loop {
         if unhandled.len() == 0 {
-            unhandled = 0..io.read(rdbuf).await?;
+            unhandled = 0..read_for_command!(io.read(rdbuf)).await?;
             if unhandled.len() == 0 {
                 return Ok(());
             }
@@ -358,10 +414,10 @@ where
                     // If we reach here, it means that unhandled is already
                     // basically the full buffer. Which means that we have to
                     // error out that the line is too long.
-                    advance_until_crlf(&mut io, rdbuf, &mut unhandled).await?;
+                    read_for_command!(advance_until_crlf(&mut io, rdbuf, &mut unhandled)).await?;
                     send_reply!(io, cfg.line_too_long()).await?;
                 } else {
-                    let read = io.read(&mut rdbuf[unhandled.end..]).await?;
+                    let read = read_for_command!(io.read(&mut rdbuf[unhandled.end..])).await?;
                     if read == 0 {
                         return Err(io::Error::new(
                             io::ErrorKind::ConnectionAborted,
@@ -374,7 +430,7 @@ where
             }
             Err(_) => {
                 // Syntax error
-                advance_until_crlf(&mut io, rdbuf, &mut unhandled).await?;
+                read_for_command!(advance_until_crlf(&mut io, rdbuf, &mut unhandled)).await?;
                 send_reply!(io, cfg.command_unrecognized()).await?;
                 None
             }
@@ -530,7 +586,11 @@ where
                                 // handle_mail did not call complete, let's read until the end and
                                 // then return an error
                                 let ignore_buf = &mut [0u8; 128];
-                                while reader.read(ignore_buf).await? != 0 {}
+                                // TODO: consider whether it would make sense to have a separate
+                                // timeout here... giving as much time for sending the whole DATA
+                                // message may be a bit too little? but then it only happens when
+                                // handle_mail breaks anyway, so...
+                                while read_for_command!(reader.read(ignore_buf)).await? != 0 {}
                                 if !reader.is_finished() {
                                     // Stream cut mid-connection
                                     return Err(io::Error::new(
