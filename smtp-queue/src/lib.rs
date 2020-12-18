@@ -221,6 +221,7 @@ pub trait Transport<U>: 'static + Send + Sync {
 const INTERVAL_ON_TOO_BIG_DURATION: Duration = Duration::from_secs(4 * 3600);
 
 struct QueueImpl<C, S, T> {
+    executor: Arc<smol::Executor<'static>>,
     config: C,
     storage: S,
     transport: T,
@@ -245,7 +246,7 @@ macro_rules! io_retry_loop {
                     $mail = mail;
                 }
             }
-            smol::Timer::new(delay).await;
+            smol::Timer::after(delay).await;
             delay = $this.q.config.io_error_next_retry_delay(delay);
         }
     }};
@@ -263,7 +264,7 @@ macro_rules! io_retry_loop_raw {
                     $this.q.config.log_io_error(e, Some($id)).await;
                 }
             }
-            smol::Timer::new(delay).await;
+            smol::Timer::after(delay).await;
             delay = $this.q.config.io_error_next_retry_delay(delay);
         }
     }};
@@ -292,9 +293,15 @@ where
     S: Storage<U>,
     T: Transport<U>,
 {
-    pub async fn new(config: C, storage: S, transport: T) -> Queue<U, C, S, T> {
+    pub async fn new(
+        executor: Arc<smol::Executor<'static>>,
+        config: C,
+        storage: S,
+        transport: T,
+    ) -> Queue<U, C, S, T> {
         let this = Queue {
             q: Arc::new(QueueImpl {
+                executor,
                 config,
                 storage,
                 transport,
@@ -304,10 +311,11 @@ where
 
         join!(this.scan_inflight(), this.scan_pending_cleanup());
 
-        {
-            let this = this.clone();
-            smol::Task::spawn(async move { this.scan_queue().await }).detach();
-        }
+        let this2 = this.clone();
+        this.q
+            .executor
+            .spawn(async move { this2.scan_queue().await })
+            .detach();
 
         this
     }
@@ -327,22 +335,27 @@ where
                 Err((e, id)) => self.q.config.log_io_error(e, id).await,
                 Ok(inflight) => {
                     let this = self.clone();
-                    smol::Task::spawn(async move {
-                        smol::Timer::new(this.q.config.found_inflight_check_delay()).await;
-                        let queued =
-                            io_retry_loop!(this, inflight, |i| this.q.storage.send_cancel(i).await);
-                        match queued {
-                            // Mail is still waiting, probably was inflight
-                            // during a crash
-                            Some(queued) => this.send(queued).await,
+                    self.q
+                        .executor
+                        .spawn(async move {
+                            smol::Timer::after(this.q.config.found_inflight_check_delay()).await;
+                            let queued = io_retry_loop!(this, inflight, |i| this
+                                .q
+                                .storage
+                                .send_cancel(i)
+                                .await);
+                            match queued {
+                                // Mail is still waiting, probably was inflight
+                                // during a crash
+                                Some(queued) => this.send(queued).await,
 
-                            // Mail is no longer waiting, probably was
-                            // inflight because another process was currently
-                            // sending it
-                            None => (),
-                        }
-                    })
-                    .detach();
+                                // Mail is no longer waiting, probably was
+                                // inflight because another process was currently
+                                // sending it
+                                None => (),
+                            }
+                        })
+                        .detach();
                 }
             }
         }
@@ -356,10 +369,12 @@ where
                 Err((e, id)) => self.q.config.log_io_error(e, id).await,
                 Ok(queued) => {
                     let this = self.clone();
-                    smol::Task::spawn(async move {
-                        this.send(queued).await;
-                    })
-                    .detach();
+                    self.q
+                        .executor
+                        .spawn(async move {
+                            this.send(queued).await;
+                        })
+                        .detach();
                 }
             }
         }
@@ -373,10 +388,12 @@ where
                 Err((e, id)) => self.q.config.log_io_error(e, id).await,
                 Ok(pcm) => {
                     let this = self.clone();
-                    smol::Task::spawn(async move {
-                        this.cleanup(pcm).await;
-                    })
-                    .detach();
+                    self.q
+                        .executor
+                        .spawn(async move {
+                            this.cleanup(pcm).await;
+                        })
+                        .detach();
                 }
             }
         }
@@ -385,10 +402,12 @@ where
     async fn send(&self, mail: S::QueuedMail) {
         let mut mail = mail;
         loop {
+            // TODO: this should be smol::Timer::at, but I can't find how to convert from
+            // chrono::DateTime<Utc> to std::time::Instant right now
             let wait_time = (mail.schedule().at - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::from_secs(0));
-            smol::Timer::new(wait_time).await;
+            smol::Timer::after(wait_time).await;
             match self.try_send(mail).await {
                 Ok(()) => return,
                 Err(m) => mail = m,
@@ -538,7 +557,11 @@ where
         let mails = this.enqueuer.take().unwrap().commit(destinations).await?;
         for mail in mails {
             let q = this.queue.clone();
-            smol::Task::spawn(async move { q.send(mail).await }).detach();
+            this.queue
+                .q
+                .executor
+                .spawn(async move { q.send(mail).await })
+                .detach();
         }
         Ok(())
     }
