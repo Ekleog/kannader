@@ -12,7 +12,7 @@ use nom::{
     bytes::streaming::tag,
     character::streaming::one_of,
     combinator::{map, map_opt, opt, peek},
-    multi::separated_nonempty_list,
+    multi::separated_list1,
     sequence::{pair, preceded, terminated},
     IResult,
 };
@@ -83,7 +83,7 @@ fn find_dfa<D: DFA>(dfa: &D, buf: &[u8]) -> Result<usize, D::ID> {
     last_match.ok_or(state)
 }
 
-pub fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + Fn(&[u8]) -> IResult<&[u8], &[u8]> {
+pub fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + FnMut(&[u8]) -> IResult<&[u8], &[u8]> {
     move |buf: &[u8]| {
         let dfa = regex.forward();
 
@@ -97,15 +97,16 @@ pub fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + Fn(&[u8]) -> IResult<&[u8]
 
         match dfa_result {
             Ok(end) => Ok((&buf[end..], &buf[..end])),
-            Err(s) if dfa.is_dead_state(s) => {
-                Err(nom::Err::Error((buf, nom::error::ErrorKind::Verify)))
-            }
+            Err(s) if dfa.is_dead_state(s) => Err(nom::Err::Error(nom::error::Error::new(
+                buf,
+                nom::error::ErrorKind::Verify,
+            ))),
             Err(_) => Err(nom::Err::Incomplete(nom::Needed::Unknown)),
         }
     }
 }
 
-pub fn terminate<'a, 'b>(term: &'b [u8]) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], char>
+pub fn terminate<'a, 'b>(term: &'b [u8]) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], char>
 where
     'a: 'b,
 {
@@ -207,7 +208,7 @@ pub enum Hostname<S = String> {
 impl<S> Hostname<S> {
     pub fn parse_until<'a, 'b>(
         term: &'b [u8],
-    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
     where
         'a: 'b,
         S: 'b + From<&'a str>,
@@ -357,7 +358,7 @@ pub enum Localpart<S = String> {
 impl<S> Localpart<S> {
     pub fn parse_until<'a, 'b>(
         term: &'b [u8],
-    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Localpart<S>>
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Localpart<S>>
     where
         'a: 'b,
         S: 'b + From<&'a str>,
@@ -502,7 +503,7 @@ impl<S> Email<S> {
     pub fn parse_until<'a, 'b>(
         term: &'b [u8],
         term_with_atsign: &'b [u8],
-    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Email<S>>
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Email<S>>
     where
         'a: 'b,
         S: 'b + From<&'a str>,
@@ -523,7 +524,7 @@ impl<S> Email<S> {
     #[inline]
     pub fn parse_bracketed<'a>(
         buf: &'a [u8],
-    ) -> Result<Email<S>, nom::Err<(&'a [u8], nom::error::ErrorKind)>>
+    ) -> Result<Email<S>, nom::Err<nom::error::Error<&'a [u8]>>>
     where
         S: From<&'a str>,
     {
@@ -534,7 +535,10 @@ impl<S> Email<S> {
         {
             Err(e) => Err(e),
             Ok((&[], r)) => Ok(r),
-            Ok((rem, _)) => Err(nom::Err::Failure((rem, nom::error::ErrorKind::TooLarge))),
+            Ok((rem, _)) => Err(nom::Err::Failure(nom::error::Error::new(
+                rem,
+                nom::error::ErrorKind::TooLarge,
+            ))),
         }
     }
 }
@@ -578,13 +582,13 @@ impl<S> Path<S> {
     #[inline]
     pub fn parse_until<'a, 'b>(
         term_with_comma: &'b [u8],
-    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Path<S>>
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Path<S>>
     where
         'a: 'b,
         S: 'b + From<&'a str>,
     {
         map(
-            separated_nonempty_list(
+            separated_list1(
                 tag(b","),
                 preceded(tag(b"@"), Hostname::parse_until(term_with_comma)),
             ),
@@ -615,7 +619,7 @@ where
 fn unbracketed_email_with_path<'a, 'b, S>(
     term: &'b [u8],
     term_with_atsign: &'b [u8],
-) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
+) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
 where
     'a: 'b,
     S: 'b + From<&'a str>,
@@ -636,7 +640,7 @@ pub fn email_with_path<'a, 'b, S>(
     term_with_atsign: &'b [u8],
     term_with_bracket: &'b [u8],
     term_with_bracket_atsign: &'b [u8],
-) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
+) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], (Option<Path<S>>, Email<S>)>
 where
     'a: 'b,
     S: 'b + From<&'a str>,

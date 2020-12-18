@@ -346,7 +346,7 @@ where
                     // Do we have to copy the data to the beginning of the buffer?
                     let missing = match n {
                         nom::Needed::Unknown => MINIMUM_FREE_BUFSPACE,
-                        nom::Needed::Size(s) => cmp::max(MINIMUM_FREE_BUFSPACE, s),
+                        nom::Needed::Size(s) => cmp::max(MINIMUM_FREE_BUFSPACE, s.into()),
                     };
                     if missing > rdbuf.len() - unhandled.end {
                         rdbuf.copy_within(unhandled.clone(), 0);

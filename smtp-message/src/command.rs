@@ -75,7 +75,7 @@ impl<S> Parameters<S> {
     /// term_with_sp_tab = term + b" \t"
     pub fn parse_until<'a, 'b>(
         term_with_sp_tab: &'b [u8],
-    ) -> impl 'b + Fn(&'a [u8]) -> IResult<&'a [u8], Parameters<S>>
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Parameters<S>>
     where
         'a: 'b,
         S: 'b + From<&'a str>,
