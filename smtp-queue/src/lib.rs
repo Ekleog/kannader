@@ -75,6 +75,15 @@ impl QueueId {
     }
 }
 
+#[derive(Clone)]
+pub struct DestinationId(pub Arc<String>);
+
+impl DestinationId {
+    pub fn new<S: ToString>(s: S) -> DestinationId {
+        DestinationId(Arc::new(s.to_string()))
+    }
+}
+
 #[async_trait]
 pub trait Config<U>: 'static + Send + Sync {
     // Returning None means dropping the email from the queue. If it does so, this
@@ -161,6 +170,10 @@ pub trait Storage<U>: 'static + Send + Sync {
         mail: Self::QueuedMail,
     ) -> Result<Option<Self::PendingCleanupMail>, (Self::QueuedMail, io::Error)>;
 
+    // Returns true if the mail was successfully cleaned up, and false
+    // if the mail somehow vanished during the cleanup operation or
+    // was already cleaned up. Returns an error if the mail could not
+    // be cleaned up.
     async fn cleanup(
         &self,
         mail: Self::PendingCleanupMail,
@@ -184,9 +197,8 @@ pub trait PendingCleanupMail: Send + Sync {
 pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
     async fn commit(
         self,
-        metadata: MailMetadata<U>,
-        schedule: ScheduleInfo,
-    ) -> Result<QueuedMail, io::Error>;
+        destinations: Vec<(DestinationId, MailMetadata<U>, ScheduleInfo)>,
+    ) -> io::Result<Vec<QueuedMail>>;
 }
 
 pub enum TransportFailure {
@@ -475,6 +487,7 @@ where
             }
         }
         // The above match falls through only in cases where we ought to retry
+        // TODO: remeta iff the meta actually changed (ie. `meta.to != emails` above)
         let id = inflight.id();
         io_retry_loop_raw!(
             self,
@@ -519,12 +532,14 @@ where
 {
     pub async fn commit(
         self,
-        meta: MailMetadata<U>,
-        schedule: ScheduleInfo,
-    ) -> Result<(), io::Error> {
+        destinations: Vec<(DestinationId, MailMetadata<U>, ScheduleInfo)>,
+    ) -> io::Result<()> {
         let mut this = self;
-        let mail = this.enqueuer.take().unwrap().commit(meta, schedule).await?;
-        smol::Task::spawn(async move { this.queue.send(mail).await }).detach();
+        let mails = this.enqueuer.take().unwrap().commit(destinations).await?;
+        for mail in mails {
+            let q = this.queue.clone();
+            smol::Task::spawn(async move { q.send(mail).await }).detach();
+        }
         Ok(())
     }
 }

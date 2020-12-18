@@ -16,7 +16,7 @@ The storage must provide basically three sets of primitives:
  - For queuing emails and reading them from the storage:
     - `enqueue` and `read_inflight`
  - For handling state changes for each email:
-    - `reschedule`
+    - `reschedule` and `remeta`
     - `send_start`, `send_done` and `send_cancel`
     - `drop` and `cleanup`
 
@@ -48,7 +48,7 @@ point into `<queue>/data` as relative links.
    `<queue>/queue`, `<queue>/inflight` and `<queue>/cleanup`
  - Moving a file is atomic between files in the same `<queue>/data/**`
    folder
- - Creating a symlink in the `<queue>` folder is atomic
+ - Creating a symlink in the `<queue>/queue` folder is atomic
  - Once a write is flushed without error, it is guaranteed not to be
    changed by something other than a yuubind instance (or another
    system aware of yuubind's protocol and guarantees)
@@ -57,19 +57,24 @@ point into `<queue>/data` as relative links.
 
 Each email in `<queue>/data` is a folder, that is constituted of:
  - `<mail>/contents`: the RFC5322 content of the email
- - `<mail>/metadata`: the JSON-encoded `MailMetadata<U>`
- - `<mail>/schedule`: the JSON-encoded `ScheduleInfo` couple. This one
-   is the only one that could change over time, and it gets written by
-   writing a `schedule.{{random_uuid}}` then renaming it in-place
+ - `<mail>/<dest>/metadata`: the JSON-encoded `MailMetadata<U>`
+ - `<mail>/<dest>/schedule`: the JSON-encoded `ScheduleInfo` couple
+
+Both `<mail>/<dest>/metadata` and `<mail>/<dest>/schedule` could
+change over time. In this case, the replacement gets written by
+writing a `<filename>.{{random_uuid}}` then renaming it in-place.
 
 ### Enqueuing Process
 
 When enqueuing, the process is:
  - Create `<queue>/data/<uuid>`, thereafter named `<mail>`
- - Write `<mail>/schedule` and `<mail>/metadata`
+ - For each destination:
+   + Create `<mail>/<uuid>`, thereafter named `<mail>/<dest>`
+   + Write `<mail>/<dest>/schedule` and `<mail>/<dest>/metadata`
  - Give out the Enqueuer to the user for writing `<mail>/contents`
  - Wait for the user to commit the Enqueuer
- - Create a symlink from `<queue>/queue/<uuid>` to `<mail>`
+ - Create a symlink from `<queue>/queue/<uuid>` to `<mail>/<dest>` for
+   each destination
 
 ### Starting and Cancelling Sends
 
@@ -79,10 +84,12 @@ When starting to send or cancelling a send, the process is:
 ### Cleaning Up
 
 When done with sending a mail and it thus needs to be removed from
-disk, the process is.
+disk, the process is:
  - Move `<queue>/inflight/<id>` to `<queue>/cleanup/<id>`
  - Remove `<queue>/cleanup/<id>/*` (which actually are in
-   `<queue>/data/<id>/*`)
+   `<queue>/data/<mail>/<dest>/*`)
  - Remove the target of `<queue>/cleanup/<id>` (the folder in
-   `<queue>/data`)
+   `<queue>/data/<mail>`)
+ - Check whether only `<queue>/data/<mail>/contents` remains, and if
+   so remove it as well as the `<queue>/data/<mail>` folder
  - Remove the `<queue>/cleanup/<id>` symlink
