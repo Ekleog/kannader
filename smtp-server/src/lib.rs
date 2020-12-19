@@ -145,6 +145,10 @@ pub trait Config: Send + Sync {
     where
         R: Send + Unpin + AsyncRead;
 
+    async fn handle_rset(&self) -> Decision {
+        Decision::Accept
+    }
+
     #[allow(unused_variables)]
     async fn handle_expn(&self, name: MaybeUtf8<&str>) -> DecisionWithResponse {
         DecisionWithResponse::Reject(self.command_unimplemented())
@@ -277,6 +281,10 @@ pub trait Config: Send + Sync {
     }
 
     fn mail_accepted(&self) -> Reply<Cow<'static, str>> {
+        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
+    }
+
+    fn rset_okay(&self) -> Reply<Cow<'static, str>> {
         self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
     }
 
@@ -748,6 +756,22 @@ where
                 }
             },
 
+            Some(Command::Rset) => match cfg.handle_rset().await {
+                Decision::Accept => {
+                    mail_meta = None;
+                    send_reply!(io, cfg.rset_okay()).await?;
+                }
+                Decision::Reject(r) => {
+                    send_reply!(io, r).await?;
+                }
+                Decision::Kill { reply, res } => {
+                    if let Some(r) = reply {
+                        send_reply!(io, r).await?;
+                    }
+                    return res;
+                }
+            },
+
             Some(Command::Expn { name }) => simple_handler!(cfg.handle_expn(name).await),
             Some(Command::Vrfy { name }) => simple_handler!(cfg.handle_vrfy(name).await),
             Some(Command::Help { subject }) => simple_handler!(cfg.handle_help(subject).await),
@@ -966,6 +990,31 @@ mod tests {
                   221 2.0.0 Bye\r\n",
                 &[(
                     Some(b"<foo@bar.example.org>"),
+                    &[b"<foo2@bar.example.org>"],
+                    b"Hello\r\n.\r\n",
+                )],
+            ),
+            (
+                b"HELO test\r\n\
+                  MAIL FROM:<foo@bar.example.org>\r\n\
+                  RSET\r\n\
+                  MAIL FROM:<baz@quux.example.org>\r\n\
+                  RCPT TO:<foo2@bar.example.org>\r\n\
+                  DATA\r\n\
+                  Hello\r\n\
+                  .\r\n\
+                  QUIT\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
+                  250 2.0.0 Okay\r\n\
+                  250 2.0.0 Okay\r\n\
+                  250 2.0.0 Okay\r\n\
+                  250 2.1.5 Okay\r\n\
+                  354 Start mail input; end with <CRLF>.<CRLF>\r\n\
+                  250 2.0.0 Okay\r\n\
+                  221 2.0.0 Bye\r\n",
+                &[(
+                    Some(b"<baz@quux.example.org>"),
                     &[b"<foo2@bar.example.org>"],
                     b"Hello\r\n.\r\n",
                 )],
