@@ -145,17 +145,30 @@ pub trait Config: Send + Sync {
     where
         R: Send + Unpin + AsyncRead;
 
-    async fn handle_rset(&self) -> Decision {
+    #[allow(unused_variables)]
+    async fn handle_rset(
+        &self,
+        meta: &mut Option<MailMetadata<Self::MailUserMeta>>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision {
         Decision::Accept
     }
 
     #[allow(unused_variables)]
-    async fn handle_expn(&self, name: MaybeUtf8<&str>) -> DecisionWithResponse {
+    async fn handle_expn(
+        &self,
+        name: MaybeUtf8<&str>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> DecisionWithResponse {
         DecisionWithResponse::Reject(self.command_unimplemented())
     }
 
     #[allow(unused_variables)]
-    async fn handle_vrfy(&self, name: MaybeUtf8<&str>) -> DecisionWithResponse {
+    async fn handle_vrfy(
+        &self,
+        name: MaybeUtf8<&str>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> DecisionWithResponse {
         DecisionWithResponse::Accept(Reply {
             code: ReplyCode::CANNOT_VRFY_BUT_PLEASE_TRY,
             ecode: Some(EnhancedReplyCode::SUCCESS_DEST_VALID.into()),
@@ -166,7 +179,11 @@ pub trait Config: Send + Sync {
     }
 
     #[allow(unused_variables)]
-    async fn handle_help(&self, subject: MaybeUtf8<&str>) -> DecisionWithResponse {
+    async fn handle_help(
+        &self,
+        subject: MaybeUtf8<&str>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> DecisionWithResponse {
         DecisionWithResponse::Accept(Reply {
             code: ReplyCode::HELP_MESSAGE,
             ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
@@ -177,11 +194,19 @@ pub trait Config: Send + Sync {
     }
 
     #[allow(unused_variables)]
-    async fn handle_noop(&self, string: MaybeUtf8<&str>) -> DecisionWithResponse {
+    async fn handle_noop(
+        &self,
+        string: MaybeUtf8<&str>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> DecisionWithResponse {
         DecisionWithResponse::Accept(self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()))
     }
 
-    async fn handle_quit(&self) -> DecisionWithResponse {
+    #[allow(unused_variables)]
+    async fn handle_quit(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> DecisionWithResponse {
         DecisionWithResponse::Kill {
             reply: Some(Reply {
                 code: ReplyCode::CLOSING_CHANNEL,
@@ -758,7 +783,7 @@ where
                 }
             },
 
-            Some(Command::Rset) => match cfg.handle_rset().await {
+            Some(Command::Rset) => match cfg.handle_rset(&mut mail_meta, &mut conn_meta).await {
                 Decision::Accept => {
                     mail_meta = None;
                     send_reply!(io, cfg.rset_okay()).await?;
@@ -774,11 +799,19 @@ where
                 }
             },
 
-            Some(Command::Expn { name }) => simple_handler!(cfg.handle_expn(name).await),
-            Some(Command::Vrfy { name }) => simple_handler!(cfg.handle_vrfy(name).await),
-            Some(Command::Help { subject }) => simple_handler!(cfg.handle_help(subject).await),
-            Some(Command::Noop { string }) => simple_handler!(cfg.handle_noop(string).await),
-            Some(Command::Quit) => simple_handler!(cfg.handle_quit().await),
+            Some(Command::Expn { name }) => {
+                simple_handler!(cfg.handle_expn(name, &mut conn_meta).await)
+            }
+            Some(Command::Vrfy { name }) => {
+                simple_handler!(cfg.handle_vrfy(name, &mut conn_meta).await)
+            }
+            Some(Command::Help { subject }) => {
+                simple_handler!(cfg.handle_help(subject, &mut conn_meta).await)
+            }
+            Some(Command::Noop { string }) => {
+                simple_handler!(cfg.handle_noop(string, &mut conn_meta).await)
+            }
+            Some(Command::Quit) => simple_handler!(cfg.handle_quit(&mut conn_meta).await),
 
             Some(Command::Starttls) => {
                 // TODO: implement
