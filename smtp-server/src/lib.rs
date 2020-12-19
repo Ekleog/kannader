@@ -142,6 +142,17 @@ pub trait Config: Send + Sync {
         DecisionWithResponse::Reject(self.command_unimplemented())
     }
 
+    #[allow(unused_variables)]
+    async fn handle_vrfy(&self, name: MaybeUtf8<&str>) -> DecisionWithResponse {
+        DecisionWithResponse::Accept(Reply {
+            code: ReplyCode::CANNOT_VRFY_BUT_PLEASE_TRY,
+            ecode: Some(EnhancedReplyCode::SUCCESS_DEST_VALID.into()),
+            text: vec![MaybeUtf8::Utf8(
+                "Cannot VRFY user, but will accept message and attempt delivery".into(),
+            )],
+        })
+    }
+
     fn hostname(&self) -> Cow<'static, str>;
 
     fn banner(&self) -> Cow<'static, str> {
@@ -656,6 +667,11 @@ where
                 DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
             },
 
+            Some(Command::Vrfy { name }) => match cfg.handle_vrfy(name).await {
+                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
+            },
+
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
@@ -924,6 +940,14 @@ mod tests {
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   502 5.5.1 Command not implemented\r\n",
+                &[],
+            ),
+            (
+                b"HELO test\r\n\
+                  VRFY foo\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
+                  252 2.1.5 Cannot VRFY user, but will accept message and attempt delivery\r\n",
                 &[],
             ),
         ];
