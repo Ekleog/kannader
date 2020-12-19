@@ -620,6 +620,8 @@ where
                 } else {
                     match mail_meta {
                         Some(_) => {
+                            // Both postfix and OpenSMTPD just return an error and ignore further
+                            // MAIL FROM when there is already a MAIL FROM running
                             send_reply!(io, cfg.already_in_mail()).await?;
                         }
                         None => {
