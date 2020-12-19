@@ -153,6 +153,17 @@ pub trait Config: Send + Sync {
         })
     }
 
+    #[allow(unused_variables)]
+    async fn handle_help(&self, subject: MaybeUtf8<&str>) -> DecisionWithResponse {
+        DecisionWithResponse::Accept(Reply {
+            code: ReplyCode::HELP_MESSAGE,
+            ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+            text: vec![MaybeUtf8::Utf8(
+                "See https://tools.ietf.org/html/rfc5321".into(),
+            )],
+        })
+    }
+
     fn hostname(&self) -> Cow<'static, str>;
 
     fn banner(&self) -> Cow<'static, str> {
@@ -672,6 +683,11 @@ where
                 DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
             },
 
+            Some(Command::Help { subject }) => match cfg.handle_help(subject).await {
+                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
+            },
+
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
@@ -864,12 +880,6 @@ mod tests {
                 &[],
             ),
             (
-                b"HELP hello\r\n",
-                b"220 test.example.org Service ready\r\n\
-                  502 5.5.1 Command not implemented\r\n",
-                &[],
-            ),
-            (
                 b"HELO test\r\n\
                   MAIL FROM:<bad@quux.example.org>\r\n\
                   MAIL FROM:<foo@bar.example.org>\r\n\
@@ -936,18 +946,14 @@ mod tests {
             ),
             (
                 b"HELO test\r\n\
-                  EXPN foo\r\n",
+                  EXPN foo\r\n\
+                  VRFY bar\r\n\
+                  HELP baz\r\n",
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
-                  502 5.5.1 Command not implemented\r\n",
-                &[],
-            ),
-            (
-                b"HELO test\r\n\
-                  VRFY foo\r\n",
-                b"220 test.example.org Service ready\r\n\
-                  250 test.example.org\r\n\
-                  252 2.1.5 Cannot VRFY user, but will accept message and attempt delivery\r\n",
+                  502 5.5.1 Command not implemented\r\n\
+                  252 2.1.5 Cannot VRFY user, but will accept message and attempt delivery\r\n\
+                  214 2.0.0 See https://tools.ietf.org/html/rfc5321\r\n",
                 &[],
             ),
         ];
