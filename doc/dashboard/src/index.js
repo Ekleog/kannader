@@ -17,6 +17,8 @@ function matchesFilterElement(i, elt) {
         const value = elt.slice(colonPos + 1);
         if (type === 'label') {
             return i.labels.some(l => l.name === value);
+        } else if (type === 'milestone') {
+            return i.milestone != null && i.milestone.title === value;
         } else {
             return false;
         }
