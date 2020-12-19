@@ -1,13 +1,13 @@
 #![type_length_limit = "200000000"]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, pin::Pin};
 
 use async_trait::async_trait;
 use duplexify::Duplex;
-use futures::{executor, io, AsyncRead, AsyncReadExt};
+use futures::{executor, io, AsyncRead, AsyncReadExt, AsyncWrite};
 
 use smtp_message::{Email, EscapedDataReader, Reply, ReplyCode};
-use smtp_server::{interact, ConnectionMetadata, Decision, MailMetadata};
+use smtp_server::{interact, ConnectionMetadata, Decision, IsAlreadyTls, MailMetadata};
 
 struct SimpleConfig;
 
@@ -21,6 +21,26 @@ impl smtp_server::Config for SimpleConfig {
     }
 
     async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
+
+    async fn tls_accept<IO>(
+        &self,
+        io: IO,
+        _conn_meta: &mut ConnectionMetadata<()>,
+    ) -> Result<
+        duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
+        (IO, io::Error),
+    >
+    where
+        IO: Send + AsyncRead + AsyncWrite,
+    {
+        Err((
+            io,
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tls not implemented for example",
+            ),
+        ))
+    }
 
     async fn filter_from(
         &self,
@@ -96,5 +116,5 @@ fn main() -> io::Result<()> {
     let reader = io::AllowStdIo::new(std::io::stdin());
     let writer = io::AllowStdIo::new(std::io::stdout());
     let io = Duplex::new(reader, writer);
-    executor::block_on(interact(io, (), &mut SimpleConfig))
+    executor::block_on(interact(io, IsAlreadyTls::No, (), &mut SimpleConfig))
 }

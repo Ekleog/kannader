@@ -11,10 +11,8 @@ edition = "2018"
 [dependencies]
 async-trait = "0.1.30"
 chrono = "0.4.19"
+duplexify = "1.1.0"
 futures = "0.3.4"
 smol = "1.2.5"
 
 smtp-message = { path = "../smtp-message" }
-
-[dev-dependencies]
-duplexify = "1.1.0"

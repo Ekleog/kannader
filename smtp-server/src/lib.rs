@@ -6,6 +6,7 @@ use std::{
     cmp,
     io::{self, IoSlice},
     ops::Range,
+    pin::Pin,
 };
 
 use async_trait::async_trait;
@@ -43,6 +44,7 @@ pub struct HelloInfo {
 pub struct ConnectionMetadata<U> {
     pub user: U,
     pub hello: Option<HelloInfo>,
+    pub is_encrypted: bool,
 }
 
 #[async_trait]
@@ -66,6 +68,29 @@ pub trait Config: Send + Sync {
     ) -> Decision {
         Decision::Accept
     }
+
+    fn can_do_tls(&self) -> bool {
+        true
+    }
+
+    // TODO: when GATs are here, we can remove the trait object and return
+    // Self::TlsStream<IO> (or maybe we should refactor Config to be Config<IO>? but
+    // that's ugly). At that time we can probably get rid of all that duplexify
+    // mess... or maybe when we can do trait objects with more than one trait
+    /// Note: if you don't want to implement TLS, you should override
+    /// `can_do_tls` to return `false` so that STARTTLS is not advertized. This
+    /// being said, returning an error here should have the same result in
+    /// practice, except clients will try STARTTLS and fail
+    async fn tls_accept<IO>(
+        &self,
+        io: IO,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Result<
+        duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
+        (IO, io::Error),
+    >
+    where
+        IO: Send + AsyncRead + AsyncWrite;
 
     async fn filter_from(
         &self,
@@ -312,8 +337,15 @@ where
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum IsAlreadyTls {
+    Yes,
+    No,
+}
+
 pub async fn interact<IO, Cfg>(
     io: IO,
+    is_already_tls: IsAlreadyTls,
     metadata: Cfg::ConnectionUserMeta,
     cfg: &Cfg,
 ) -> io::Result<()>
@@ -334,6 +366,7 @@ where
     let mut conn_meta = ConnectionMetadata {
         user: metadata,
         hello: None,
+        is_encrypted: is_already_tls == IsAlreadyTls::Yes,
     };
     let mut mail_meta = None;
 
@@ -653,6 +686,26 @@ mod tests {
 
         async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
 
+        async fn tls_accept<IO>(
+            &self,
+            io: IO,
+            _conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+        ) -> Result<
+            duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
+            (IO, io::Error),
+        >
+        where
+            IO: Send + AsyncRead + AsyncWrite,
+        {
+            Err((
+                io,
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "tls accept not implemented for tests",
+                ),
+            ))
+        }
+
         async fn filter_from(
             &self,
             addr: &mut Option<Email<&str>>,
@@ -858,7 +911,7 @@ mod tests {
             };
             let mut resp = Vec::new();
             let io = Duplex::new(Cursor::new(inp), Cursor::new(&mut resp));
-            executor::block_on(interact(io, (), &cfg)).unwrap();
+            executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
 
             println!("Expecting: {:?}", show_bytes(out));
             println!("Got      : {:?}", show_bytes(&resp));
@@ -901,7 +954,7 @@ mod tests {
         let mut resp = Vec::new();
         let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
         assert_eq!(
-            executor::block_on(interact(io, (), &cfg))
+            executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg))
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::ConnectionAborted,
@@ -968,6 +1021,6 @@ mod tests {
         };
         let mut resp = Vec::new();
         let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
-        executor::block_on(interact(io, (), &cfg)).unwrap();
+        executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
     }
 }
