@@ -28,12 +28,20 @@ const MINIMUM_FREE_BUFSPACE: usize = 128;
 pub enum Decision {
     Accept,
     Reject(Reply<Cow<'static, str>>),
+    Kill {
+        reply: Option<Reply<Cow<'static, str>>>,
+        res: io::Result<()>,
+    },
 }
 
 #[must_use]
 pub enum DecisionWithResponse {
     Accept(Reply<Cow<'static, str>>),
     Reject(Reply<Cow<'static, str>>),
+    Kill {
+        reply: Option<Reply<Cow<'static, str>>>,
+        res: io::Result<()>,
+    },
 }
 
 pub struct MailMetadata<U> {
@@ -456,6 +464,21 @@ where
         };
     }
 
+    macro_rules! simple_handler {
+        ($handler:expr) => {
+            match $handler {
+                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Kill { reply, res } => {
+                    if let Some(r) = reply {
+                        send_reply!(io, r).await?;
+                    }
+                    return res;
+                }
+            }
+        };
+    }
+
     send_reply!(io, cfg.welcome_banner()).await?;
 
     loop {
@@ -528,6 +551,12 @@ where
                     Decision::Reject(r) => {
                         send_reply!(io, r).await?;
                     }
+                    Decision::Kill { reply, res } => {
+                        if let Some(r) = reply {
+                            send_reply!(io, r).await?;
+                        }
+                        return res;
+                    }
                     Decision::Accept => {
                         conn_meta.hello = Some(HelloInfo {
                             is_ehlo: true,
@@ -545,6 +574,12 @@ where
                 None => match cfg.filter_hello(false, &mut hostname, &mut conn_meta).await {
                     Decision::Reject(r) => {
                         send_reply!(io, r).await?;
+                    }
+                    Decision::Kill { reply, res } => {
+                        if let Some(r) = reply {
+                            send_reply!(io, r).await?;
+                        }
+                        return res;
                     }
                     Decision::Accept => {
                         conn_meta.hello = Some(HelloInfo {
@@ -581,6 +616,12 @@ where
                                 Decision::Reject(r) => {
                                     send_reply!(io, r).await?;
                                 }
+                                Decision::Kill { reply, res } => {
+                                    if let Some(r) = reply {
+                                        send_reply!(io, r).await?;
+                                    }
+                                    return res;
+                                }
                                 Decision::Accept => {
                                     mail_metadata.from = email.map(|e| e.to_owned());
                                     mail_meta = Some(mail_metadata);
@@ -608,6 +649,12 @@ where
                         Decision::Reject(r) => {
                             send_reply!(io, r).await?;
                         }
+                        Decision::Kill { reply, res } => {
+                            if let Some(r) = reply {
+                                send_reply!(io, r).await?;
+                            }
+                            return res;
+                        }
                         Decision::Accept => {
                             mail_meta_unw.to.push(email.to_owned());
                             send_reply!(io, cfg.rcpt_okay()).await?;
@@ -629,6 +676,12 @@ where
                             mail_meta = Some(mail_meta_unw);
                             send_reply!(io, r).await?;
                         }
+                        Decision::Kill { reply, res } => {
+                            if let Some(r) = reply {
+                                send_reply!(io, r).await?;
+                            }
+                            return res;
+                        }
                         Decision::Accept => {
                             send_reply!(io, cfg.data_okay()).await?;
                             let mut reader =
@@ -641,6 +694,12 @@ where
                                 match decision {
                                     Decision::Accept => {
                                         send_reply!(io, cfg.mail_accepted()).await?;
+                                    }
+                                    Decision::Kill { reply, res } => {
+                                        if let Some(r) = reply {
+                                            send_reply!(io, r).await?;
+                                        }
+                                        return res;
                                     }
                                     Decision::Reject(r) => {
                                         send_reply!(io, r).await?;
@@ -678,26 +737,12 @@ where
                 }
             },
 
-            Some(Command::Expn { name }) => match cfg.handle_expn(name).await {
-                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
-            },
+            Some(Command::Expn { name }) => simple_handler!(cfg.handle_expn(name).await),
+            Some(Command::Vrfy { name }) => simple_handler!(cfg.handle_vrfy(name).await),
+            Some(Command::Help { subject }) => simple_handler!(cfg.handle_help(subject).await),
+            Some(Command::Noop { string }) => simple_handler!(cfg.handle_noop(string).await),
 
-            Some(Command::Vrfy { name }) => match cfg.handle_vrfy(name).await {
-                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
-            },
-
-            Some(Command::Help { subject }) => match cfg.handle_help(subject).await {
-                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
-            },
-
-            Some(Command::Noop { string }) => match cfg.handle_noop(string).await {
-                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
-            },
-
+            // Some(Command::Quit) => todo!(),
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
