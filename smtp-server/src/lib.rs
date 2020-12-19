@@ -30,6 +30,12 @@ pub enum Decision {
     Reject(Reply<Cow<'static, str>>),
 }
 
+#[must_use]
+pub enum DecisionWithResponse {
+    Accept(Reply<Cow<'static, str>>),
+    Reject(Reply<Cow<'static, str>>),
+}
+
 pub struct MailMetadata<U> {
     pub user: U,
     pub from: Option<Email>,
@@ -130,6 +136,11 @@ pub trait Config: Send + Sync {
     ) -> Decision
     where
         R: Send + Unpin + AsyncRead;
+
+    #[allow(unused_variables)]
+    async fn handle_expn(&self, name: MaybeUtf8<&str>) -> DecisionWithResponse {
+        DecisionWithResponse::Reject(self.command_unimplemented())
+    }
 
     fn hostname(&self) -> Cow<'static, str>;
 
@@ -640,6 +651,11 @@ where
                 }
             },
 
+            Some(Command::Expn { name }) => match cfg.handle_expn(name).await {
+                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
+            },
+
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
@@ -900,6 +916,14 @@ mod tests {
                 b"MAIL FROM:<foo@test.example.com>\r\n",
                 b"220 test.example.org Service ready\r\n\
                   503 5.5.1 Bad sequence of commands\r\n",
+                &[],
+            ),
+            (
+                b"HELO test\r\n\
+                  EXPN foo\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
+                  502 5.5.1 Command not implemented\r\n",
                 &[],
             ),
         ];
