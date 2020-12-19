@@ -177,6 +177,17 @@ pub trait Config: Send + Sync {
         DecisionWithResponse::Accept(self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()))
     }
 
+    async fn handle_quit(&self) -> DecisionWithResponse {
+        DecisionWithResponse::Kill {
+            reply: Some(Reply {
+                code: ReplyCode::CLOSING_CHANNEL,
+                ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+                text: vec![MaybeUtf8::Utf8("Bye".into())],
+            }),
+            res: Ok(()),
+        }
+    }
+
     fn hostname(&self) -> Cow<'static, str>;
 
     fn banner(&self) -> Cow<'static, str> {
@@ -741,8 +752,8 @@ where
             Some(Command::Vrfy { name }) => simple_handler!(cfg.handle_vrfy(name).await),
             Some(Command::Help { subject }) => simple_handler!(cfg.handle_help(subject).await),
             Some(Command::Noop { string }) => simple_handler!(cfg.handle_noop(string).await),
+            Some(Command::Quit) => simple_handler!(cfg.handle_quit().await),
 
-            // Some(Command::Quit) => todo!(),
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
@@ -910,7 +921,7 @@ mod tests {
                   250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   250 2.0.0 Okay\r\n\
-                  502 5.5.1 Command not implemented\r\n",
+                  221 2.0.0 Bye\r\n",
                 &[(
                     None,
                     &[b"<foo2@bar.example.org>", b"<foo3@bar.example.org>"],
@@ -931,7 +942,7 @@ mod tests {
                   250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   550 Don't you dare say 'World'!\r\n\
-                  502 5.5.1 Command not implemented\r\n",
+                  221 2.0.0 Bye\r\n",
                 &[],
             ),
             (
@@ -952,7 +963,7 @@ mod tests {
                   250 2.1.5 Okay\r\n\
                   354 Start mail input; end with <CRLF>.<CRLF>\r\n\
                   250 2.0.0 Okay\r\n\
-                  502 5.5.1 Command not implemented\r\n",
+                  221 2.0.0 Bye\r\n",
                 &[(
                     Some(b"<foo@bar.example.org>"),
                     &[b"<foo2@bar.example.org>"],
@@ -968,7 +979,7 @@ mod tests {
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
                   503 5.5.1 Bad sequence of commands\r\n\
-                  502 5.5.1 Command not implemented\r\n",
+                  221 2.0.0 Bye\r\n",
                 &[],
             ),
             (
@@ -1011,6 +1022,17 @@ mod tests {
                   252 2.1.5 Cannot VRFY user, but will accept message and attempt delivery\r\n\
                   214 2.0.0 See https://tools.ietf.org/html/rfc5321\r\n\
                   250 2.0.0 Okay\r\n",
+                &[],
+            ),
+            (
+                b"HELO test\r\n\
+                  EXPN foo\r\n\
+                  QUIT\r\n\
+                  HELP baz\r\n",
+                b"220 test.example.org Service ready\r\n\
+                  250 test.example.org\r\n\
+                  502 5.5.1 Command not implemented\r\n\
+                  221 2.0.0 Bye\r\n",
                 &[],
             ),
         ];
