@@ -52,17 +52,10 @@ pub struct ScheduleInfo {
 }
 
 impl ScheduleInfo {
-    pub fn last_interval(&self) -> Option<Duration> {
-        match self.last_attempt {
-            None => None,
-            Some(last_attempt) => {
-                let chrono_interval = last_attempt - self.at;
-
-                // If the interval is negative, let's just say there's no interval yet, because
-                // things are weird enough.
-                chrono_interval.to_std().ok()
-            }
-        }
+    pub fn last_interval(&self) -> Result<Option<Duration>, time::OutOfRangeError> {
+        self.last_attempt
+            .map(|last| (last - self.at).to_std())
+            .transpose()
     }
 }
 
