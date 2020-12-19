@@ -164,6 +164,11 @@ pub trait Config: Send + Sync {
         })
     }
 
+    #[allow(unused_variables)]
+    async fn handle_noop(&self, string: MaybeUtf8<&str>) -> DecisionWithResponse {
+        DecisionWithResponse::Accept(self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()))
+    }
+
     fn hostname(&self) -> Cow<'static, str>;
 
     fn banner(&self) -> Cow<'static, str> {
@@ -688,6 +693,11 @@ where
                 DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
             },
 
+            Some(Command::Noop { string }) => match cfg.handle_noop(string).await {
+                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
+                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
+            },
+
             Some(_) => {
                 // TODO: this probably shouldn't be required
                 send_reply!(io, cfg.command_unimplemented()).await?;
@@ -948,12 +958,14 @@ mod tests {
                 b"HELO test\r\n\
                   EXPN foo\r\n\
                   VRFY bar\r\n\
-                  HELP baz\r\n",
+                  HELP baz\r\n\
+                  NOOP\r\n",
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   502 5.5.1 Command not implemented\r\n\
                   252 2.1.5 Cannot VRFY user, but will accept message and attempt delivery\r\n\
-                  214 2.0.0 See https://tools.ietf.org/html/rfc5321\r\n",
+                  214 2.0.0 See https://tools.ietf.org/html/rfc5321\r\n\
+                  250 2.0.0 Okay\r\n",
                 &[],
             ),
         ];
