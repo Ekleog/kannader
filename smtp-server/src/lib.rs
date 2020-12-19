@@ -780,8 +780,8 @@ where
             Some(Command::Noop { string }) => simple_handler!(cfg.handle_noop(string).await),
             Some(Command::Quit) => simple_handler!(cfg.handle_quit().await),
 
-            Some(_) => {
-                // TODO: this probably shouldn't be required
+            Some(Command::Starttls) => {
+                // TODO: implement
                 send_reply!(io, cfg.command_unimplemented()).await?;
             }
         }
