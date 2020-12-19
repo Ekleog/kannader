@@ -186,6 +186,9 @@ pub enum Command<S> {
 
     /// VRFY <name> <CRLF>
     Vrfy { name: MaybeUtf8<S> },
+
+    /// STARTTLS <CRLF>
+    Starttls,
 }
 
 impl<S> Command<S> {
@@ -323,6 +326,10 @@ impl<S> Command<S> {
                     })
                 },
             ),
+            map(
+                tuple((tag_no_case(b"STARTTLS"), opt(is_a(" \t")), tag(b"\r\n"))),
+                |_| Command::Starttls,
+            ),
         ))(buf)
     }
 }
@@ -403,6 +410,8 @@ where
             Command::Vrfy { name } => iter::once(IoSlice::new(b"VRFY "))
                 .chain(name.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Starttls => iter::once(IoSlice::new(b"STARTTLS\r\n")),
         }
     }
 }
@@ -606,6 +615,8 @@ mod tests {
             (b"VrFY \t hello.world \t \r\n", Command::Vrfy {
                 name: MaybeUtf8::Ascii("\t hello.world \t "),
             }),
+            (b"STARTTLS \t  \t \r\n", Command::Starttls),
+            (b"starttls\r\n", Command::Starttls),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -765,6 +776,7 @@ mod tests {
                 },
                 b"VRFY postmaster\r\n",
             ),
+            (Command::Starttls, b"STARTTLS\r\n"),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
