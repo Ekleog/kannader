@@ -184,11 +184,11 @@ pub enum Command<S> {
     /// RSET <CRLF>
     Rset,
 
-    /// VRFY <name> <CRLF>
-    Vrfy { name: MaybeUtf8<S> },
-
     /// STARTTLS <CRLF>
     Starttls,
+
+    /// VRFY <name> <CRLF>
+    Vrfy { name: MaybeUtf8<S> },
 }
 
 impl<S> Command<S> {
@@ -313,6 +313,10 @@ impl<S> Command<S> {
                 tuple((tag_no_case(b"RSET"), opt(is_a(" \t")), tag(b"\r\n"))),
                 |_| Command::Rset,
             ),
+            map(
+                tuple((tag_no_case(b"STARTTLS"), opt(is_a(" \t")), tag(b"\r\n"))),
+                |_| Command::Starttls,
+            ),
             map_res(
                 tuple((
                     tag_no_case(b"VRFY"),
@@ -325,10 +329,6 @@ impl<S> Command<S> {
                         name: MaybeUtf8::from(s),
                     })
                 },
-            ),
-            map(
-                tuple((tag_no_case(b"STARTTLS"), opt(is_a(" \t")), tag(b"\r\n"))),
-                |_| Command::Starttls,
             ),
         ))(buf)
     }
@@ -407,11 +407,11 @@ where
 
             Command::Rset => iter::once(IoSlice::new(b"RSET\r\n")),
 
+            Command::Starttls => iter::once(IoSlice::new(b"STARTTLS\r\n")),
+
             Command::Vrfy { name } => iter::once(IoSlice::new(b"VRFY "))
                 .chain(name.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
-
-            Command::Starttls => iter::once(IoSlice::new(b"STARTTLS\r\n")),
         }
     }
 }
@@ -612,11 +612,11 @@ mod tests {
             }),
             (b"RSET \t  \t \r\n", Command::Rset),
             (b"rSet\r\n", Command::Rset),
+            (b"STARTTLS \t  \t \r\n", Command::Starttls),
+            (b"starttls\r\n", Command::Starttls),
             (b"VrFY \t hello.world \t \r\n", Command::Vrfy {
                 name: MaybeUtf8::Ascii("\t hello.world \t "),
             }),
-            (b"STARTTLS \t  \t \r\n", Command::Starttls),
-            (b"starttls\r\n", Command::Starttls),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", show_bytes(inp));
@@ -770,13 +770,13 @@ mod tests {
                 b"RCPT TO:<Postmaster>\r\n",
             ),
             (Command::Rset, b"RSET\r\n"),
+            (Command::Starttls, b"STARTTLS\r\n"),
             (
                 Command::Vrfy {
                     name: MaybeUtf8::Ascii("postmaster"),
                 },
                 b"VRFY postmaster\r\n",
             ),
-            (Command::Starttls, b"STARTTLS\r\n"),
         ];
         for (inp, out) in tests {
             println!("Test: {:?}", inp);
