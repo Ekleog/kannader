@@ -11,10 +11,7 @@ use std::{
 
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    pin_mut,
-};
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use smol::future::FutureExt;
 use smtp_message::{
     next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, Hostname, MaybeUtf8,
@@ -83,8 +80,9 @@ pub trait Config: Send + Sync {
         Decision::Accept
     }
 
-    fn can_do_tls(&self) -> bool {
-        true
+    #[allow(unused_variables)]
+    fn can_do_tls(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> bool {
+        !conn_meta.is_encrypted && conn_meta.hello.as_ref().map(|h| h.is_ehlo).unwrap_or(false)
     }
 
     // TODO: when GATs are here, we can remove the trait object and return
@@ -99,9 +97,8 @@ pub trait Config: Send + Sync {
         &self,
         io: IO,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Result<
+    ) -> io::Result<
         duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
-        (IO, io::Error),
     >
     where
         IO: Send + AsyncRead + AsyncWrite;
@@ -152,6 +149,18 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision {
         Decision::Accept
+    }
+
+    #[allow(unused_variables)]
+    async fn handle_starttls(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Decision {
+        if self.can_do_tls(conn_meta) {
+            Decision::Accept
+        } else {
+            Decision::Reject(self.command_not_supported())
+        }
     }
 
     #[allow(unused_variables)]
@@ -274,16 +283,20 @@ pub trait Config: Send + Sync {
             banner += " ";
             banner += additional_banner;
         }
+        let mut text = vec![
+            MaybeUtf8::Utf8(banner),
+            MaybeUtf8::Utf8("8BITMIME".into()),
+            MaybeUtf8::Utf8("ENHANCEDSTATUSCODES".into()),
+            MaybeUtf8::Utf8("PIPELINING".into()),
+            MaybeUtf8::Utf8("SMTPUTF8".into()),
+        ];
+        if self.can_do_tls(conn_meta) {
+            text.push(MaybeUtf8::Utf8("STARTTLS".into()));
+        }
         Reply {
             code: ReplyCode::OKAY,
             ecode: None,
-            text: vec![
-                MaybeUtf8::Utf8(banner),
-                MaybeUtf8::Utf8("8BITMIME".into()),
-                MaybeUtf8::Utf8("ENHANCEDSTATUSCODES".into()),
-                MaybeUtf8::Utf8("PIPELINING".into()),
-                MaybeUtf8::Utf8("SMTPUTF8".into()),
-            ],
+            text,
         }
     }
 
@@ -311,6 +324,14 @@ pub trait Config: Send + Sync {
 
     fn rset_okay(&self) -> Reply<Cow<'static, str>> {
         self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
+    }
+
+    fn starttls_okay(&self) -> Reply<Cow<'static, str>> {
+        Reply {
+            code: ReplyCode::SERVICE_READY,
+            ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+            text: vec![MaybeUtf8::Utf8("Ready to start TLS".into())],
+        }
     }
 
     fn bad_sequence(&self) -> Reply<Cow<'static, str>> {
@@ -358,6 +379,14 @@ pub trait Config: Send + Sync {
             code: ReplyCode::COMMAND_UNRECOGNIZED,
             ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
             text: vec![MaybeUtf8::Utf8("Command not recognized".into())],
+        }
+    }
+
+    fn command_not_supported(&self) -> Reply<Cow<'static, str>> {
+        Reply {
+            code: ReplyCode::COMMAND_UNIMPLEMENTED,
+            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
+            text: vec![MaybeUtf8::Utf8("Command not supported".into())],
         }
     }
 
@@ -443,7 +472,10 @@ where
     IO: Send + AsyncRead + AsyncWrite,
     Cfg: Config,
 {
-    pin_mut!(io);
+    let (io_r, io_w) = io.split();
+    let mut io: duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>> =
+        duplexify::Duplex::new(Box::pin(io_r), Box::pin(io_w));
+
     let rdbuf = &mut [0; RDBUF_SIZE];
     let mut unhandled = 0..0;
     // TODO: should have a wrslices: Vec<IoSlice> here, so that we don't allocate
@@ -799,6 +831,26 @@ where
                 }
             },
 
+            // TODO: figure out a way to unit test starttls
+            Some(Command::Starttls) => match cfg.handle_starttls(&mut conn_meta).await {
+                Decision::Reject(r) => {
+                    send_reply!(io, r).await?;
+                }
+                Decision::Kill { reply, res } => {
+                    if let Some(r) = reply {
+                        send_reply!(io, r).await?;
+                    }
+                    return res;
+                }
+                Decision::Accept => {
+                    send_reply!(io, cfg.starttls_okay()).await?;
+                    io = cfg.tls_accept(io, &mut conn_meta).await?;
+                    mail_meta = None;
+                    conn_meta.is_encrypted = true;
+                    conn_meta.hello = None;
+                }
+            },
+
             Some(Command::Expn { name }) => {
                 simple_handler!(cfg.handle_expn(name, &mut conn_meta).await)
             }
@@ -812,11 +864,6 @@ where
                 simple_handler!(cfg.handle_noop(string, &mut conn_meta).await)
             }
             Some(Command::Quit) => simple_handler!(cfg.handle_quit(&mut conn_meta).await),
-
-            Some(Command::Starttls) => {
-                // TODO: implement
-                send_reply!(io, cfg.command_unimplemented()).await?;
-            }
         }
     }
 }
@@ -861,21 +908,17 @@ mod tests {
 
         async fn tls_accept<IO>(
             &self,
-            io: IO,
+            _io: IO,
             _conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-        ) -> Result<
+        ) -> io::Result<
             duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
-            (IO, io::Error),
         >
         where
             IO: Send + AsyncRead + AsyncWrite,
         {
-            Err((
-                io,
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "tls accept not implemented for tests",
-                ),
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tls accept not implemented for tests",
             ))
         }
 
@@ -973,7 +1016,8 @@ mod tests {
                   250-8BITMIME\r\n\
                   250-ENHANCEDSTATUSCODES\r\n\
                   250-PIPELINING\r\n\
-                  250 SMTPUTF8\r\n\
+                  250-SMTPUTF8\r\n\
+                  250 STARTTLS\r\n\
                   250 2.0.0 Okay\r\n\
                   550 No user 'baz'\r\n\
                   250 2.1.5 Okay\r\n\

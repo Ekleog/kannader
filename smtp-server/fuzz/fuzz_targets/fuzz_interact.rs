@@ -31,21 +31,17 @@ impl smtp_server::Config for FuzzConfig {
 
     async fn tls_accept<IO>(
         &self,
-        io: IO,
+        _io: IO,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Result<
+    ) -> io::Result<
         duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
-        (IO, io::Error),
     >
     where
         IO: Send + AsyncRead + AsyncWrite,
     {
-        Err((
-            io,
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "tls not implemented for fuzzing",
-            ),
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "tls not implemented for fuzzing",
         ))
     }
 
