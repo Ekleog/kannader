@@ -1,8 +1,8 @@
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{hash::Hash, marker::PhantomData, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::{io, join, pin_mut, prelude::*};
+use futures::{io, join, pin_mut, AsyncRead, AsyncWrite, Stream, StreamExt, TryFutureExt};
 use smtp_message::{Email, ReplyCode};
 
 // TODO:
@@ -186,6 +186,21 @@ pub enum TransportFailure {
 
 #[async_trait]
 pub trait Transport<U>: 'static + Send + Sync {
+    type Destination: Send + Sync + Eq + Hash;
+    type Sender: TransportSender<U>;
+
+    async fn destination(
+        &self,
+        meta: &MailMetadata<U>,
+    ) -> Result<Self::Destination, TransportFailure>;
+
+    async fn connect(&self, dest: &Self::Destination) -> Result<Self::Sender, TransportFailure>;
+}
+
+#[async_trait]
+pub trait TransportSender<U>: 'static + Send + Sync {
+    // TODO: Figure out a way to batch a single mail (with the same metadata) going
+    // out to multiple recipients, so as to just use multiple RCPT TO
     async fn send<Reader>(
         &self,
         meta: &MailMetadata<U>,
@@ -454,7 +469,17 @@ where
             Err(e) => Err((i, e)),
         });
 
-        match self.q.transport.send(&meta, reader).await {
+        // TODO: connect only once for all mails towards a single destination
+        let meta_ref = &meta;
+        let send_attempt = self
+            .q
+            .transport
+            .destination(&meta)
+            .and_then(|dest| async move { self.q.transport.connect(&dest).await })
+            .and_then(|sender| async move { sender.send(meta_ref, reader).await })
+            .await;
+
+        match send_attempt {
             Ok(()) => {
                 let pcm = io_retry_loop!(self, inflight, |i| self.q.storage.send_done(i).await);
                 match pcm {
