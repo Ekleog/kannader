@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io,
     marker::PhantomData,
     path::{Path, PathBuf},
     pin::Pin,
@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use futures::{io::IoSlice, prelude::*};
 use openat::Dir;
 use smol::unblock;
-use smtp_queue::{DestinationId, MailMetadata, QueueId, ScheduleInfo};
+use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -194,34 +194,6 @@ where
         })
         .await?;
         Ok(())
-    }
-
-    async fn remeta(&self, mail: &mut FsInflightMail, meta: &MailMetadata<U>) -> io::Result<()> {
-        let inflight = self.inflight.clone();
-        let id = mail.id.0.clone();
-
-        // TODO: figure out a way to scope tasks so that we don't have to create this
-        // all in memory ahead of time
-        let new_meta_bytes = serde_json::to_vec(meta)?;
-
-        unblock(move || {
-            let dest_dir = inflight.sub_dir(&*id)?;
-
-            let mut tmp_meta_file = String::from(TMP_METADATA_FILE_PREFIX);
-            let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
-            let uuid = Uuid::new_v4()
-                .to_hyphenated_ref()
-                .encode_lower(&mut uuid_buf);
-            tmp_meta_file.push_str(uuid);
-
-            let mut tmp_file = dest_dir.new_file(&tmp_meta_file, 0600)?;
-            tmp_file.write_all(&new_meta_bytes)?;
-
-            dest_dir.local_rename(&tmp_meta_file, METADATA_FILE)?;
-
-            Ok::<(), io::Error>(())
-        })
-        .await
     }
 
     async fn send_start(
@@ -536,7 +508,7 @@ fn make_dest_dir<U>(
     queue: &Dir,
     mail_uuid: &String,
     mail_dir: &Dir,
-    dest_id: &DestinationId,
+    dest_id: &str,
     metadata: &MailMetadata<U>,
     schedule: &ScheduleInfo,
 ) -> io::Result<FsQueuedMail>
@@ -544,8 +516,8 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     // TODO: clean up self dest dir when having an io error
-    mail_dir.create_dir(&*dest_id.0, 0600)?;
-    let dest_dir = mail_dir.sub_dir(&*dest_id.0)?;
+    mail_dir.create_dir(dest_id, 0600)?;
+    let dest_dir = mail_dir.sub_dir(dest_id)?;
 
     let schedule_file = dest_dir.new_file(SCHEDULE_FILE, 0600)?;
     serde_json::to_writer(schedule_file, &schedule)?;
@@ -560,7 +532,7 @@ where
 
     let mut symlink_value = PathBuf::from(DATA_DIR_FROM_OTHER_QUEUE);
     symlink_value.push(&mail_uuid);
-    symlink_value.push(&*dest_id.0);
+    symlink_value.push(dest_id);
     queue.symlink(&*dest_uuid, &symlink_value)?;
 
     Ok(FsQueuedMail::found(FoundMail {
@@ -570,16 +542,16 @@ where
 }
 
 /// Blocking function!
-fn cleanup_dest_dir(mail_dir: &Dir, dest_id: &DestinationId) {
+fn cleanup_dest_dir(mail_dir: &Dir, dest_id: &str) {
     // TODO: consider logging IO errors on cleanups that follow an IO error
-    let dest_dir = match mail_dir.sub_dir(&*dest_id.0) {
+    let dest_dir = match mail_dir.sub_dir(dest_id) {
         Ok(d) => d,
         Err(_) => return,
     };
     let _ = dest_dir.remove_file(METADATA_FILE);
     let _ = dest_dir.remove_file(SCHEDULE_FILE);
 
-    let _ = mail_dir.remove_dir(&*dest_id.0);
+    let _ = mail_dir.remove_dir(dest_id);
 }
 
 /// Blocking function!
@@ -596,7 +568,7 @@ where
 {
     async fn commit(
         mut self,
-        destinations: Vec<(DestinationId, MailMetadata<U>, ScheduleInfo)>,
+        destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
     ) -> io::Result<Vec<FsQueuedMail>> {
         match self.flush().await {
             Ok(()) => (),
@@ -606,6 +578,16 @@ where
                 return Err(e);
             }
         }
+        let destinations = destinations
+            .into_iter()
+            .map(|(meta, sched)| {
+                let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
+                let dest_uuid = Uuid::new_v4()
+                    .to_hyphenated_ref()
+                    .encode_lower(&mut uuid_buf);
+                (dest_uuid.to_string(), meta, sched)
+            })
+            .collect::<Vec<_>>();
         unblock(move || {
             let mut queued_mails = Vec::with_capacity(destinations.len());
 

@@ -41,7 +41,7 @@ use smtp_message::{Email, ReplyCode};
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct MailMetadata<U> {
     pub from: Option<Email>,
-    pub to: Vec<Email>,
+    pub to: Email,
     pub metadata: U,
 }
 
@@ -65,15 +65,6 @@ pub struct QueueId(pub Arc<String>);
 impl QueueId {
     pub fn new<S: ToString>(s: S) -> QueueId {
         QueueId(Arc::new(s.to_string()))
-    }
-}
-
-#[derive(Clone)]
-pub struct DestinationId(pub Arc<String>);
-
-impl DestinationId {
-    pub fn new<S: ToString>(s: S) -> DestinationId {
-        DestinationId(Arc::new(s.to_string()))
     }
 }
 
@@ -137,12 +128,6 @@ pub trait Storage<U>: 'static + Send + Sync {
         schedule: ScheduleInfo,
     ) -> Result<(), io::Error>;
 
-    async fn remeta(
-        &self,
-        mail: &mut Self::InflightMail,
-        meta: &MailMetadata<U>,
-    ) -> Result<(), io::Error>;
-
     async fn send_start(
         &self,
         mail: Self::QueuedMail,
@@ -190,7 +175,7 @@ pub trait PendingCleanupMail: Send + Sync {
 pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
     async fn commit(
         self,
-        destinations: Vec<(DestinationId, MailMetadata<U>, ScheduleInfo)>,
+        destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
     ) -> io::Result<Vec<QueuedMail>>;
 }
 
@@ -205,7 +190,7 @@ pub trait Transport<U>: 'static + Send + Sync {
         &self,
         meta: &MailMetadata<U>,
         mail: Reader,
-    ) -> Result<(), Vec<(Email, TransportFailure)>>
+    ) -> Result<(), TransportFailure>
     where
         Reader: AsyncRead;
 }
@@ -459,7 +444,7 @@ where
             }
         };
 
-        let (mut inflight, mut meta, reader) = io_retry_loop!(self, inflight, |i| match self
+        let (inflight, meta, reader) = io_retry_loop!(self, inflight, |i| match self
             .q
             .storage
             .read_inflight(&i)
@@ -482,30 +467,16 @@ where
                 };
                 return Ok(());
             }
-            Err(v) => {
-                let (emails, errs): (Vec<Email>, Vec<TransportFailure>) = v.into_iter().unzip();
-                for err in errs {
-                    match err {
-                        TransportFailure::Local(e) => {
-                            self.q.config.log_io_error(e, Some(inflight.id())).await;
-                        }
-                        TransportFailure::RemoteTransient(_c, _e) => {
-                            // TODO: actually use the code in particular (see
-                            // TODO comment at the top of the file)
-                        }
-                    }
-                }
-                meta.to = emails;
+            Err(TransportFailure::Local(e)) => {
+                self.q.config.log_io_error(e, Some(inflight.id())).await;
+            }
+            Err(TransportFailure::RemoteTransient(_c, _e)) => {
+                // TODO: actually use, especially, the return code (see
+                // TODO comment at the top of the file)
             }
         }
         // The above match falls through only in cases where we ought to retry
-        // TODO: remeta iff the meta actually changed (ie. `meta.to != emails` above)
         let id = inflight.id();
-        io_retry_loop_raw!(
-            self,
-            inflight.id(),
-            self.q.storage.remeta(&mut inflight, &meta).await
-        );
         let queued = io_retry_loop!(self, inflight, |i| self.q.storage.send_cancel(i).await);
         match queued {
             Some(queued) => Err(queued),
@@ -544,7 +515,7 @@ where
 {
     pub async fn commit(
         self,
-        destinations: Vec<(DestinationId, MailMetadata<U>, ScheduleInfo)>,
+        destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
     ) -> io::Result<()> {
         let mut this = self;
         let mails = this.enqueuer.take().unwrap().commit(destinations).await?;

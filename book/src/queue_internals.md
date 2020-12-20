@@ -68,7 +68,7 @@ writing a `<filename>.{{random_uuid}}` then renaming it in-place.
 
 When enqueuing, the process is:
  - Create `<queue>/data/<uuid>`, thereafter named `<mail>`
- - For each destination:
+ - For each destination (ie. recipient email address):
    + Create `<mail>/<uuid>`, thereafter named `<mail>/<dest>`
    + Write `<mail>/<dest>/schedule` and `<mail>/<dest>/metadata`
  - Give out the Enqueuer to the user for writing `<mail>/contents`
