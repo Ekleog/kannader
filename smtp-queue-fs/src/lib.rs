@@ -169,7 +169,8 @@ where
         .await
     }
 
-    // TODO: make reschedule only ever happen on the inflight mails, like remeta
+    // TODO: make reschedule only ever happen on the inflight mails, as we have an
+    // implicit lock on these
     async fn reschedule(&self, mail: &mut FsQueuedMail, schedule: ScheduleInfo) -> io::Result<()> {
         mail.schedule = schedule;
 

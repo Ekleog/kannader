@@ -16,7 +16,7 @@ The storage must provide basically three sets of primitives:
  - For queuing emails and reading them from the storage:
     - `enqueue` and `read_inflight`
  - For handling state changes for each email:
-    - `reschedule` and `remeta`
+    - `reschedule`
     - `send_start`, `send_done` and `send_cancel`
     - `drop` and `cleanup`
 
