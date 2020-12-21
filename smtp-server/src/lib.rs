@@ -1,13 +1,6 @@
-#![feature(io_slice_advance)]
 #![type_length_limit = "200000000"]
 
-use std::{
-    borrow::Cow,
-    cmp,
-    io::{self, IoSlice},
-    ops::Range,
-    pin::Pin,
-};
+use std::{borrow::Cow, cmp, io, ops::Range, pin::Pin};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -415,21 +408,6 @@ pub trait Config: Send + Sync {
     }
 }
 
-// TODO: upstream in AsyncWriteExt?
-async fn write_vectored_all<W>(w: &mut W, bufs: &mut [IoSlice<'_>]) -> io::Result<()>
-where
-    W: Unpin + AsyncWrite,
-{
-    let mut bufs = bufs;
-    let mut len = bufs.iter().map(|b| b.len()).sum::<usize>();
-    while len > 0 {
-        let toskip = w.write_vectored(bufs).await?;
-        bufs = IoSlice::advance(bufs, toskip);
-        len -= toskip;
-    }
-    Ok(())
-}
-
 async fn advance_until_crlf<R>(
     r: &mut R,
     buf: &mut [u8],
@@ -518,11 +496,9 @@ where
         ($writer:expr, $reply:expr) => {
             smol::future::or(
                 async {
-                    write_vectored_all(
-                        &mut $writer,
-                        &mut $reply.as_io_slices().collect::<Vec<_>>(),
-                    )
-                    .await?;
+                    $writer
+                        .write_all_vectored(&mut $reply.as_io_slices().collect::<Vec<_>>())
+                        .await?;
                     waiting_for_command_since = Utc::now();
                     Ok(())
                 },
