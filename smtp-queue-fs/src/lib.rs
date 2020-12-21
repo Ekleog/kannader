@@ -15,18 +15,20 @@ use smtp_queue::{MailMetadata, QueueId, ScheduleInfo};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-pub const DATA_DIR: &'static str = "data";
-pub const QUEUE_DIR: &'static str = "queue";
-pub const INFLIGHT_DIR: &'static str = "inflight";
-pub const CLEANUP_DIR: &'static str = "cleanup";
+pub const DATA_DIR: &str = "data";
+pub const QUEUE_DIR: &str = "queue";
+pub const INFLIGHT_DIR: &str = "inflight";
+pub const CLEANUP_DIR: &str = "cleanup";
 
-pub const DATA_DIR_FROM_OTHER_QUEUE: &'static str = "../data";
+pub const DATA_DIR_FROM_OTHER_QUEUE: &str = "../data";
 
-pub const CONTENTS_FILE: &'static str = "contents";
-pub const METADATA_FILE: &'static str = "metadata";
-pub const SCHEDULE_FILE: &'static str = "schedule";
-pub const TMP_METADATA_FILE_PREFIX: &'static str = "metadata.";
-pub const TMP_SCHEDULE_FILE_PREFIX: &'static str = "schedule.";
+pub const CONTENTS_FILE: &str = "contents";
+pub const METADATA_FILE: &str = "metadata";
+pub const SCHEDULE_FILE: &str = "schedule";
+pub const TMP_METADATA_FILE_PREFIX: &str = "metadata.";
+pub const TMP_SCHEDULE_FILE_PREFIX: &str = "schedule.";
+
+const ONLY_USER_RW: u32 = 0o600;
 
 // TODO: auto-detect orphan files (pointed to by nowhere in the queue)
 
@@ -72,21 +74,20 @@ impl<U> FsStorage<U> {
     }
 }
 
+type DynStreamOf<T> = Pin<Box<dyn Send + Stream<Item = T>>>;
+
 #[async_trait]
 impl<U> smtp_queue::Storage<U> for FsStorage<U>
 where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer<U>;
-    type InflightLister =
-        Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>;
+    type InflightLister = DynStreamOf<Result<FsInflightMail, (io::Error, Option<QueueId>)>>;
     type InflightMail = FsInflightMail;
-    type PendingCleanupLister = Pin<
-        Box<dyn Send + Stream<Item = Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>>,
-    >;
+    type PendingCleanupLister =
+        DynStreamOf<Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>;
     type PendingCleanupMail = FsPendingCleanupMail;
-    type QueueLister =
-        Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>;
+    type QueueLister = DynStreamOf<Result<FsQueuedMail, (io::Error, Option<QueueId>)>>;
     type QueuedMail = FsQueuedMail;
     type Reader = Pin<Box<dyn Send + AsyncRead>>;
 
@@ -153,9 +154,9 @@ where
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
 
-            data.create_dir(&*mail_uuid, 0600)?;
+            data.create_dir(&*mail_uuid, ONLY_USER_RW)?;
             let mail_dir = data.sub_dir(&*mail_uuid)?;
-            let contents_file = mail_dir.new_file(CONTENTS_FILE, 0600)?;
+            let contents_file = mail_dir.new_file(CONTENTS_FILE, ONLY_USER_RW)?;
 
             Ok(FsEnqueuer {
                 mail_uuid: mail_uuid.to_string(),
@@ -185,7 +186,7 @@ where
                 .encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
 
-            let tmp_file = dest_dir.new_file(&tmp_sched_file, 0600)?;
+            let tmp_file = dest_dir.new_file(&tmp_sched_file, ONLY_USER_RW)?;
             serde_json::to_writer(tmp_file, &schedule)?;
 
             dest_dir.local_rename(&tmp_sched_file, SCHEDULE_FILE)?;
@@ -320,10 +321,8 @@ where
                 Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
                 Err(_) => return Ok(false),
             };
-            let should_rm_mail_dir = mail_dir_list.all(|e| match e {
-                Ok(e) if e.file_name() == CONTENTS_FILE => true,
-                _ => false,
-            });
+            let should_rm_mail_dir =
+                mail_dir_list.all(|e| matches!(e, Ok(e) if e.file_name() == CONTENTS_FILE));
 
             if should_rm_mail_dir {
                 match mail_dir.remove_file(CONTENTS_FILE) {
@@ -506,7 +505,7 @@ pub struct FsEnqueuer<U> {
 /// Blocking function!
 fn make_dest_dir<U>(
     queue: &Dir,
-    mail_uuid: &String,
+    mail_uuid: &str,
     mail_dir: &Dir,
     dest_id: &str,
     metadata: &MailMetadata<U>,
@@ -516,13 +515,13 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     // TODO: clean up self dest dir when having an io error
-    mail_dir.create_dir(dest_id, 0600)?;
+    mail_dir.create_dir(dest_id, ONLY_USER_RW)?;
     let dest_dir = mail_dir.sub_dir(dest_id)?;
 
-    let schedule_file = dest_dir.new_file(SCHEDULE_FILE, 0600)?;
+    let schedule_file = dest_dir.new_file(SCHEDULE_FILE, ONLY_USER_RW)?;
     serde_json::to_writer(schedule_file, &schedule)?;
 
-    let metadata_file = dest_dir.new_file(METADATA_FILE, 0600)?;
+    let metadata_file = dest_dir.new_file(METADATA_FILE, ONLY_USER_RW)?;
     serde_json::to_writer(metadata_file, &metadata)?;
 
     let mut dest_uuid_buf: [u8; 45] = Uuid::encode_buffer();
@@ -602,8 +601,8 @@ where
                 ) {
                     Ok(queued_mail) => queued_mails.push(queued_mail),
                     Err(e) => {
-                        for i in 0..d {
-                            cleanup_dest_dir(&self.mail_dir, &destinations[i].0);
+                        for dest in &destinations[0..d] {
+                            cleanup_dest_dir(&self.mail_dir, &dest.0);
                         }
                         cleanup_contents_dir(&self.queue, self.mail_uuid, &self.mail_dir);
                         return Err(e);
