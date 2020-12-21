@@ -85,6 +85,7 @@ impl smtp_server::Config for FuzzConfig {
         }
     }
 
+    #[allow(clippy::needless_lifetimes)] // false-positive
     async fn handle_mail<'a, R>(
         &self,
         reader: &mut EscapedDataReader<'a, R>,
@@ -127,5 +128,5 @@ fuzz_target!(|data: &[u8]| {
     let reader = Cursor::new(&data[2..]).limited(chunk_size as usize);
     let writer = io::sink();
     let io = Duplex::new(reader, writer);
-    let _ignore_errors = executor::block_on(interact(io, IsAlreadyTls::No, (), &mut FuzzConfig));
+    let _ignore_errors = executor::block_on(interact(io, IsAlreadyTls::No, (), &FuzzConfig));
 });
