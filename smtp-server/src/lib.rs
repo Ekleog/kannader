@@ -473,8 +473,10 @@ where
     Cfg: Config,
 {
     let (io_r, io_w) = io.split();
-    let mut io: duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>> =
-        duplexify::Duplex::new(Box::pin(io_r), Box::pin(io_w));
+    let mut io = duplexify::Duplex::new(
+        Box::pin(io_r) as Pin<Box<dyn Send + AsyncRead>>,
+        Box::pin(io_w) as Pin<Box<dyn Send + AsyncWrite>>,
+    );
 
     let rdbuf = &mut [0; RDBUF_SIZE];
     let mut unhandled = 0..0;
@@ -558,9 +560,9 @@ where
     send_reply!(io, cfg.welcome_banner()).await?;
 
     loop {
-        if unhandled.len() == 0 {
+        if unhandled.is_empty() {
             unhandled = 0..read_for_command!(io.read(rdbuf)).await?;
-            if unhandled.len() == 0 {
+            if unhandled.is_empty() {
                 return Ok(());
             }
         }
@@ -672,7 +674,7 @@ where
                 mut email,
                 params: _params,
             }) => {
-                if !conn_meta.hello.is_some() {
+                if conn_meta.hello.is_none() {
                     send_reply!(io, cfg.mail_before_hello()).await?;
                 } else {
                     match mail_meta {
