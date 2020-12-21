@@ -11,5 +11,6 @@ edition = "2018"
 [dependencies]
 futures = { version = "0.3.8", features = ["write-all-vectored"] }
 thiserror = "1.0.22"
+trust-dns-resolver = { version = "0.19.6", default-features = false }
 
 smtp-message = { path = "../smtp-message" }
