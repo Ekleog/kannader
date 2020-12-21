@@ -14,9 +14,9 @@ rec {
     overlays = [ rustOverlay ];
   };
   rustNightlyChannel = pkgs.rustChannelOf {
-    date = "2020-12-13";
+    date = "2020-12-21";
     channel = "nightly";
-    sha256 = "1xd1560g3nbc6s535i9pzry3livkkccrjz970qrn5rb6y4xqkzfj";
+    sha256 = "0dbwc67mlfpq9zm3wcmwgg7jcspb62y3r0i3cj1g18jrs486vq6p";
   };
   #rustBetaChannel = pkgs.rustChannelOf {
   #  date = "2018-04-20";
