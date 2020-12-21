@@ -7,13 +7,14 @@ on:
 
 jobs:
   cargo-fmt:
-    name: Cargo Fmt
+    name: Cargo Fmt And Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
       - run: rm -rf ~/.cargo/bin
       - run: nix-shell --pure --run 'cargo fmt --all -- --check'
+      - run: nix-shell --pure --run 'cargo clippy --all --all-features -- -D warnings'
 
   cargo-tests:
     name: Cargo Tests
