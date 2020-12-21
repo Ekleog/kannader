@@ -1,0 +1,15 @@
+[package]
+name = "smtp-client"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "client", "asynchronous", "email"]
+description = "Asynchronous SMTP client library"
+edition = "2018"
+
+[dependencies]
+futures = { version = "0.3.8", features = ["write-all-vectored"] }
+thiserror = "1.0.22"
+
+smtp-message = { path = "../smtp-message" }

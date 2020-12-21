@@ -1,5 +1,6 @@
 [workspace]
 members = [ "smtp-message", "smtp-message/fuzz",
+            "smtp-client",
             "smtp-server", "smtp-server/fuzz",
             "smtp-queue", "smtp-queue-fs",
             "benches" ]
