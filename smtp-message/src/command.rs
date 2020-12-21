@@ -118,7 +118,7 @@ impl<S> Parameters<S> {
                     )),
                 ),
             )),
-            |v| Parameters(v),
+            Parameters,
         )
     }
 }

@@ -167,10 +167,10 @@ where
                             this.buf[..remaining]
                                 .copy_from_slice(&bufs[b][i + 1..i + 1 + remaining]);
                             let mut copied = remaining;
-                            for bb in b + 1..bufs.len() {
-                                let remaining = cmp::min(bufs[bb].len(), raw_size - size - copied);
+                            for buf in &bufs[b + 1..] {
+                                let remaining = cmp::min(buf.len(), raw_size - size - copied);
                                 this.buf[copied..copied + remaining]
-                                    .copy_from_slice(&bufs[bb][..remaining]);
+                                    .copy_from_slice(&buf[..remaining]);
                                 copied += remaining;
                             }
                             *this.unhandled = 0..copied;
@@ -441,9 +441,9 @@ where
                     (CrLf, b'.') => {
                         let mut v = Vec::with_capacity(b + 1);
                         let mut writing = 0;
-                        for bb in 0..b {
-                            v.push(IoSlice::new(&bufs[bb]));
-                            writing += bufs[bb].len();
+                        for buf in &bufs[0..b] {
+                            v.push(IoSlice::new(&buf));
+                            writing += buf.len();
                         }
                         v.push(IoSlice::new(&bufs[b][..=i]));
                         writing += i + 1;

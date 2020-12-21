@@ -636,7 +636,7 @@ where
                     Decision::Accept => {
                         conn_meta.hello = Some(HelloInfo {
                             is_ehlo: true,
-                            hostname: hostname.to_owned(),
+                            hostname: hostname.into_owned(),
                         });
                         send_reply!(io, cfg.ehlo_okay(&conn_meta)).await?;
                     }
@@ -660,7 +660,7 @@ where
                     Decision::Accept => {
                         conn_meta.hello = Some(HelloInfo {
                             is_ehlo: false,
-                            hostname: hostname.to_owned(),
+                            hostname: hostname.into_owned(),
                         });
                         send_reply!(io, cfg.helo_okay(&conn_meta)).await?;
                     }
@@ -701,7 +701,7 @@ where
                                     return res;
                                 }
                                 Decision::Accept => {
-                                    mail_metadata.from = email.map(|e| e.to_owned());
+                                    mail_metadata.from = email.map(|e| e.into_owned());
                                     mail_meta = Some(mail_metadata);
                                     send_reply!(io, cfg.mail_okay()).await?;
                                 }
@@ -734,7 +734,7 @@ where
                             return res;
                         }
                         Decision::Accept => {
-                            mail_meta_unw.to.push(email.to_owned());
+                            mail_meta_unw.to.push(email.into_owned());
                             send_reply!(io, cfg.rcpt_okay()).await?;
                         }
                     }

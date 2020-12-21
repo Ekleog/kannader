@@ -83,7 +83,7 @@ fn find_dfa<D: DFA>(dfa: &D, buf: &[u8]) -> Result<usize, D::ID> {
     last_match.ok_or(state)
 }
 
-pub fn apply_regex<'a>(regex: &'a Regex) -> impl 'a + FnMut(&[u8]) -> IResult<&[u8], &[u8]> {
+pub fn apply_regex(regex: &Regex) -> impl '_ + FnMut(&[u8]) -> IResult<&[u8], &[u8]> {
     move |buf: &[u8]| {
         let dfa = regex.forward();
 
@@ -125,7 +125,7 @@ pub enum NextCrLfState {
 /// a non-`None` value is found) should just keep using the same
 /// reference.
 pub fn next_crlf(buf: &[u8], state: &mut NextCrLfState) -> Option<usize> {
-    if buf.len() == 0 {
+    if buf.is_empty() {
         return None;
     }
     if *state == NextCrLfState::CrPassed && buf[0] == b'\n' {
@@ -223,17 +223,17 @@ impl<S> Hostname<S> {
                     let s = unsafe { str::from_utf8_unchecked(b) };
 
                     if b[0] != b'[' {
-                        return Some(Hostname::AsciiDomain { raw: s.into() });
+                        Some(Hostname::AsciiDomain { raw: s.into() })
                     } else if b[1] == b'I' {
                         let ip = unsafe { str::from_utf8_unchecked(&b[6..b.len() - 1]) };
                         let ip = ip.parse::<Ipv6Addr>().ok()?;
 
-                        return Some(Hostname::Ipv6 { raw: s.into(), ip });
+                        Some(Hostname::Ipv6 { raw: s.into(), ip })
                     } else {
                         let ip = unsafe { str::from_utf8_unchecked(&b[1..b.len() - 1]) };
                         let ip = ip.parse::<Ipv4Addr>().ok()?;
 
-                        return Some(Hostname::Ipv4 { raw: s.into(), ip });
+                        Some(Hostname::Ipv4 { raw: s.into(), ip })
                     }
                 },
             ),
@@ -257,10 +257,10 @@ impl<S> Hostname<S> {
                         .to_ascii(raw)
                         .ok()?;
 
-                    return Some(Hostname::Utf8Domain {
+                    Some(Hostname::Utf8Domain {
                         raw: raw.into(),
                         punycode,
-                    });
+                    })
                 },
             ),
         ))
@@ -323,7 +323,7 @@ impl<S: Eq + PartialEq> Hostname<S> {
 }
 
 impl Hostname<&str> {
-    pub fn to_owned(self) -> Hostname<String> {
+    pub fn into_owned(self) -> Hostname<String> {
         match self {
             Hostname::Utf8Domain { raw, punycode } => Hostname::Utf8Domain {
                 raw: (*raw).to_owned(),
@@ -373,9 +373,9 @@ impl<S> Localpart<S> {
                     let s = unsafe { str::from_utf8_unchecked(b) };
 
                     if b[0] != b'"' {
-                        return Localpart::Ascii { raw: s.into() };
+                        Localpart::Ascii { raw: s.into() }
                     } else {
-                        return Localpart::QuotedAscii { raw: s.into() };
+                        Localpart::QuotedAscii { raw: s.into() }
                     }
                 },
             ),
@@ -387,9 +387,9 @@ impl<S> Localpart<S> {
                     let s = unsafe { str::from_utf8_unchecked(b) };
 
                     if b[0] != b'"' {
-                        return Localpart::Utf8 { raw: s.into() };
+                        Localpart::Utf8 { raw: s.into() }
                     } else {
-                        return Localpart::QuotedUtf8 { raw: s.into() };
+                        Localpart::QuotedUtf8 { raw: s.into() }
                     }
                 },
             ),
@@ -560,10 +560,10 @@ where
 }
 
 impl Email<&str> {
-    pub fn to_owned(self) -> Email<String> {
+    pub fn into_owned(self) -> Email<String> {
         Email {
             localpart: self.localpart.to_owned(),
-            hostname: self.hostname.map(|h| h.to_owned()),
+            hostname: self.hostname.map(|h| h.into_owned()),
         }
     }
 }
