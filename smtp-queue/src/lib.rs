@@ -337,15 +337,14 @@ where
                                 .storage
                                 .send_cancel(i)
                                 .await);
-                            match queued {
-                                // Mail is still waiting, probably was inflight
-                                // during a crash
-                                Some(queued) => this.send(queued).await,
-
-                                // Mail is no longer waiting, probably was
-                                // inflight because another process was currently
-                                // sending it
-                                None => (),
+                            if let Some(queued) = queued {
+                                // Mail is still waiting, probably was
+                                // inflight during a crash
+                                this.send(queued).await
+                            } else {
+                                // Mail is no longer waiting, probably
+                                // was inflight because another
+                                // process was currently sending it
                             }
                         })
                         .detach();
@@ -397,9 +396,10 @@ where
         loop {
             // TODO: this should be smol::Timer::at, but I can't find how to convert from
             // chrono::DateTime<Utc> to std::time::Instant right now
+            const ZERO_DURATION: Duration = Duration::from_secs(0);
             let wait_time = (mail.schedule().at - Utc::now())
                 .to_std()
-                .unwrap_or(Duration::from_secs(0));
+                .unwrap_or(ZERO_DURATION);
             smol::Timer::after(wait_time).await;
             match self.try_send(mail).await {
                 Ok(()) => return,
