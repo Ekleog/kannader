@@ -53,7 +53,7 @@ pub mod fuzz {
         initread: usize,
         mut readlen: Vec<usize>,
     ) {
-        if readlen.len() == 0 {
+        if readlen.is_empty() {
             readlen.push(1);
         }
         // println!("==> NEW TEST");
@@ -163,7 +163,7 @@ pub mod fuzz {
             }
             // println!("  Exiting the loop");
             reader.complete();
-            assert!(reader.get_unhandled().unwrap().len() == 0);
+            assert!(reader.get_unhandled().unwrap().is_empty());
         }
 
         // println!("Checking that the output matches");
@@ -172,7 +172,7 @@ pub mod fuzz {
                 .iter()
                 .flat_map(|v| v.iter().flat_map(|w| w.iter().cloned()))
                 .collect::<Vec<u8>>();
-            if expected.len() > 0 && !expected.ends_with(b"\r\n") {
+            if !expected.is_empty() && !expected.ends_with(b"\r\n") {
                 expected.extend_from_slice(b"\r\n");
             }
             // println!("Read    : {:?}", show_bytes(&read));
