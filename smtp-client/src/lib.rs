@@ -26,6 +26,11 @@ where
     C: trust_dns_resolver::proto::DnsHandle,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>,
 {
+    /// Note: Passing as `resolver` something that is configured with
+    /// `Ipv6andIpv4` may lead to unexpected behavior, as the client will
+    /// attempt to connect to both the Ipv6 and the Ipv4 address if whichever
+    /// comes first doesn't successfully connect. In particular, it means that
+    /// performance could be degraded.
     pub fn new(resolver: AsyncResolver<C, P>) -> Client<C, P> {
         Client { resolver }
     }
@@ -62,7 +67,7 @@ where
 
         // If there are no MX records, try A/AAAA records
         if mx_records.is_empty() {
-            return self.connect_to_host(&host.into_name()?).await;
+            return self.connect_to_host(host.into_name()?).await;
         }
 
         // By increasing order of priority, try each MX
@@ -74,7 +79,7 @@ where
 
             // Then try to connect to each address
             for mx in mxes {
-                match self.connect_to_host(mx).await {
+                match self.connect_to_host(mx.clone()).await {
                     Ok(sender) => return Ok(sender),
                     Err(e) => first_error = first_error.or(Some(e)),
                 }
@@ -92,9 +97,21 @@ where
         Err(first_error.unwrap())
     }
 
-    async fn connect_to_host(&self, name: &trust_dns_resolver::Name) -> io::Result<Sender> {
-        let _ = name;
-        todo!()
+    async fn connect_to_host(&self, name: trust_dns_resolver::Name) -> io::Result<Sender> {
+        // Lookup the IP addresses associated with this name
+        let lookup = self.resolver.lookup_ip(name).await?;
+
+        // Following the order given by the DNS server, attempt connecting
+        let mut first_error = None;
+        for ip in lookup.iter() {
+            match self.connect_to_ip(ip).await {
+                Ok(sender) => return Ok(sender),
+                Err(e) => first_error = first_error.or(Some(e)),
+            }
+        }
+
+        // See comment on connect_to_mx above for why this unwrap is correct
+        Err(first_error.unwrap())
     }
 
     pub async fn connect_to_ip(&self, ip: IpAddr) -> io::Result<Sender> {
