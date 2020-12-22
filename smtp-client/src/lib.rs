@@ -43,8 +43,8 @@ where
 
     pub async fn connect(&self, dest: &Destination) -> io::Result<Sender> {
         match dest.host {
-            Hostname::Ipv4 { ip, .. } => self.connect_to_ip(IpAddr::V4(ip)).await,
-            Hostname::Ipv6 { ip, .. } => self.connect_to_ip(IpAddr::V6(ip)).await,
+            Hostname::Ipv4 { ip, .. } => self.connect_to_ip(IpAddr::V4(ip), SMTP_PORT).await,
+            Hostname::Ipv6 { ip, .. } => self.connect_to_ip(IpAddr::V6(ip), SMTP_PORT).await,
             Hostname::AsciiDomain { ref raw } => self.connect_to_mx(&raw).await,
             Hostname::Utf8Domain { ref punycode, .. } => self.connect_to_mx(&punycode).await,
         }
@@ -67,7 +67,7 @@ where
 
         // If there are no MX records, try A/AAAA records
         if mx_records.is_empty() {
-            return self.connect_to_host(host.into_name()?).await;
+            return self.connect_to_host(host.into_name()?, SMTP_PORT).await;
         }
 
         // By increasing order of priority, try each MX
@@ -79,7 +79,7 @@ where
 
             // Then try to connect to each address
             for mx in mxes {
-                match self.connect_to_host(mx.clone()).await {
+                match self.connect_to_host(mx.clone(), SMTP_PORT).await {
                     Ok(sender) => return Ok(sender),
                     Err(e) => first_error = first_error.or(Some(e)),
                 }
@@ -97,14 +97,18 @@ where
         Err(first_error.unwrap())
     }
 
-    async fn connect_to_host(&self, name: trust_dns_resolver::Name) -> io::Result<Sender> {
+    async fn connect_to_host(
+        &self,
+        name: trust_dns_resolver::Name,
+        port: u16,
+    ) -> io::Result<Sender> {
         // Lookup the IP addresses associated with this name
         let lookup = self.resolver.lookup_ip(name).await?;
 
         // Following the order given by the DNS server, attempt connecting
         let mut first_error = None;
         for ip in lookup.iter() {
-            match self.connect_to_ip(ip).await {
+            match self.connect_to_ip(ip, port).await {
                 Ok(sender) => return Ok(sender),
                 Err(e) => first_error = first_error.or(Some(e)),
             }
@@ -114,8 +118,8 @@ where
         Err(first_error.unwrap())
     }
 
-    pub async fn connect_to_ip(&self, ip: IpAddr) -> io::Result<Sender> {
-        let io = TcpStream::connect((ip, SMTP_PORT)).await?;
+    pub async fn connect_to_ip(&self, ip: IpAddr, port: u16) -> io::Result<Sender> {
+        let io = TcpStream::connect((ip, port)).await?;
         let (reader, writer) = io.split();
         self.connect_to_stream(Box::pin(reader), Box::pin(writer))
             .await
