@@ -117,10 +117,16 @@ where
     pub async fn connect_to_ip(&self, ip: IpAddr) -> io::Result<Sender> {
         let io = TcpStream::connect((ip, SMTP_PORT)).await?;
         let (reader, writer) = io.split();
-        Ok(Sender {
-            reader: Box::pin(reader),
-            writer: Box::pin(writer),
-        })
+        self.connect_to_stream(Box::pin(reader), Box::pin(writer))
+            .await
+    }
+
+    pub async fn connect_to_stream(
+        &self,
+        reader: Pin<Box<dyn Send + AsyncRead>>,
+        writer: Pin<Box<dyn Send + AsyncWrite>>,
+    ) -> io::Result<Sender> {
+        Ok(Sender { reader, writer })
     }
 }
 
