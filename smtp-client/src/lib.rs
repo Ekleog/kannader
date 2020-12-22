@@ -1,9 +1,12 @@
 use std::{io, net::IpAddr, pin::Pin};
 
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite};
+use smol::net::TcpStream;
 use trust_dns_resolver::AsyncResolver;
 
 use smtp_message::{Email, Hostname};
+
+const SMTP_PORT: u16 = 25;
 
 pub struct Destination {
     host: Hostname,
@@ -26,29 +29,33 @@ where
         Client { resolver }
     }
 
-    pub fn get_destination(&self, host: &Hostname) -> io::Result<Destination> {
+    pub async fn get_destination(&self, host: &Hostname) -> io::Result<Destination> {
         // TODO: already resolve here, but that means having to handle DNS expiration
         // down the road
         Ok(Destination { host: host.clone() })
     }
 
-    pub fn connect(&self, dest: &Destination) -> io::Result<Sender> {
+    pub async fn connect(&self, dest: &Destination) -> io::Result<Sender> {
         match dest.host {
-            Hostname::Ipv4 { ip, .. } => self.connect_ip(IpAddr::V4(ip)),
-            Hostname::Ipv6 { ip, .. } => self.connect_ip(IpAddr::V6(ip)),
-            Hostname::AsciiDomain { ref raw } => self.connect_host(&raw),
-            Hostname::Utf8Domain { ref punycode, .. } => self.connect_host(&punycode),
+            Hostname::Ipv4 { ip, .. } => self.connect_ip(IpAddr::V4(ip)).await,
+            Hostname::Ipv6 { ip, .. } => self.connect_ip(IpAddr::V6(ip)).await,
+            Hostname::AsciiDomain { ref raw } => self.connect_host(&raw).await,
+            Hostname::Utf8Domain { ref punycode, .. } => self.connect_host(&punycode).await,
         }
     }
 
-    fn connect_host(&self, host: &str) -> io::Result<Sender> {
-        let _ = host;
+    async fn connect_host(&self, host: &str) -> io::Result<Sender> {
+        let _ = (host, &self.resolver);
         todo!()
     }
 
-    fn connect_ip(&self, ip: IpAddr) -> io::Result<Sender> {
-        let _ = (ip, &self.resolver);
-        todo!()
+    async fn connect_ip(&self, ip: IpAddr) -> io::Result<Sender> {
+        let io = TcpStream::connect((ip, SMTP_PORT)).await?;
+        let (reader, writer) = io.split();
+        Ok(Sender {
+            reader: Box::pin(reader),
+            writer: Box::pin(writer),
+        })
     }
 }
 
