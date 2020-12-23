@@ -68,7 +68,7 @@ where
 
 /// Note: This struct includes the leading ' '
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Parameters<S>(Vec<(ParameterName<S>, Option<MaybeUtf8<S>>)>);
+pub struct Parameters<S>(pub Vec<(ParameterName<S>, Option<MaybeUtf8<S>>)>);
 
 impl<S> Parameters<S> {
     /// If term is the wanted terminator, then
