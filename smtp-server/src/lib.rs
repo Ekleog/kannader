@@ -359,6 +359,20 @@ pub trait Config: Send + Sync {
         self.bad_sequence()
     }
 
+    fn starttls_unsupported(&self) -> Reply<Cow<'static, str>> {
+        self.command_not_supported()
+    }
+
+    fn pipeline_forbidden_after_starttls(&self) -> Reply<Cow<'static, str>> {
+        Reply {
+            code: ReplyCode::BAD_SEQUENCE,
+            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
+            text: vec![MaybeUtf8::Utf8(
+                "Pipelining after starttls is forbidden".into(),
+            )],
+        }
+    }
+
     fn command_unimplemented(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::COMMAND_UNIMPLEMENTED,
@@ -810,24 +824,32 @@ where
             },
 
             // TODO: figure out a way to unit test starttls
-            Some(Command::Starttls) => match cfg.handle_starttls(&mut conn_meta).await {
-                Decision::Reject(r) => {
-                    send_reply!(io, r).await?;
-                }
-                Decision::Kill { reply, res } => {
-                    if let Some(r) = reply {
-                        send_reply!(io, r).await?;
+            Some(Command::Starttls) => {
+                if !cfg.can_do_tls(&conn_meta) {
+                    send_reply!(io, cfg.starttls_unsupported()).await?;
+                } else if !unhandled.is_empty() {
+                    send_reply!(io, cfg.pipeline_forbidden_after_starttls()).await?;
+                } else {
+                    match cfg.handle_starttls(&mut conn_meta).await {
+                        Decision::Reject(r) => {
+                            send_reply!(io, r).await?;
+                        }
+                        Decision::Kill { reply, res } => {
+                            if let Some(r) = reply {
+                                send_reply!(io, r).await?;
+                            }
+                            return res;
+                        }
+                        Decision::Accept => {
+                            send_reply!(io, cfg.starttls_okay()).await?;
+                            io = cfg.tls_accept(io, &mut conn_meta).await?;
+                            mail_meta = None;
+                            conn_meta.is_encrypted = true;
+                            conn_meta.hello = None;
+                        }
                     }
-                    return res;
                 }
-                Decision::Accept => {
-                    send_reply!(io, cfg.starttls_okay()).await?;
-                    io = cfg.tls_accept(io, &mut conn_meta).await?;
-                    mail_meta = None;
-                    conn_meta.is_encrypted = true;
-                    conn_meta.hello = None;
-                }
-            },
+            }
 
             Some(Command::Expn { name }) => {
                 simple_handler!(cfg.handle_expn(name, &mut conn_meta).await)
