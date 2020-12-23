@@ -1,4 +1,12 @@
-use std::{hash::Hash, marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    hash::Hash,
+    io::IoSlice,
+    marker::PhantomData,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -502,7 +510,7 @@ where
                 };
                 return Ok(());
             }
-            Err(_) => {
+            Err(_e) => {
                 // TODO: actually make a distinction between all the cases, and
                 // retry iff required and not even if getting a permanent error
             }
@@ -560,5 +568,61 @@ where
                 .detach();
         }
         Ok(())
+    }
+}
+
+impl<U, C, S, T> AsyncWrite for Enqueuer<U, C, S, T>
+where
+    U: 'static + Send + Sync,
+    C: Config<U>,
+    S: Storage<U>,
+    T: Transport<U>,
+{
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        unsafe {
+            self.map_unchecked_mut(|s| {
+                s.enqueuer
+                    .as_mut()
+                    .expect("Tried writing to enqueuer after having committed it")
+            })
+        }
+        .poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        unsafe {
+            self.map_unchecked_mut(|s| {
+                s.enqueuer
+                    .as_mut()
+                    .expect("Tried writing to enqueuer after having committed it")
+            })
+        }
+        .poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        unsafe {
+            self.map_unchecked_mut(|s| {
+                s.enqueuer
+                    .as_mut()
+                    .expect("Tried writing to enqueuer after having committed it")
+            })
+        }
+        .poll_close(cx)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &[IoSlice],
+    ) -> Poll<io::Result<usize>> {
+        unsafe {
+            self.map_unchecked_mut(|s| {
+                s.enqueuer
+                    .as_mut()
+                    .expect("Tried writing to enqueuer after having committed it")
+            })
+        }
+        .poll_write_vectored(cx, bufs)
     }
 }
