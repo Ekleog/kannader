@@ -1,0 +1,12 @@
+[package]
+name = "yuubind"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "A highly configurable SMTP server written in Rust"
+edition = "2018"
+
+[dependencies]
+
