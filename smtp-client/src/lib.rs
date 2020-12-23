@@ -495,30 +495,7 @@ where
         // Send EHLO
         // TODO: fallback to HELO if EHLO fails (also record somewhere that this
         // destination doesn't support HELO)
-        send_command(
-            &mut sender.io,
-            Command::Ehlo {
-                hostname: self.cfg.ehlo_hostname(),
-            },
-            self.cfg.command_write_timeout(),
-        )
-        .await?;
-
-        // Parse the reply and verify it
-        let reply = read_reply(
-            &mut sender.io,
-            &mut sender.rdbuf,
-            &mut sender.unhandled,
-            self.cfg.ehlo_reply_timeout(),
-        )
-        .await?;
-        for line in reply.text.iter() {
-            // TODO: parse other extensions that may be of interest (eg. pipelining)
-            if line.as_str().eq_ignore_ascii_case("STARTTLS") {
-                sender.extensions.insert(Extensions::STARTTLS);
-            }
-        }
-        verify_reply(reply, ReplyCodeKind::PositiveCompletion)?;
+        self.send_ehlo(&mut sender).await?;
 
         // Send STARTTLS if possible
         let mut did_tls = false;
@@ -538,6 +515,7 @@ where
             )
             .await?;
             if let Ok(()) = verify_reply(reply, ReplyCodeKind::PositiveCompletion) {
+                // TODO: pipelining is forbidden across starttls, check unhandled.empty()
                 // Negotiate STARTTLS
                 sender.io = self
                     .cfg
@@ -550,7 +528,8 @@ where
                 // is probably a permanent error
 
                 // Send EHLO again
-                todo!()
+                self.send_ehlo(&mut sender).await?;
+                did_tls = true;
             } else {
                 // Server failed to accept STARTTLS
                 // TODO: maybe log? also, if we have must_do_tls and this
@@ -571,6 +550,36 @@ where
         // TODO: AUTH
 
         Ok(sender)
+    }
+
+    async fn send_ehlo(&self, sender: &mut Sender<Cfg>) -> Result<(), TransportError> {
+        send_command(
+            &mut sender.io,
+            Command::Ehlo {
+                hostname: self.cfg.ehlo_hostname(),
+            },
+            self.cfg.command_write_timeout(),
+        )
+        .await?;
+
+        // Parse the reply and verify it
+        let reply = read_reply(
+            &mut sender.io,
+            &mut sender.rdbuf,
+            &mut sender.unhandled,
+            self.cfg.ehlo_reply_timeout(),
+        )
+        .await?;
+        sender.extensions = Extensions::empty();
+        for line in reply.text.iter() {
+            // TODO: parse other extensions that may be of interest (eg. pipelining)
+            if line.as_str().eq_ignore_ascii_case("STARTTLS") {
+                sender.extensions.insert(Extensions::STARTTLS);
+            }
+        }
+        verify_reply(reply, ReplyCodeKind::PositiveCompletion)?;
+
+        Ok(())
     }
 }
 
