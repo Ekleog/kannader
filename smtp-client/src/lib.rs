@@ -4,18 +4,20 @@ use std::{
 
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use rand::prelude::SliceRandom;
 use smol::net::TcpStream;
 use trust_dns_resolver::{error::ResolveError, proto::error::ProtoError, AsyncResolver, IntoName};
 
 use smtp_message::{
-    nom, Command, Email, EnhancedReplyCodeSubject, Hostname, Parameters, Reply, ReplyCodeKind,
+    nom, Command, Email, EnhancedReplyCodeSubject, EscapingDataWriter, Hostname, Parameters, Reply,
+    ReplyCodeKind,
 };
 
 const SMTP_PORT: u16 = 25;
 
 const RDBUF_SIZE: usize = 16 * 1024;
+const DATABUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
 
 const ZERO_DURATION: std::time::Duration = std::time::Duration::from_secs(0);
@@ -133,9 +135,19 @@ pub enum TransportError {
 
     #[error("Unexpected reply code: {0}")]
     UnexpectedReplyCode(Reply<String>),
+
+    #[error("Timed out while sending data")]
+    TimedOutSendingData,
+
+    #[error("Sending data")]
+    SendingData(#[source] io::Error),
+
+    #[error("Reading the mail from the provided reader")]
+    ReadingMail(#[source] io::Error),
 }
 
 pub enum TransportErrorSeverity {
+    Local,
     NetworkTransient,
     MailTransient,
     MailboxTransient,
@@ -152,7 +164,7 @@ impl TransportError {
         // hostnames, or LocalTransient for local errors like “too many sockets opened”?
         match self {
             TransportError::DnsMx(_, _) => TransportErrorSeverity::NetworkTransient,
-            TransportError::HostToTrustDns(_, _) => TransportErrorSeverity::NetworkTransient,
+            TransportError::HostToTrustDns(_, _) => TransportErrorSeverity::Local,
             TransportError::DnsIp(_, _) => TransportErrorSeverity::NetworkTransient,
             TransportError::Connecting(_, _, _) => TransportErrorSeverity::NetworkTransient,
             TransportError::ReceivingReplyBytes(_) => TransportErrorSeverity::NetworkTransient,
@@ -169,6 +181,9 @@ impl TransportError {
             TransportError::PermanentMailbox(_) => TransportErrorSeverity::MailboxPermanent,
             TransportError::PermanentMailSystem(_) => TransportErrorSeverity::MailSystemPermanent,
             TransportError::UnexpectedReplyCode(_) => TransportErrorSeverity::NetworkTransient,
+            TransportError::TimedOutSendingData => TransportErrorSeverity::NetworkTransient,
+            TransportError::SendingData(_) => TransportErrorSeverity::NetworkTransient,
+            TransportError::ReadingMail(_) => TransportErrorSeverity::Local,
         }
     }
 }
@@ -533,6 +548,7 @@ where
             };
         }
 
+        // MAIL FROM
         send_command!(Command::Mail {
             path: None,
             email: from.map(|f| f.to_ref()),
@@ -545,6 +561,7 @@ where
         )
         .await?;
 
+        // RCPT TO
         send_command!(Command::Rcpt {
             path: None,
             email: to.to_ref(),
@@ -557,6 +574,7 @@ where
         )
         .await?;
 
+        // DATA
         send_command!(Command::Data).await?;
         read_reply!(
             ReplyCodeKind::PositiveIntermediate,
@@ -564,9 +582,69 @@ where
         )
         .await?;
 
-        let _ = mail;
-        todo!()
+        // Send the contents of the email
+        {
+            pin_mut!(mail);
+            let cfg = self.cfg.clone();
+            let mut writer = EscapingDataWriter::new(&mut self.io);
+            let mut databuf = [0; DATABUF_SIZE];
+            loop {
+                match mail.read(&mut databuf).await {
+                    Ok(0) => {
+                        // End of stream
+                        break;
+                    }
+                    Ok(n) => {
+                        // Got n bytes, try sending with a timeout
+                        smol::future::or(
+                            async {
+                                writer
+                                    .write_all(&databuf[..n])
+                                    .await
+                                    .map_err(TransportError::SendingData)
+                            },
+                            async {
+                                smol::Timer::after(
+                                    cfg.data_block_write_timeout()
+                                        .to_std()
+                                        .unwrap_or(ZERO_DURATION),
+                                )
+                                .await;
+                                Err(TransportError::TimedOutSendingData)
+                            },
+                        )
+                        .await?;
+                    }
+                    Err(e) => return Err(TransportError::ReadingMail(e)),
+                }
+            }
+            // Send the closing dot
+            smol::future::or(
+                async { writer.finish().await.map_err(TransportError::SendingData) },
+                async {
+                    smol::Timer::after(
+                        cfg.data_block_write_timeout()
+                            .to_std()
+                            .unwrap_or(ZERO_DURATION),
+                    )
+                    .await;
+                    Err(TransportError::TimedOutSendingData)
+                },
+            )
+            .await?;
+        }
+
+        // Wait for a reply
+        read_reply!(
+            ReplyCodeKind::PositiveCompletion,
+            self.cfg.data_end_reply_timeout()
+        )
+        .await?;
+
+        Ok(())
     }
 }
+
+// TODO: is it important to call QUIT before closing the TCP stream?
 
 // TODO: add tests
