@@ -287,6 +287,25 @@ where
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         iter::once(IoSlice::new(self.raw().as_ref().as_ref()))
     }
+
+    #[inline]
+    pub fn to_ref(&self) -> Hostname<&str> {
+        match self {
+            Hostname::Utf8Domain { raw, punycode } => Hostname::Utf8Domain {
+                raw: raw.as_ref(),
+                punycode: punycode.clone(),
+            },
+            Hostname::AsciiDomain { raw } => Hostname::AsciiDomain { raw: raw.as_ref() },
+            Hostname::Ipv4 { raw, ip } => Hostname::Ipv4 {
+                raw: raw.as_ref(),
+                ip: *ip,
+            },
+            Hostname::Ipv6 { raw, ip } => Hostname::Ipv6 {
+                raw: raw.as_ref(),
+                ip: *ip,
+            },
+        }
+    }
 }
 
 impl<S: PartialEq> std::cmp::PartialEq for Hostname<S> {
@@ -461,12 +480,23 @@ impl<S> Localpart<S>
 where
     S: AsRef<str>,
 {
+    #[inline]
     pub fn unquote(&self) -> MaybeUtf8<String> {
         match self {
             Localpart::Ascii { raw } => MaybeUtf8::Ascii(raw.as_ref().to_owned()),
             Localpart::Utf8 { raw } => MaybeUtf8::Utf8(raw.as_ref().to_owned()),
             Localpart::QuotedAscii { raw } => MaybeUtf8::Ascii(unquoted(raw)),
             Localpart::QuotedUtf8 { raw } => MaybeUtf8::Utf8(unquoted(raw)),
+        }
+    }
+
+    #[inline]
+    pub fn to_ref(&self) -> Localpart<&str> {
+        match self {
+            Localpart::Ascii { raw } => Localpart::Ascii { raw: raw.as_ref() },
+            Localpart::Utf8 { raw } => Localpart::Utf8 { raw: raw.as_ref() },
+            Localpart::QuotedAscii { raw } => Localpart::QuotedAscii { raw: raw.as_ref() },
+            Localpart::QuotedUtf8 { raw } => Localpart::QuotedUtf8 { raw: raw.as_ref() },
         }
     }
 }
@@ -556,6 +586,21 @@ where
             None => iter::empty(),
         };
         self.localpart.as_io_slices().chain(hostname)
+    }
+
+    #[inline]
+    pub fn to_ref(&self) -> Email<&str> {
+        // TODO: figure out why self.hostname.map(|h| h.to_ref()) doesn't compile
+        match self.hostname {
+            None => Email {
+                localpart: self.localpart.to_ref(),
+                hostname: None,
+            },
+            Some(ref h) => Email {
+                localpart: self.localpart.to_ref(),
+                hostname: Some(h.to_ref()),
+            },
+        }
     }
 }
 
