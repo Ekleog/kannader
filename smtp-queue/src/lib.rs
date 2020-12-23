@@ -180,6 +180,7 @@ pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
 }
 
 pub enum TransportFailure {
+    // TODO: reconsider once smtp-client is done
     Local(io::Error),
     RemoteTransient(ReplyCode, io::Error),
 }
@@ -202,7 +203,7 @@ pub trait TransportSender<U>: 'static + Send + Sync {
     // TODO: Figure out a way to batch a single mail (with the same metadata) going
     // out to multiple recipients, so as to just use multiple RCPT TO
     async fn send<Reader>(
-        &self,
+        &mut self,
         meta: &MailMetadata<U>,
         mail: Reader,
     ) -> Result<(), TransportFailure>
@@ -470,13 +471,17 @@ where
         });
 
         // TODO: connect only once for all mails towards a single destination
+        // Note that this will probably mean having to refactor smtp-client, as
+        // Destination currently does not remember for how long the DNS reply was valid
+        // Also, we will have to consider how to properly handle the case here multiple
+        // hostnames have the same top-prio MX IP but not the same lower-prio MX IPs
         let meta_ref = &meta;
         let send_attempt = self
             .q
             .transport
             .destination(&meta)
             .and_then(|dest| async move { self.q.transport.connect(&dest).await })
-            .and_then(|sender| async move { sender.send(meta_ref, reader).await })
+            .and_then(|mut sender| async move { sender.send(meta_ref, reader).await })
             .await;
 
         match send_attempt {
