@@ -1,4 +1,4 @@
-use std::{convert::TryInto, io::IoSlice, iter, str};
+use std::{convert::TryInto, fmt, io::IoSlice, iter, str};
 
 use lazy_static::lazy_static;
 use nom::{
@@ -358,6 +358,17 @@ where
     }
 }
 
+impl EnhancedReplyCode<&str> {
+    pub fn to_owned(&self) -> EnhancedReplyCode<String> {
+        EnhancedReplyCode {
+            raw: self.raw.to_owned(),
+            class: self.class,
+            raw_subject: self.raw_subject,
+            raw_detail: self.raw_detail,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplyLine<S> {
     pub code: ReplyCode,
@@ -500,6 +511,30 @@ where
             .iter()
             .enumerate()
             .flat_map(move |(i, l)| line_as_io_slices(code, i == last_i, ecode, l))
+    }
+}
+
+impl<S> fmt::Display for Reply<S>
+where
+    S: AsRef<str>,
+{
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for s in self.as_io_slices() {
+            write!(f, "{}", String::from_utf8_lossy(&s))?;
+        }
+        Ok(())
+    }
+}
+
+impl Reply<&str> {
+    #[inline]
+    pub fn into_owned(self) -> Reply<String> {
+        Reply {
+            code: self.code,
+            ecode: self.ecode.map(|c| c.to_owned()),
+            text: self.text.into_iter().map(|l| l.to_owned()).collect(),
+        }
     }
 }
 
