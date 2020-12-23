@@ -26,6 +26,7 @@ const ZERO_DURATION: std::time::Duration = std::time::Duration::from_secs(0);
 pub type DynAsyncReadWrite =
     duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>;
 
+#[derive(Eq, Hash, PartialEq)]
 pub struct Destination {
     host: Hostname,
 }
@@ -45,7 +46,7 @@ pub trait Config {
     /// Note: If this function can only fail, make can_do_tls return false
     async fn tls_connect<IO>(&self, io: IO) -> io::Result<DynAsyncReadWrite>
     where
-        IO: Send + AsyncRead + AsyncWrite;
+        IO: 'static + Unpin + Send + AsyncRead + AsyncWrite;
 
     fn banner_read_timeout(&self) -> chrono::Duration {
         chrono::Duration::minutes(5)
@@ -356,7 +357,7 @@ where
         Client { cfg, resolver }
     }
 
-    pub async fn get_destination(&self, host: &Hostname) -> io::Result<Destination> {
+    pub async fn get_destination(&self, host: &Hostname) -> Result<Destination, TransportError> {
         // TODO: already resolve here, but that means having to handle DNS expiration
         // down the road
         Ok(Destination { host: host.clone() })
