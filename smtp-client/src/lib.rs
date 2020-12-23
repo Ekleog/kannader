@@ -532,10 +532,10 @@ where
                 }
             };
         }
+
         send_command!(Command::Mail {
             path: None,
             email: from.map(|f| f.to_ref()),
-            // TODO: figure out why Parameters(Vec::new()) doesn't compile
             params: Parameters(Vec::new()),
         })
         .await?;
@@ -545,7 +545,26 @@ where
         )
         .await?;
 
-        let _ = (to, mail);
+        send_command!(Command::Rcpt {
+            path: None,
+            email: to.to_ref(),
+            params: Parameters(Vec::new()),
+        })
+        .await?;
+        read_reply!(
+            ReplyCodeKind::PositiveCompletion,
+            self.cfg.rcpt_reply_timeout()
+        )
+        .await?;
+
+        send_command!(Command::Data).await?;
+        read_reply!(
+            ReplyCodeKind::PositiveIntermediate,
+            self.cfg.data_init_reply_timeout()
+        )
+        .await?;
+
+        let _ = mail;
         todo!()
     }
 }
