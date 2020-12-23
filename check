@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -ex
+
+if [ -n "$1" ]; then
+    cargo clippy -p "$1" --all-features && \
+        cargo build -p "$1" && \
+        cargo test -p "$1"
+else
+    cargo clippy --all --all-features && \
+        cargo build && \
+        cargo test
+fi
