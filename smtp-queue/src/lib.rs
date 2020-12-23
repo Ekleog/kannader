@@ -204,7 +204,7 @@ pub trait Transport<U>: 'static + Send + Sync {
 }
 
 #[async_trait]
-pub trait TransportSender<U>: 'static + Send + Sync {
+pub trait TransportSender<U>: 'static + Send {
     // TODO: Figure out a way to batch a single mail (with the same metadata) going
     // out to multiple recipients, so as to just use multiple RCPT TO
     async fn send<Reader>(
