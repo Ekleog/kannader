@@ -1,4 +1,6 @@
-use std::{cmp, collections::BTreeMap, future::Future, io, net::IpAddr, ops::Range, pin::Pin};
+use std::{
+    cmp, collections::BTreeMap, future::Future, io, net::IpAddr, ops::Range, pin::Pin, sync::Arc,
+};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -7,12 +9,19 @@ use rand::prelude::SliceRandom;
 use smol::net::TcpStream;
 use trust_dns_resolver::{error::ResolveError, proto::error::ProtoError, AsyncResolver, IntoName};
 
-use smtp_message::{nom, Command, Email, EnhancedReplyCodeSubject, Hostname, Reply, ReplyCodeKind};
+use smtp_message::{
+    nom, Command, Email, EnhancedReplyCodeSubject, Hostname, Parameters, Reply, ReplyCodeKind,
+};
 
 const SMTP_PORT: u16 = 25;
 
 const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
+
+const ZERO_DURATION: std::time::Duration = std::time::Duration::from_secs(0);
+
+pub type DynAsyncReadWrite =
+    duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>;
 
 pub struct Destination {
     host: Hostname,
@@ -31,12 +40,7 @@ pub trait Config {
     }
 
     /// Note: If this function can only fail, make can_do_tls return false
-    async fn tls_connect<IO>(
-        &self,
-        io: IO,
-    ) -> io::Result<
-        duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
-    >
+    async fn tls_connect<IO>(&self, io: IO) -> io::Result<DynAsyncReadWrite>
     where
         IO: Send + AsyncRead + AsyncWrite;
 
@@ -181,7 +185,7 @@ async fn read_for_reply<T>(
             // Chrono::DateTime<Utc> to std::time::Instant and I can't find how right now
             let max_delay: std::time::Duration = (*waiting_for_reply_since + timeout - Utc::now())
                 .to_std()
-                .unwrap_or(std::time::Duration::from_secs(0));
+                .unwrap_or(ZERO_DURATION);
             smol::Timer::after(max_delay).await;
             Err(TransportError::TimedOutWaitingForReply)
         },
@@ -292,12 +296,7 @@ where
             Ok(())
         },
         async {
-            smol::Timer::after(
-                timeout
-                    .to_std()
-                    .unwrap_or(std::time::Duration::from_secs(0)),
-            )
-            .await;
+            smol::Timer::after(timeout.to_std().unwrap_or(ZERO_DURATION)).await;
             Err(TransportError::TimedOutSendingCommand)
         },
     )
@@ -311,7 +310,7 @@ where
     Cfg: Config,
 {
     resolver: AsyncResolver<C, P>,
-    cfg: Cfg,
+    cfg: Arc<Cfg>,
 }
 
 impl<C, P, Cfg> Client<C, P, Cfg>
@@ -325,7 +324,7 @@ where
     /// attempt to connect to both the Ipv6 and the Ipv4 address if whichever
     /// comes first doesn't successfully connect. In particular, it means that
     /// performance could be degraded.
-    pub fn new(resolver: AsyncResolver<C, P>, cfg: Cfg) -> Client<C, P, Cfg> {
+    pub fn new(resolver: AsyncResolver<C, P>, cfg: Arc<Cfg>) -> Client<C, P, Cfg> {
         Client { cfg, resolver }
     }
 
@@ -335,7 +334,7 @@ where
         Ok(Destination { host: host.clone() })
     }
 
-    pub async fn connect(&self, dest: &Destination) -> Result<Sender, TransportError> {
+    pub async fn connect(&self, dest: &Destination) -> Result<Sender<Cfg>, TransportError> {
         match dest.host {
             Hostname::Ipv4 { ip, .. } => self.connect_to_ip(IpAddr::V4(ip), SMTP_PORT).await,
             Hostname::Ipv6 { ip, .. } => self.connect_to_ip(IpAddr::V6(ip), SMTP_PORT).await,
@@ -344,7 +343,7 @@ where
         }
     }
 
-    pub async fn connect_to_mx(&self, host: &str) -> Result<Sender, TransportError> {
+    pub async fn connect_to_mx(&self, host: &str) -> Result<Sender<Cfg>, TransportError> {
         // TODO: consider adding a `.` at the end of `host`... but is it
         // actually allowed?
         // Run MX lookup
@@ -359,7 +358,7 @@ where
         for record in lookup.iter() {
             mx_records
                 .entry(record.preference())
-                .or_insert(Vec::with_capacity(1))
+                .or_insert_with(|| Vec::with_capacity(1))
                 .push(record.exchange());
         }
 
@@ -407,7 +406,7 @@ where
         &self,
         name: trust_dns_resolver::Name,
         port: u16,
-    ) -> Result<Sender, TransportError> {
+    ) -> Result<Sender<Cfg>, TransportError> {
         // Lookup the IP addresses associated with this name
         let lookup = self
             .resolver
@@ -430,7 +429,11 @@ where
         Err(first_error.unwrap())
     }
 
-    pub async fn connect_to_ip(&self, ip: IpAddr, port: u16) -> Result<Sender, TransportError> {
+    pub async fn connect_to_ip(
+        &self,
+        ip: IpAddr,
+        port: u16,
+    ) -> Result<Sender<Cfg>, TransportError> {
         let io = TcpStream::connect((ip, port))
             .await
             .map_err(|e| TransportError::Connecting(ip, port, e))?;
@@ -443,17 +446,17 @@ where
 
     pub async fn connect_to_stream(
         &self,
-        mut io: duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
-    ) -> Result<Sender, TransportError> {
+        mut io: DynAsyncReadWrite,
+    ) -> Result<Sender<Cfg>, TransportError> {
         // TODO: Are there interesting things to do with replies apart from checking
         // they're successful? Maybe logging them or something like that?
-        let rdbuf = &mut [0; RDBUF_SIZE];
+        let mut rdbuf = [0; RDBUF_SIZE];
         let mut unhandled = 0..0;
 
         // Read the banner
         let reply = read_reply(
             &mut io,
-            rdbuf,
+            &mut rdbuf,
             &mut unhandled,
             self.cfg.banner_read_timeout(),
         )
@@ -473,7 +476,7 @@ where
         .await?;
         let reply = read_reply(
             &mut io,
-            rdbuf,
+            &mut rdbuf,
             &mut unhandled,
             self.cfg.ehlo_reply_timeout(),
         )
@@ -483,19 +486,30 @@ where
         // TODO: STARTTLS, AUTH... NOTE:
         // STARTTLS can fail, in which case we need to try reconnecting without
         // starttls
-        Ok(Sender { io })
+        Ok(Sender {
+            io,
+            rdbuf,
+            unhandled,
+            cfg: self.cfg.clone(),
+        })
     }
 }
 
-pub struct Sender {
-    io: duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
+pub struct Sender<Cfg> {
+    io: DynAsyncReadWrite,
+    rdbuf: [u8; RDBUF_SIZE],
+    unhandled: Range<usize>,
+    cfg: Arc<Cfg>,
 }
 
-impl Sender {
+impl<Cfg> Sender<Cfg>
+where
+    Cfg: Config,
+{
     // TODO: Figure out a way to batch a single mail (with the same metadata) going
     // out to multiple recipients, so as to just use multiple RCPT TO
     pub async fn send<Reader>(
-        &self,
+        &mut self,
         from: Option<&Email>,
         to: &Email,
         mail: Reader,
@@ -503,7 +517,35 @@ impl Sender {
     where
         Reader: AsyncRead,
     {
-        let _ = (from, to, mail, &self.io);
+        macro_rules! send_command {
+            ($cmd:expr) => {
+                send_command(&mut self.io, $cmd, self.cfg.command_write_timeout())
+            };
+        }
+        macro_rules! read_reply {
+            ($expected:expr, $timeout:expr) => {
+                async {
+                    let reply =
+                        read_reply(&mut self.io, &mut self.rdbuf, &mut self.unhandled, $timeout)
+                            .await?;
+                    verify_reply(reply, $expected)
+                }
+            };
+        }
+        send_command!(Command::Mail {
+            path: None,
+            email: from.map(|f| f.to_ref()),
+            // TODO: figure out why Parameters(Vec::new()) doesn't compile
+            params: Parameters(Vec::new()),
+        })
+        .await?;
+        read_reply!(
+            ReplyCodeKind::PositiveCompletion,
+            self.cfg.mail_reply_timeout()
+        )
+        .await?;
+
+        let _ = (to, mail);
         todo!()
     }
 }
