@@ -172,6 +172,14 @@ where
             MaybeUtf8::Utf8(s) => IoSlice::new(s.as_ref().as_ref()),
         })
     }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        match self {
+            MaybeUtf8::Ascii(s) => s.as_ref(),
+            MaybeUtf8::Utf8(s) => s.as_ref(),
+        }
+    }
 }
 
 impl<'a, S> From<&'a str> for MaybeUtf8<S>
