@@ -3,6 +3,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use bitflags::bitflags;
 use chrono::Utc;
 use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use rand::prelude::SliceRandom;
@@ -461,18 +462,23 @@ where
 
     pub async fn connect_to_stream(
         &self,
-        mut io: DynAsyncReadWrite,
+        io: DynAsyncReadWrite,
     ) -> Result<Sender<Cfg>, TransportError> {
+        let mut sender = Sender {
+            io,
+            rdbuf: [0; RDBUF_SIZE],
+            unhandled: 0..0,
+            extensions: Extensions::empty(),
+            cfg: self.cfg.clone(),
+        };
         // TODO: Are there interesting things to do with replies apart from checking
         // they're successful? Maybe logging them or something like that?
-        let mut rdbuf = [0; RDBUF_SIZE];
-        let mut unhandled = 0..0;
 
         // Read the banner
         let reply = read_reply(
-            &mut io,
-            &mut rdbuf,
-            &mut unhandled,
+            &mut sender.io,
+            &mut sender.rdbuf,
+            &mut sender.unhandled,
             self.cfg.banner_read_timeout(),
         )
         .await?;
@@ -482,31 +488,44 @@ where
         // TODO: fallback to HELO if EHLO fails (also record somewhere that this
         // destination doesn't support HELO)
         send_command(
-            &mut io,
+            &mut sender.io,
             Command::Ehlo {
                 hostname: self.cfg.ehlo_hostname(),
             },
             self.cfg.command_write_timeout(),
         )
         .await?;
+
+        // Parse the reply and verify it
         let reply = read_reply(
-            &mut io,
-            &mut rdbuf,
-            &mut unhandled,
+            &mut sender.io,
+            &mut sender.rdbuf,
+            &mut sender.unhandled,
             self.cfg.ehlo_reply_timeout(),
         )
         .await?;
+        for line in reply.text.iter() {
+            // TODO: parse other extensions that may be of interest (eg. pipelining)
+            if line.as_str().eq_ignore_ascii_case("STARTTLS") {
+                sender.extensions.insert(Extensions::STARTTLS);
+            }
+        }
         verify_reply(reply, ReplyCodeKind::PositiveCompletion)?;
 
-        // TODO: STARTTLS, AUTH... NOTE:
-        // STARTTLS can fail, in which case we need to try reconnecting without
+        // Send STARTTLS if possible
+        // TODO: STARTTLS can fail, in which case we need to try reconnecting without
         // starttls
-        Ok(Sender {
-            io,
-            rdbuf,
-            unhandled,
-            cfg: self.cfg.clone(),
-        })
+        // TODO
+
+        // TODO: AUTH
+
+        Ok(sender)
+    }
+}
+
+bitflags! {
+    struct Extensions: u16 {
+        const STARTTLS = 0b1;
     }
 }
 
@@ -514,6 +533,7 @@ pub struct Sender<Cfg> {
     io: DynAsyncReadWrite,
     rdbuf: [u8; RDBUF_SIZE],
     unhandled: Range<usize>,
+    extensions: Extensions,
     cfg: Arc<Cfg>,
 }
 
