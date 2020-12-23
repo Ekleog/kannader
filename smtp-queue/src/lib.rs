@@ -59,7 +59,7 @@ impl ScheduleInfo {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QueueId(pub Arc<String>);
 
 impl QueueId {
@@ -208,7 +208,7 @@ pub trait TransportSender<U>: 'static + Send + Sync {
         mail: Reader,
     ) -> Result<(), TransportFailure>
     where
-        Reader: AsyncRead;
+        Reader: Send + AsyncRead;
 }
 
 // Interval used when the duration doesn't match (ie. only in error conditions)
