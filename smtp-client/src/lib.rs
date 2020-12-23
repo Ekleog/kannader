@@ -122,6 +122,9 @@ pub enum TransportError {
     #[error("Negotiating TLS")]
     NegotiatingTls(#[source] io::Error),
 
+    #[error("Cannot do TLS with remote server")]
+    CannotDoTls,
+
     // TODO: add the command as error context
     #[error("Mail-level transient issue: {0}")]
     TransientMail(Reply<String>),
@@ -183,6 +186,7 @@ impl TransportError {
             TransportError::TimedOutSendingCommand => TransportErrorSeverity::NetworkTransient,
             TransportError::SendingCommand(_) => TransportErrorSeverity::NetworkTransient,
             TransportError::NegotiatingTls(_) => TransportErrorSeverity::NetworkTransient, /* TODO: MailSystemPermanent? */
+            TransportError::CannotDoTls => TransportErrorSeverity::NetworkTransient, /* TODO: MailSystemPermanent? */
             TransportError::TransientMail(_) => TransportErrorSeverity::MailTransient,
             TransportError::TransientMailbox(_) => TransportErrorSeverity::MailboxTransient,
             TransportError::TransientMailSystem(_) => TransportErrorSeverity::MailSystemTransient,
@@ -525,26 +529,26 @@ where
                 // TODO: in case this call fails, maybe log? also, if
                 // we have must_do_tls, this server should probably be
                 // removed from the retry list as no matching ciphers
-                // is probably a permanent error
+                // is probably a permanent error.
+                //
+                // TODO: Retry without TLS enabled! Currently servers that support starttls but
+                // only with ancient ciphers are unreachable
+                //
+                // TODO: Split out the error condition “network error” from “negotiation failed”
+                // so as to know whether we should try STARTTLS again next time
 
                 // Send EHLO again
                 self.send_ehlo(&mut sender).await?;
                 did_tls = true;
             } else {
-                // Server failed to accept STARTTLS
+                // Server failed to accept STARTTLS. Let's fall through and
+                // continue without it (unless must_do_tls is enabled)
                 // TODO: maybe log? also, if we have must_do_tls and this
                 // returns a permanent error we definitely should bounce
             }
         }
-        if !did_tls {
-            if self.cfg.must_do_tls() {
-                // TODO: fail
-                todo!()
-            } else {
-                // TODO: STARTTLS can fail, in which case we need to try
-                // reconnecting without starttls
-                todo!()
-            }
+        if !did_tls && self.cfg.must_do_tls() {
+            return Err(TransportError::CannotDoTls);
         }
 
         // TODO: AUTH
