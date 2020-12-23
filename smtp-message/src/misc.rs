@@ -322,6 +322,12 @@ impl<S: PartialEq> std::cmp::PartialEq for Hostname<S> {
     }
 }
 
+impl<S: std::hash::Hash> std::hash::Hash for Hostname<S> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 #[cfg(test)]
 impl<S: Eq + PartialEq> Hostname<S> {
     fn deep_equal(&self, o: &Hostname<S>) -> bool {
