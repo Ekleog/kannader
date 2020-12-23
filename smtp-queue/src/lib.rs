@@ -3,7 +3,7 @@ use std::{hash::Hash, marker::PhantomData, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{io, join, pin_mut, AsyncRead, AsyncWrite, Stream, StreamExt, TryFutureExt};
-use smtp_message::{Email, ReplyCode};
+use smtp_message::Email;
 
 // TODO:
 //  - Record SendFailLevel (Server/Mailbox/Email)
@@ -180,9 +180,14 @@ pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
 }
 
 pub enum TransportFailure {
-    // TODO: reconsider once smtp-client is done
-    Local(io::Error),
-    RemoteTransient(ReplyCode, io::Error),
+    Local,
+    NetworkTransient,
+    MailTransient,
+    MailboxTransient,
+    MailSystemTransient,
+    MailPermanent,
+    MailboxPermanent,
+    MailSystemPermanent,
 }
 
 #[async_trait]
@@ -497,12 +502,9 @@ where
                 };
                 return Ok(());
             }
-            Err(TransportFailure::Local(e)) => {
-                self.q.config.log_io_error(e, Some(inflight.id())).await;
-            }
-            Err(TransportFailure::RemoteTransient(_c, _e)) => {
-                // TODO: actually use, especially, the return code (see
-                // TODO comment at the top of the file)
+            Err(_) => {
+                // TODO: actually make a distinction between all the cases, and
+                // retry iff required and not even if getting a permanent error
             }
         }
         // The above match falls through only in cases where we ought to retry
