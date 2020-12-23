@@ -59,6 +59,10 @@ pub trait Config {
         chrono::Duration::minutes(5)
     }
 
+    fn starttls_reply_timeout(&self) -> chrono::Duration {
+        chrono::Duration::minutes(2)
+    }
+
     fn mail_reply_timeout(&self) -> chrono::Duration {
         chrono::Duration::minutes(5)
     }
@@ -114,6 +118,9 @@ pub enum TransportError {
 
     #[error("Sending command")]
     SendingCommand(#[source] io::Error),
+
+    #[error("Negotiating TLS")]
+    NegotiatingTls(#[source] io::Error),
 
     // TODO: add the command as error context
     #[error("Mail-level transient issue: {0}")]
@@ -175,6 +182,7 @@ impl TransportError {
             TransportError::SyntaxError(_) => TransportErrorSeverity::MailSystemTransient,
             TransportError::TimedOutSendingCommand => TransportErrorSeverity::NetworkTransient,
             TransportError::SendingCommand(_) => TransportErrorSeverity::NetworkTransient,
+            TransportError::NegotiatingTls(_) => TransportErrorSeverity::NetworkTransient, /* TODO: MailSystemPermanent? */
             TransportError::TransientMail(_) => TransportErrorSeverity::MailTransient,
             TransportError::TransientMailbox(_) => TransportErrorSeverity::MailboxTransient,
             TransportError::TransientMailSystem(_) => TransportErrorSeverity::MailSystemTransient,
@@ -513,9 +521,52 @@ where
         verify_reply(reply, ReplyCodeKind::PositiveCompletion)?;
 
         // Send STARTTLS if possible
-        // TODO: STARTTLS can fail, in which case we need to try reconnecting without
-        // starttls
-        // TODO
+        let mut did_tls = false;
+        if sender.extensions.contains(Extensions::STARTTLS) && self.cfg.can_do_tls() {
+            // Send STARTTLS and check the reply
+            send_command(
+                &mut sender.io,
+                Command::Starttls,
+                self.cfg.command_write_timeout(),
+            )
+            .await?;
+            let reply = read_reply(
+                &mut sender.io,
+                &mut sender.rdbuf,
+                &mut sender.unhandled,
+                self.cfg.starttls_reply_timeout(),
+            )
+            .await?;
+            if let Ok(()) = verify_reply(reply, ReplyCodeKind::PositiveCompletion) {
+                // Negotiate STARTTLS
+                sender.io = self
+                    .cfg
+                    .tls_connect(sender.io)
+                    .await
+                    .map_err(TransportError::NegotiatingTls)?;
+                // TODO: in case this call fails, maybe log? also, if
+                // we have must_do_tls, this server should probably be
+                // removed from the retry list as no matching ciphers
+                // is probably a permanent error
+
+                // Send EHLO again
+                todo!()
+            } else {
+                // Server failed to accept STARTTLS
+                // TODO: maybe log? also, if we have must_do_tls and this
+                // returns a permanent error we definitely should bounce
+            }
+        }
+        if !did_tls {
+            if self.cfg.must_do_tls() {
+                // TODO: fail
+                todo!()
+            } else {
+                // TODO: STARTTLS can fail, in which case we need to try
+                // reconnecting without starttls
+                todo!()
+            }
+        }
 
         // TODO: AUTH
 
@@ -524,7 +575,7 @@ where
 }
 
 bitflags! {
-    struct Extensions: u16 {
+    struct Extensions: u8 {
         const STARTTLS = 0b1;
     }
 }
