@@ -64,8 +64,8 @@ pub enum Error {
     #[error("Opening folder ‘{0}’ in {1:?} queue")]
     OpeningFolderInQueue(Arc<String>, QueueType, #[source] io::Error),
 
-    #[error("Opening file ‘{0}’ in mail ‘{1}’")]
-    OpeningFileInMail(&'static str, Arc<String>, #[source] io::Error),
+    #[error("Opening file ‘{0}’ in mail ‘{1}’ of queue {2:?}")]
+    OpeningFileInMail(&'static str, Arc<String>, QueueType, #[source] io::Error),
 
     #[error("Parsing JSON from file ‘{0}’ in mail ‘{1}’ of {2:?} queue")]
     ParsingJsonFileInMail(
@@ -259,9 +259,9 @@ where
             let dest_dir = inflight
                 .sub_dir(&*mail)
                 .map_err(|e| Error::OpeningFolderInQueue(mail.clone(), QueueType::Inflight, e))?;
-            let metadata_file = dest_dir
-                .open_file(METADATA_FILE)
-                .map_err(|e| Error::OpeningFileInMail(METADATA_FILE, mail.clone(), e))?;
+            let metadata_file = dest_dir.open_file(METADATA_FILE).map_err(|e| {
+                Error::OpeningFileInMail(METADATA_FILE, mail.clone(), QueueType::Inflight, e)
+            })?;
             let metadata = serde_json::from_reader(metadata_file).map_err(|e| {
                 Error::ParsingJsonFileInMail(METADATA_FILE, mail.clone(), QueueType::Inflight, e)
             })?;
