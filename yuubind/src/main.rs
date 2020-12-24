@@ -82,7 +82,7 @@ impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
     }
 
     async fn log_storage_error(&self, err: smtp_queue_fs::Error, id: Option<QueueId>) {
-        error!(error = ?anyhow::Error::new(err), queue_id = ?id, "Storage error");
+        error!(queue_id = ?id, error = ?anyhow::Error::new(err), "Storage error");
     }
 
     async fn log_found_inflight(&self, inflight: QueueId) {
