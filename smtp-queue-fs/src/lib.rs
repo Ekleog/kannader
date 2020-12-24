@@ -32,6 +32,15 @@ const ONLY_USER_RW: u32 = 0o600;
 
 // TODO: auto-detect orphan files (pointed to by nowhere in the queue)
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Opening folder ‘{0}’")]
+    OpeningFolder(Arc<PathBuf>, #[source] io::Error),
+
+    #[error("Opening sub-folder ‘{1}’ of folder ‘{0}’")]
+    OpeningSubFolder(Arc<PathBuf>, &'static str, #[source] io::Error),
+}
+
 pub struct FsStorage<U> {
     path: Arc<PathBuf>,
     data: Arc<Dir>,
@@ -42,26 +51,46 @@ pub struct FsStorage<U> {
 }
 
 impl<U> FsStorage<U> {
-    pub async fn new(path: Arc<PathBuf>) -> io::Result<FsStorage<U>> {
+    pub async fn new(path: Arc<PathBuf>) -> Result<FsStorage<U>, Error> {
         let main_dir = {
-            let path = path.clone();
-            Arc::new(unblock(move || Dir::open(&*path)).await?)
+            let path2 = path.clone();
+            Arc::new(
+                unblock(move || Dir::open(&*path2))
+                    .await
+                    .map_err(|e| Error::OpeningFolder(path.clone(), e))?,
+            )
         };
         let data = {
             let main_dir = main_dir.clone();
-            Arc::new(unblock(move || main_dir.sub_dir(DATA_DIR)).await?)
+            Arc::new(
+                unblock(move || main_dir.sub_dir(DATA_DIR))
+                    .await
+                    .map_err(|e| Error::OpeningSubFolder(path.clone(), DATA_DIR, e))?,
+            )
         };
         let queue = {
             let main_dir = main_dir.clone();
-            Arc::new(unblock(move || main_dir.sub_dir(QUEUE_DIR)).await?)
+            Arc::new(
+                unblock(move || main_dir.sub_dir(QUEUE_DIR))
+                    .await
+                    .map_err(|e| Error::OpeningSubFolder(path.clone(), QUEUE_DIR, e))?,
+            )
         };
         let inflight = {
             let main_dir = main_dir.clone();
-            Arc::new(unblock(move || main_dir.sub_dir(INFLIGHT_DIR)).await?)
+            Arc::new(
+                unblock(move || main_dir.sub_dir(INFLIGHT_DIR))
+                    .await
+                    .map_err(|e| Error::OpeningSubFolder(path.clone(), INFLIGHT_DIR, e))?,
+            )
         };
         let cleanup = {
             let main_dir = main_dir.clone();
-            Arc::new(unblock(move || main_dir.sub_dir(CLEANUP_DIR)).await?)
+            Arc::new(
+                unblock(move || main_dir.sub_dir(CLEANUP_DIR))
+                    .await
+                    .map_err(|e| Error::OpeningSubFolder(path.clone(), CLEANUP_DIR, e))?,
+            )
         };
         Ok(FsStorage {
             path,
