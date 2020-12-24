@@ -96,10 +96,10 @@ impl ReplyCode {
     #[inline]
     pub fn kind(&self) -> ReplyCodeKind {
         match self.0[0] {
-            2 => ReplyCodeKind::PositiveCompletion,
-            3 => ReplyCodeKind::PositiveIntermediate,
-            4 => ReplyCodeKind::TransientNegative,
-            5 => ReplyCodeKind::PermanentNegative,
+            b'2' => ReplyCodeKind::PositiveCompletion,
+            b'3' => ReplyCodeKind::PositiveIntermediate,
+            b'4' => ReplyCodeKind::TransientNegative,
+            b'5' => ReplyCodeKind::PermanentNegative,
             _ => panic!("Asked kind of invalid reply code!"),
         }
     }
@@ -107,17 +107,17 @@ impl ReplyCode {
     #[inline]
     pub fn category(&self) -> ReplyCodeCategory {
         match self.0[1] {
-            0 => ReplyCodeCategory::Syntax,
-            1 => ReplyCodeCategory::Information,
-            2 => ReplyCodeCategory::Connection,
-            5 => ReplyCodeCategory::ReceiverStatus,
+            b'0' => ReplyCodeCategory::Syntax,
+            b'1' => ReplyCodeCategory::Information,
+            b'2' => ReplyCodeCategory::Connection,
+            b'5' => ReplyCodeCategory::ReceiverStatus,
             _ => ReplyCodeCategory::Unspecified,
         }
     }
 
     #[inline]
     pub fn code(&self) -> u16 {
-        self.0[0] as u16 * 100 + self.0[1] as u16 * 10 + self.0[2] as u16
+        self.0[0] as u16 * 100 + self.0[1] as u16 * 10 + self.0[2] as u16 - b'0' as u16 * 111
     }
 
     #[inline]
