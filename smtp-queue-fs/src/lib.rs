@@ -256,8 +256,12 @@ where
         let mail = mail.id.0.clone();
 
         unblock(move || {
+            let dest_path_from_inflight = inflight
+                .read_link(&*mail)
+                .map_err(|e| Error::ReadingLinkInQueue(mail.clone(), QueueType::Inflight, e))?;
+
             let dest_dir = inflight
-                .sub_dir(&*mail)
+                .sub_dir(&dest_path_from_inflight)
                 .map_err(|e| Error::OpeningFolderInQueue(mail.clone(), QueueType::Inflight, e))?;
             let metadata_file = dest_dir.open_file(METADATA_FILE).map_err(|e| {
                 Error::OpeningFileInMail(METADATA_FILE, mail.clone(), QueueType::Inflight, e)
@@ -327,8 +331,12 @@ where
         let id = mail.id.0.clone();
 
         unblock(move || {
+            let dest_path_from_inflight = queue
+                .read_link(&*id)
+                .map_err(|e| Error::ReadingLinkInQueue(id.clone(), QueueType::Queue, e))?;
+
             let dest_dir = queue
-                .sub_dir(&*id)
+                .sub_dir(&dest_path_from_inflight)
                 .map_err(|e| Error::OpeningFolderInQueue(id.clone(), QueueType::Queue, e))?;
 
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
@@ -495,7 +503,7 @@ where
                 Ok(d) => d,
             };
 
-            let dest_dir = match cleanup.sub_dir(&*mail.id.0) {
+            let dest_dir = match cleanup.sub_dir(&dest) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
                 Err(e) => {
                     let id = mail.id.0.clone();
