@@ -1,7 +1,7 @@
 #![cfg_attr(test, feature(negative_impls))]
 #![type_length_limit = "200000000"]
 
-use std::{borrow::Cow, cmp, io, ops::Range, pin::Pin};
+use std::{borrow::Cow, cmp, io, ops::Range, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -459,7 +459,7 @@ pub async fn interact<IO, Cfg>(
     io: IO,
     is_already_tls: IsAlreadyTls,
     metadata: Cfg::ConnectionUserMeta,
-    cfg: &Cfg,
+    cfg: Arc<Cfg>,
 ) -> io::Result<()>
 where
     IO: 'static + Send + AsyncRead + AsyncWrite,
@@ -1175,9 +1175,9 @@ mod tests {
         for &(inp, out, mail) in tests {
             println!("\nSending: {:?}", show_bytes(inp));
             let resp_mail = Arc::new(Mutex::new(Vec::new()));
-            let cfg = TestConfig {
+            let cfg = Arc::new(TestConfig {
                 mails: resp_mail.clone(),
-            };
+            });
             // TODO: Duplicating &'static mut is awful please don't do it. But I just want
             // something to work right now and these are only tests so who cares. I'll make
             // sure to clean this up some day, but it'll probably require writing an
@@ -1186,14 +1186,13 @@ mod tests {
             let resp = Box::leak(Box::new(Vec::new()));
             let resp2 = unsafe { &mut *(resp as *mut _) };
             let io = Duplex::new(Cursor::new(inp), Cursor::new(resp2));
-            executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
+            executor::block_on(interact(io, IsAlreadyTls::No, (), cfg)).unwrap();
 
             println!("Expecting: {:?}", show_bytes(out));
             println!("Got      : {:?}", show_bytes(&resp));
             assert_eq!(resp, out);
 
             println!("Checking mails:");
-            drop(cfg);
             let resp_mail = Arc::try_unwrap(resp_mail).unwrap().into_inner().unwrap();
             assert_eq!(resp_mail.len(), mail.len());
             for ((fr, tr, cr), &(fo, to, co)) in resp_mail.into_iter().zip(mail) {
@@ -1223,9 +1222,9 @@ mod tests {
                            RCPT TO:bar\r\n\
                            DATA\r\n\
                            hello";
-        let cfg = TestConfig {
+        let cfg = Arc::new(TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
-        };
+        });
         // TODO: Duplicating &'static mut is awful please don't do it. But I just want
         // something to work right now and these are only tests so who cares. I'll make
         // sure to clean this up some day, but it'll probably require writing an
@@ -1235,7 +1234,7 @@ mod tests {
         let resp2 = unsafe { &mut *(resp as *mut _) };
         let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
         assert_eq!(
-            executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg))
+            executor::block_on(interact(io, IsAlreadyTls::No, (), cfg))
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::ConnectionAborted,
@@ -1297,9 +1296,9 @@ mod tests {
               \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
               \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
               \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\r\n";
-        let cfg = TestConfig {
+        let cfg = Arc::new(TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
-        };
+        });
         // TODO: Duplicating &'static mut is awful please don't do it. But I just want
         // something to work right now and these are only tests so who cares. I'll make
         // sure to clean this up some day, but it'll probably require writing an
@@ -1308,7 +1307,7 @@ mod tests {
         let resp = Box::leak(Box::new(Vec::new()));
         let resp2 = unsafe { &mut *(resp as *mut _) };
         let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
-        executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
+        executor::block_on(interact(io, IsAlreadyTls::No, (), cfg)).unwrap();
     }
 
     struct MinBoundsIo;
@@ -1350,9 +1349,9 @@ mod tests {
 
     #[test]
     fn interact_is_send() {
-        let cfg = TestConfig {
+        let cfg = Arc::new(TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
-        };
-        assert_send(interact(MinBoundsIo, IsAlreadyTls::No, (), &cfg));
+        });
+        assert_send(interact(MinBoundsIo, IsAlreadyTls::No, (), cfg));
     }
 }

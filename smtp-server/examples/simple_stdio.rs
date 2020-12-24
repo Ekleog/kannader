@@ -1,6 +1,6 @@
 #![type_length_limit = "200000000"]
 
-use std::{borrow::Cow, pin::Pin};
+use std::{borrow::Cow, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use duplexify::Duplex;
@@ -112,5 +112,5 @@ fn main() -> io::Result<()> {
     let reader = io::AllowStdIo::new(std::io::stdin());
     let writer = io::AllowStdIo::new(std::io::stdout());
     let io = Duplex::new(reader, writer);
-    executor::block_on(interact(io, IsAlreadyTls::No, (), &mut SimpleConfig))
+    executor::block_on(interact(io, IsAlreadyTls::No, (), Arc::new(SimpleConfig)))
 }

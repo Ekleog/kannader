@@ -1,7 +1,7 @@
 #![no_main]
 #![type_length_limit = "200000000"]
 
-use std::{borrow::Cow, pin::Pin};
+use std::{borrow::Cow, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use duplexify::Duplex;
@@ -128,5 +128,6 @@ fuzz_target!(|data: &[u8]| {
     let reader = Cursor::new(data[2..].to_owned()).limited(chunk_size as usize);
     let writer = io::sink();
     let io = Duplex::new(reader, writer);
-    let _ignore_errors = executor::block_on(interact(io, IsAlreadyTls::No, (), &FuzzConfig));
+    let _ignore_errors =
+        executor::block_on(interact(io, IsAlreadyTls::No, (), Arc::new(FuzzConfig)));
 });
