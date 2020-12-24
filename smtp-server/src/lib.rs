@@ -406,6 +406,14 @@ pub trait Config: Send + Sync {
         }
     }
 
+    fn internal_server_error(&self) -> Reply<Cow<'static, str>> {
+        Reply {
+            code: ReplyCode::LOCAL_ERROR,
+            ecode: Some(EnhancedReplyCode::TRANSIENT_UNDEFINED.into()),
+            text: vec![MaybeUtf8::Utf8("Internal server error".into())],
+        }
+    }
+
     fn handle_mail_did_not_call_complete(&self) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::LOCAL_ERROR,
