@@ -111,6 +111,7 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer<U>;
+    type Error = io::Error;
     type InflightLister = DynStreamOf<Result<FsInflightMail, (io::Error, Option<QueueId>)>>;
     type InflightMail = FsInflightMail;
     type PendingCleanupLister =
@@ -591,7 +592,7 @@ fn cleanup_contents_dir(queue: &Dir, mail_uuid: String, mail_dir: &Dir) {
 }
 
 #[async_trait]
-impl<U> smtp_queue::StorageEnqueuer<U, FsQueuedMail> for FsEnqueuer<U>
+impl<U> smtp_queue::StorageEnqueuer<U, FsStorage<U>, FsQueuedMail> for FsEnqueuer<U>
 where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {

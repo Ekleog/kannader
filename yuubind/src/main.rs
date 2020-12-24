@@ -17,6 +17,7 @@ use tracing::{error, info};
 
 use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
+use smtp_queue_fs::FsStorage;
 use smtp_server::Decision;
 
 const NUM_THREADS: usize = 4;
@@ -74,14 +75,20 @@ impl smtp_client::Config for ClientConfig {
 struct QueueConfig;
 
 #[async_trait]
-impl smtp_queue::Config<Meta> for QueueConfig {
+impl smtp_queue::Config<Meta, <FsStorage<Meta> as smtp_queue::Storage<Meta>>::Error>
+    for QueueConfig
+{
     async fn next_interval(&self, _s: smtp_queue::ScheduleInfo) -> Option<Duration> {
         // TODO: most definitely should try again
         None
     }
 
-    async fn log_io_error(&self, err: io::Error, id: Option<QueueId>) {
-        error!(error = ?err, queue_id = ?id, "IO error");
+    async fn log_storage_error(
+        &self,
+        err: <FsStorage<Meta> as smtp_queue::Storage<Meta>>::Error,
+        id: Option<QueueId>,
+    ) {
+        error!(error = ?err, queue_id = ?id, "Storage error");
     }
 
     async fn log_queued_mail_vanished(&self, id: QueueId) {
@@ -196,7 +203,7 @@ where
     T: smtp_queue::Transport<Meta>,
 {
     acceptor: async_tls::TlsAcceptor,
-    queue: smtp_queue::Queue<Meta, QueueConfig, smtp_queue_fs::FsStorage<Meta>, T>,
+    queue: smtp_queue::Queue<Meta, QueueConfig, FsStorage<Meta>, T>,
 }
 
 #[async_trait]
@@ -389,7 +396,7 @@ fn main() {
                 );
 
                 // Spawn the queue
-                let storage = smtp_queue_fs::FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
+                let storage = FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
                     .await
                     .with_context(|| "Opening the queue storage folder")?;
                 let queue = smtp_queue::Queue::new(

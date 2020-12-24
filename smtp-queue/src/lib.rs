@@ -77,12 +77,12 @@ impl QueueId {
 }
 
 #[async_trait]
-pub trait Config<U>: 'static + Send + Sync {
+pub trait Config<U, StorageError>: 'static + Send + Sync {
     // Returning None means dropping the email from the queue. If it does so, this
     // function probably should bounce!
     async fn next_interval(&self, s: ScheduleInfo) -> Option<Duration>;
 
-    async fn log_io_error(&self, err: io::Error, id: Option<QueueId>);
+    async fn log_storage_error(&self, err: StorageError, id: Option<QueueId>);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
     async fn log_pending_cleanup_mail_vanished(&self, id: QueueId);
@@ -106,17 +106,19 @@ pub trait Config<U>: 'static + Send + Sync {
 
 #[async_trait]
 pub trait Storage<U>: 'static + Send + Sync {
+    type Error: Send + std::error::Error;
+
     type QueuedMail: QueuedMail;
     type InflightMail: InflightMail;
     type PendingCleanupMail: PendingCleanupMail;
 
-    type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (io::Error, Option<QueueId>)>>;
+    type QueueLister: Send + Stream<Item = Result<Self::QueuedMail, (Self::Error, Option<QueueId>)>>;
     type InflightLister: Send
-        + Stream<Item = Result<Self::InflightMail, (io::Error, Option<QueueId>)>>;
+        + Stream<Item = Result<Self::InflightMail, (Self::Error, Option<QueueId>)>>;
     type PendingCleanupLister: Send
-        + Stream<Item = Result<Self::PendingCleanupMail, (io::Error, Option<QueueId>)>>;
+        + Stream<Item = Result<Self::PendingCleanupMail, (Self::Error, Option<QueueId>)>>;
 
-    type Enqueuer: StorageEnqueuer<U, Self::QueuedMail>;
+    type Enqueuer: StorageEnqueuer<U, Self, Self::QueuedMail>;
     type Reader: Send + AsyncRead;
 
     async fn list_queue(&self) -> Self::QueueLister;
@@ -126,35 +128,35 @@ pub trait Storage<U>: 'static + Send + Sync {
     async fn read_inflight(
         &self,
         mail: &Self::InflightMail,
-    ) -> Result<(MailMetadata<U>, Self::Reader), io::Error>;
+    ) -> Result<(MailMetadata<U>, Self::Reader), Self::Error>;
 
-    async fn enqueue(&self) -> Result<Self::Enqueuer, io::Error>;
+    async fn enqueue(&self) -> Result<Self::Enqueuer, Self::Error>;
 
     async fn reschedule(
         &self,
         mail: &mut Self::QueuedMail,
         schedule: ScheduleInfo,
-    ) -> Result<(), io::Error>;
+    ) -> Result<(), Self::Error>;
 
     async fn send_start(
         &self,
         mail: Self::QueuedMail,
-    ) -> Result<Option<Self::InflightMail>, (Self::QueuedMail, io::Error)>;
+    ) -> Result<Option<Self::InflightMail>, (Self::QueuedMail, Self::Error)>;
 
     async fn send_done(
         &self,
         mail: Self::InflightMail,
-    ) -> Result<Option<Self::PendingCleanupMail>, (Self::InflightMail, io::Error)>;
+    ) -> Result<Option<Self::PendingCleanupMail>, (Self::InflightMail, Self::Error)>;
 
     async fn send_cancel(
         &self,
         mail: Self::InflightMail,
-    ) -> Result<Option<Self::QueuedMail>, (Self::InflightMail, io::Error)>;
+    ) -> Result<Option<Self::QueuedMail>, (Self::InflightMail, Self::Error)>;
 
     async fn drop(
         &self,
         mail: Self::QueuedMail,
-    ) -> Result<Option<Self::PendingCleanupMail>, (Self::QueuedMail, io::Error)>;
+    ) -> Result<Option<Self::PendingCleanupMail>, (Self::QueuedMail, Self::Error)>;
 
     // Returns true if the mail was successfully cleaned up, and false
     // if the mail somehow vanished during the cleanup operation or
@@ -163,7 +165,7 @@ pub trait Storage<U>: 'static + Send + Sync {
     async fn cleanup(
         &self,
         mail: Self::PendingCleanupMail,
-    ) -> Result<bool, (Self::PendingCleanupMail, io::Error)>;
+    ) -> Result<bool, (Self::PendingCleanupMail, Self::Error)>;
 }
 
 pub trait QueuedMail: Send + Sync {
@@ -180,11 +182,14 @@ pub trait PendingCleanupMail: Send + Sync {
 }
 
 #[async_trait]
-pub trait StorageEnqueuer<U, QueuedMail>: Send + AsyncWrite {
+pub trait StorageEnqueuer<U, S, QueuedMail>: Send + AsyncWrite
+where
+    S: ?Sized + Storage<U>,
+{
     async fn commit(
         self,
         destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
-    ) -> io::Result<Vec<QueuedMail>>;
+    ) -> Result<Vec<QueuedMail>, S::Error>;
 }
 
 pub enum TransportFailure {
@@ -249,7 +254,7 @@ macro_rules! io_retry_loop {
                     break v;
                 }
                 Err((mail, e)) => {
-                    $this.q.config.log_io_error(e, Some(mail.id())).await;
+                    $this.q.config.log_storage_error(e, Some(mail.id())).await;
                     $mail = mail;
                 }
             }
@@ -268,7 +273,7 @@ macro_rules! io_retry_loop_raw {
                     break v;
                 }
                 Err(e) => {
-                    $this.q.config.log_io_error(e, Some($id)).await;
+                    $this.q.config.log_storage_error(e, Some($id)).await;
                 }
             }
             smol::Timer::after(delay).await;
@@ -280,7 +285,7 @@ macro_rules! io_retry_loop_raw {
 impl<U, C, S, T> Queue<U, C, S, T>
 where
     U: 'static + Send + Sync,
-    C: Config<U>,
+    C: Config<U, S::Error>,
     S: Storage<U>,
     T: Transport<U>,
 {
@@ -296,7 +301,7 @@ where
 impl<U, C, S, T> Queue<U, C, S, T>
 where
     U: 'static + Send + Sync,
-    C: Config<U>,
+    C: Config<U, S::Error>,
     S: Storage<U>,
     T: Transport<U>,
 {
@@ -327,7 +332,7 @@ where
         this
     }
 
-    pub async fn enqueue(&self) -> Result<Enqueuer<U, C, S, T>, io::Error> {
+    pub async fn enqueue(&self) -> Result<Enqueuer<U, C, S, T>, S::Error> {
         Ok(Enqueuer {
             queue: self.clone(),
             enqueuer: Some(self.q.storage.enqueue().await?),
@@ -339,7 +344,7 @@ where
         pin_mut!(found_inflight_stream);
         while let Some(inflight) = found_inflight_stream.next().await {
             match inflight {
-                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Err((e, id)) => self.q.config.log_storage_error(e, id).await,
                 Ok(inflight) => {
                     let this = self.clone();
                     self.q
@@ -372,7 +377,7 @@ where
         pin_mut!(queued_stream);
         while let Some(queued) = queued_stream.next().await {
             match queued {
-                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Err((e, id)) => self.q.config.log_storage_error(e, id).await,
                 Ok(queued) => {
                     let this = self.clone();
                     self.q
@@ -391,7 +396,7 @@ where
         pin_mut!(pcm_stream);
         while let Some(pcm) = pcm_stream.next().await {
             match pcm {
-                Err((e, id)) => self.q.config.log_io_error(e, id).await,
+                Err((e, id)) => self.q.config.log_storage_error(e, id).await,
                 Ok(pcm) => {
                     let this = self.clone();
                     self.q
@@ -549,14 +554,14 @@ where
 impl<U, C, S, T> Enqueuer<U, C, S, T>
 where
     U: 'static + Send + Sync,
-    C: Config<U>,
+    C: Config<U, S::Error>,
     S: Storage<U>,
     T: Transport<U>,
 {
     pub async fn commit(
         self,
         destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
-    ) -> io::Result<()> {
+    ) -> Result<(), S::Error> {
         let mut this = self;
         let mails = this.enqueuer.take().unwrap().commit(destinations).await?;
         for mail in mails {
@@ -574,7 +579,7 @@ where
 impl<U, C, S, T> AsyncWrite for Enqueuer<U, C, S, T>
 where
     U: 'static + Send + Sync,
-    C: Config<U>,
+    C: Config<U, S::Error>,
     S: Storage<U>,
     T: Transport<U>,
 {
