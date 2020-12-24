@@ -675,6 +675,8 @@ where
                 } else {
                     let path_str = p
                         .path()
+                        .strip_prefix(&*root_path)
+                        .expect("WalkDir always returns the full path")
                         .to_str()
                         .ok_or_else(|| (Error::NonUtf8Path(root_path.clone()), None))?;
                     Ok(Some(QueueId::new(path_str)))
