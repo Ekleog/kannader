@@ -29,6 +29,7 @@ pub const TMP_METADATA_FILE_PREFIX: &str = "metadata.";
 pub const TMP_SCHEDULE_FILE_PREFIX: &str = "schedule.";
 
 const ONLY_USER_RW: u32 = 0o600;
+const ONLY_USER_RWX: u32 = 0o700;
 
 // TODO: auto-detect orphan files (pointed to by nowhere in the queue)
 
@@ -289,7 +290,7 @@ where
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
 
-            data.create_dir(&*mail_uuid, ONLY_USER_RW).map_err(|e| {
+            data.create_dir(&*mail_uuid, ONLY_USER_RWX).map_err(|e| {
                 Error::CreatingFolderInQueue(mail_uuid.to_string(), QueueType::Data, e)
             })?;
             let mail_dir = data.sub_dir(&*mail_uuid).map_err(|e| {
@@ -822,7 +823,7 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     // TODO: clean up self dest dir when having an io error
-    mail_dir.create_dir(dest_id, ONLY_USER_RW).map_err(|e| {
+    mail_dir.create_dir(dest_id, ONLY_USER_RWX).map_err(|e| {
         Error::CreatingFolderInMail(
             dest_id.to_string(),
             mail_uuid.to_string(),
