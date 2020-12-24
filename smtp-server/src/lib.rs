@@ -1,3 +1,4 @@
+#![cfg_attr(test, feature(negative_impls))]
 #![type_length_limit = "200000000"]
 
 use std::{borrow::Cow, cmp, io, ops::Range, pin::Pin};
@@ -94,7 +95,7 @@ pub trait Config: Send + Sync {
         duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
     >
     where
-        IO: Send + AsyncRead + AsyncWrite;
+        IO: 'static + Unpin + Send + AsyncRead + AsyncWrite;
 
     async fn filter_from(
         &self,
@@ -461,7 +462,7 @@ pub async fn interact<IO, Cfg>(
     cfg: &Cfg,
 ) -> io::Result<()>
 where
-    IO: Send + AsyncRead + AsyncWrite,
+    IO: 'static + Send + AsyncRead + AsyncWrite,
     Cfg: Config,
 {
     let (io_r, io_w) = io.split();
@@ -759,8 +760,15 @@ where
                             let decision = cfg
                                 .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta)
                                 .await;
-                            if let Some(u) = reader.get_unhandled() {
+                            // This variable is a trick because otherwise rustc thinks the `reader`
+                            // borrow is still alive across await points and makes `interact: !Send`
+                            let reader_was_completed = if let Some(u) = reader.get_unhandled() {
                                 unhandled = u;
+                                true
+                            } else {
+                                false
+                            };
+                            if reader_was_completed {
                                 match decision {
                                     Decision::Accept => {
                                         send_reply!(io, cfg.mail_accepted()).await?;
@@ -801,7 +809,7 @@ where
                                 reader.complete();
                                 unhandled = reader.get_unhandled().unwrap();
                                 send_reply!(io, cfg.handle_mail_did_not_call_complete()).await?;
-                            }
+                            };
                         }
                     }
                 }
@@ -914,7 +922,7 @@ mod tests {
             duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
         >
         where
-            IO: Send + AsyncRead + AsyncWrite,
+            IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
         {
             Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -1170,8 +1178,14 @@ mod tests {
             let cfg = TestConfig {
                 mails: resp_mail.clone(),
             };
-            let mut resp = Vec::new();
-            let io = Duplex::new(Cursor::new(inp), Cursor::new(&mut resp));
+            // TODO: Duplicating &'static mut is awful please don't do it. But I just want
+            // something to work right now and these are only tests so who cares. I'll make
+            // sure to clean this up some day, but it'll probably require writing an
+            // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
+            // and boilerplate-y.
+            let resp = Box::leak(Box::new(Vec::new()));
+            let resp2 = unsafe { &mut *(resp as *mut _) };
+            let io = Duplex::new(Cursor::new(inp), Cursor::new(resp2));
             executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
 
             println!("Expecting: {:?}", show_bytes(out));
@@ -1212,8 +1226,14 @@ mod tests {
         let cfg = TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
         };
-        let mut resp = Vec::new();
-        let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
+        // TODO: Duplicating &'static mut is awful please don't do it. But I just want
+        // something to work right now and these are only tests so who cares. I'll make
+        // sure to clean this up some day, but it'll probably require writing an
+        // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
+        // and boilerplate-y.
+        let resp = Box::leak(Box::new(Vec::new()));
+        let resp2 = unsafe { &mut *(resp as *mut _) };
+        let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
         assert_eq!(
             executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg))
                 .unwrap_err()
@@ -1280,8 +1300,59 @@ mod tests {
         let cfg = TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
         };
-        let mut resp = Vec::new();
-        let io = Duplex::new(Cursor::new(txt), Cursor::new(&mut resp));
+        // TODO: Duplicating &'static mut is awful please don't do it. But I just want
+        // something to work right now and these are only tests so who cares. I'll make
+        // sure to clean this up some day, but it'll probably require writing an
+        // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
+        // and boilerplate-y.
+        let resp = Box::leak(Box::new(Vec::new()));
+        let resp2 = unsafe { &mut *(resp as *mut _) };
+        let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
         executor::block_on(interact(io, IsAlreadyTls::No, (), &cfg)).unwrap();
+    }
+
+    struct MinBoundsIo;
+    impl !Sync for MinBoundsIo {}
+    impl AsyncRead for MinBoundsIo {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut [u8],
+        ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+            unimplemented!()
+        }
+    }
+    impl AsyncWrite for MinBoundsIo {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+            unimplemented!()
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+            unimplemented!()
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+            unimplemented!()
+        }
+    }
+
+    fn assert_send<T: Send>(_: T) {}
+
+    #[test]
+    fn interact_is_send() {
+        let cfg = TestConfig {
+            mails: Arc::new(Mutex::new(Vec::new())),
+        };
+        assert_send(interact(MinBoundsIo, IsAlreadyTls::No, (), &cfg));
     }
 }

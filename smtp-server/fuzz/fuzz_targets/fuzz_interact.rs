@@ -37,7 +37,7 @@ impl smtp_server::Config for FuzzConfig {
         duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
     >
     where
-        IO: Send + AsyncRead + AsyncWrite,
+        IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
     {
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -125,7 +125,7 @@ fuzz_target!(|data: &[u8]| {
     let chunk_size = data[0] as u16 * 256 + data[1] as u16;
 
     // And send stuff in
-    let reader = Cursor::new(&data[2..]).limited(chunk_size as usize);
+    let reader = Cursor::new(data[2..].to_owned()).limited(chunk_size as usize);
     let writer = io::sink();
     let io = Duplex::new(reader, writer);
     let _ignore_errors = executor::block_on(interact(io, IsAlreadyTls::No, (), &FuzzConfig));
