@@ -32,6 +32,14 @@ const ONLY_USER_RW: u32 = 0o600;
 
 // TODO: auto-detect orphan files (pointed to by nowhere in the queue)
 
+#[derive(Debug)]
+pub enum QueueType {
+    Data,
+    Queue,
+    Inflight,
+    Cleanup,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Opening folder ‘{0}’")]
@@ -39,6 +47,97 @@ pub enum Error {
 
     #[error("Opening sub-folder ‘{1}’ of folder ‘{0}’")]
     OpeningSubFolder(Arc<PathBuf>, &'static str, #[source] io::Error),
+
+    #[error("Recursively walking directory ‘{0}’")]
+    WalkingDirectory(Arc<PathBuf>, #[source] walkdir::Error),
+
+    #[error("Non-UTF-8 path ‘{0}’")]
+    NonUtf8Path(Arc<PathBuf>),
+
+    #[error("Opening file ‘{0}’ in folder ‘{1}’")]
+    OpeningFileInFolder(PathBuf, Arc<PathBuf>, #[source] io::Error),
+
+    #[error("Parsing JSON from file ‘{0}’")]
+    ParsingJson(PathBuf, #[source] serde_json::Error),
+
+    #[error("Opening folder ‘{0}’ in {1:?} queue")]
+    OpeningFolderInQueue(Arc<String>, QueueType, #[source] io::Error),
+
+    #[error("Opening file ‘{0}’ in mail ‘{1}’")]
+    OpeningFileInMail(&'static str, Arc<String>, #[source] io::Error),
+
+    #[error("Parsing JSON from file ‘{0}’ in mail ‘{1}’ of {2:?} queue")]
+    ParsingJsonFileInMail(
+        &'static str,
+        Arc<String>,
+        QueueType,
+        #[source] serde_json::Error,
+    ),
+
+    #[error("Opening parent directory from mail ‘{0}’")]
+    OpeningParentFromMail(Arc<String>, #[source] io::Error),
+
+    #[error("Opening file ‘{0}’ from parent directory of mail ‘{1}’")]
+    OpeningFileInMailParent(Arc<String>, #[source] io::Error),
+
+    #[error("Failed making file handle async")]
+    MakingFileAsync(#[source] io::Error),
+
+    #[error("Creating folder ‘{0}’ in {1:?} queue")]
+    CreatingFolderInQueue(String, QueueType, #[source] io::Error),
+
+    #[error("Creating file ‘{0}’ in folder ‘{1}’ of {2:?} queue")]
+    CreatingFileInMail(String, PathBuf, QueueType, #[source] io::Error),
+
+    #[error("Writing JSON into file ‘{0}’ in mail ‘{1}’ of {2:?} queue")]
+    WritingJsonFileInMail(String, PathBuf, QueueType, #[source] serde_json::Error),
+
+    #[error("Renaming file from ‘{0}’ to ‘{1}’ in mail ‘{2}’ of {3:?} queue")]
+    RenamingFileInMail(
+        String,
+        &'static str,
+        Arc<String>,
+        QueueType,
+        #[source] io::Error,
+    ),
+
+    #[error("Moving mail ‘{0}’ from queue {1:?} to queue {2:?}")]
+    MovingMailBetweenQueues(Arc<String>, QueueType, QueueType, #[source] io::Error),
+
+    #[error("Reading link ‘{0}’ in {1:?} queue")]
+    ReadingLinkInQueue(Arc<String>, QueueType, #[source] io::Error),
+
+    #[error("Removing file ‘{0}’ from mail ‘{1}’ in {2:?} queue")]
+    RemovingFileFromMail(&'static str, PathBuf, QueueType, #[source] io::Error),
+
+    #[error(
+        "Mail symlink ‘{0}’ in {1:?} queue points to ‘{2}’ which is not a destination subfolder"
+    )]
+    SymlinkPointsToNonDestinationSubfolder(Arc<String>, QueueType, PathBuf),
+
+    #[error("Mail symlink ‘{0}’ in {1:?} queue points to ‘{2}’ which is not in the Data queue")]
+    SymlinkDoesNotPointToDataQueue(Arc<String>, QueueType, PathBuf),
+
+    #[error("Removing folder ‘{0}’ from {1:?} queue")]
+    RemovingFolderFromQueue(PathBuf, QueueType, #[source] io::Error),
+
+    #[error("Listing folder ‘{0}’ in {1:?} queue")]
+    ListingFolderInQueue(PathBuf, QueueType, #[source] io::Error),
+
+    #[error("Removing file ‘{0}’ from {1:?} queue")]
+    RemovingFileFromQueue(Arc<String>, QueueType, #[source] io::Error),
+
+    #[error("Flushing the changes to file ‘{0}’ of mail ‘{1}’ in {2:?} queue")]
+    FlushingMailContents(&'static str, String, QueueType, #[source] io::Error),
+
+    #[error("Creating folder ‘{0}’ in mail ‘{1}’ of {2:?} queue")]
+    CreatingFolderInMail(String, String, QueueType, #[source] io::Error),
+
+    #[error("Opening folder ‘{0}’ in mail ‘{1}’ of {2:?} queue")]
+    OpeningFolderInMail(String, String, QueueType, #[source] io::Error),
+
+    #[error("Symlinking into file ‘{0}’ of {1:?} queue with destination ‘{2}’")]
+    SymlinkingIntoQueue(String, QueueType, PathBuf, #[source] io::Error),
 }
 
 pub struct FsStorage<U> {
@@ -111,20 +210,18 @@ where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     type Enqueuer = FsEnqueuer<U>;
-    type Error = io::Error;
-    type InflightLister = DynStreamOf<Result<FsInflightMail, (io::Error, Option<QueueId>)>>;
+    type Error = Error;
+    type InflightLister = DynStreamOf<Result<FsInflightMail, (Error, Option<QueueId>)>>;
     type InflightMail = FsInflightMail;
-    type PendingCleanupLister =
-        DynStreamOf<Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>;
+    type PendingCleanupLister = DynStreamOf<Result<FsPendingCleanupMail, (Error, Option<QueueId>)>>;
     type PendingCleanupMail = FsPendingCleanupMail;
-    type QueueLister = DynStreamOf<Result<FsQueuedMail, (io::Error, Option<QueueId>)>>;
+    type QueueLister = DynStreamOf<Result<FsQueuedMail, (Error, Option<QueueId>)>>;
     type QueuedMail = FsQueuedMail;
     type Reader = Pin<Box<dyn Send + AsyncRead>>;
 
     async fn list_queue(
         &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (io::Error, Option<QueueId>)>>>>
-    {
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<FsQueuedMail, (Error, Option<QueueId>)>>>> {
         Box::pin(
             scan_queue(self.path.join(QUEUE_DIR), self.queue.clone())
                 .await
@@ -134,8 +231,7 @@ where
 
     async fn find_inflight(
         &self,
-    ) -> Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (io::Error, Option<QueueId>)>>>>
-    {
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<FsInflightMail, (Error, Option<QueueId>)>>>> {
         Box::pin(
             scan_queue(self.path.join(INFLIGHT_DIR), self.inflight.clone())
                 .await
@@ -145,9 +241,8 @@ where
 
     async fn find_pending_cleanup(
         &self,
-    ) -> Pin<
-        Box<dyn Send + Stream<Item = Result<FsPendingCleanupMail, (io::Error, Option<QueueId>)>>>,
-    > {
+    ) -> Pin<Box<dyn Send + Stream<Item = Result<FsPendingCleanupMail, (Error, Option<QueueId>)>>>>
+    {
         Box::pin(
             scan_folder(self.path.join(CLEANUP_DIR))
                 .await
@@ -158,23 +253,33 @@ where
     async fn read_inflight(
         &self,
         mail: &FsInflightMail,
-    ) -> Result<(MailMetadata<U>, Self::Reader), io::Error> {
+    ) -> Result<(MailMetadata<U>, Self::Reader), Error> {
         let inflight = self.inflight.clone();
         let mail = mail.id.0.clone();
 
         unblock(move || {
-            let dest_dir = inflight.sub_dir(&*mail)?;
-            let metadata = dest_dir
+            let dest_dir = inflight
+                .sub_dir(&*mail)
+                .map_err(|e| Error::OpeningFolderInQueue(mail.clone(), QueueType::Inflight, e))?;
+            let metadata_file = dest_dir
                 .open_file(METADATA_FILE)
-                .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))?;
-            let contents_file = dest_dir.sub_dir("..")?.open_file(CONTENTS_FILE)?;
-            let reader = Box::pin(smol::Async::new(contents_file)?) as _;
+                .map_err(|e| Error::OpeningFileInMail(METADATA_FILE, mail.clone(), e))?;
+            let metadata = serde_json::from_reader(metadata_file).map_err(|e| {
+                Error::ParsingJsonFileInMail(METADATA_FILE, mail.clone(), QueueType::Inflight, e)
+            })?;
+            let contents_file = dest_dir
+                .sub_dir("..")
+                .map_err(|e| Error::OpeningParentFromMail(mail.clone(), e))?
+                .open_file(CONTENTS_FILE)
+                .map_err(|e| Error::OpeningFileInMailParent(mail, e))?;
+            let reader =
+                Box::pin(smol::Async::new(contents_file).map_err(Error::MakingFileAsync)?) as _;
             Ok((metadata, reader))
         })
         .await
     }
 
-    async fn enqueue(&self) -> io::Result<FsEnqueuer<U>> {
+    async fn enqueue(&self) -> Result<FsEnqueuer<U>, Error> {
         let data = self.data.clone();
         let queue = self.queue.clone();
 
@@ -184,15 +289,28 @@ where
                 .to_hyphenated_ref()
                 .encode_lower(&mut uuid_buf);
 
-            data.create_dir(&*mail_uuid, ONLY_USER_RW)?;
-            let mail_dir = data.sub_dir(&*mail_uuid)?;
-            let contents_file = mail_dir.new_file(CONTENTS_FILE, ONLY_USER_RW)?;
+            data.create_dir(&*mail_uuid, ONLY_USER_RW).map_err(|e| {
+                Error::CreatingFolderInQueue(mail_uuid.to_string(), QueueType::Data, e)
+            })?;
+            let mail_dir = data.sub_dir(&*mail_uuid).map_err(|e| {
+                Error::OpeningFolderInQueue(Arc::new(mail_uuid.to_string()), QueueType::Data, e)
+            })?;
+            let contents_file = mail_dir
+                .new_file(CONTENTS_FILE, ONLY_USER_RW)
+                .map_err(|e| {
+                    Error::CreatingFileInMail(
+                        CONTENTS_FILE.to_string(),
+                        PathBuf::from(&*mail_uuid),
+                        QueueType::Data,
+                        e,
+                    )
+                })?;
 
             Ok(FsEnqueuer {
                 mail_uuid: mail_uuid.to_string(),
                 mail_dir,
                 queue,
-                writer: Box::pin(smol::Async::new(contents_file)?),
+                writer: Box::pin(smol::Async::new(contents_file).map_err(Error::MakingFileAsync)?),
                 phantom: PhantomData,
             })
         })
@@ -200,15 +318,21 @@ where
     }
 
     // TODO: make reschedule only ever happen on the inflight mails, as we have an
-    // implicit lock on these
-    async fn reschedule(&self, mail: &mut FsQueuedMail, schedule: ScheduleInfo) -> io::Result<()> {
+    // implicit lock on these (note this will require adjusting the QueueType below
+    async fn reschedule(
+        &self,
+        mail: &mut FsQueuedMail,
+        schedule: ScheduleInfo,
+    ) -> Result<(), Error> {
         mail.schedule = schedule;
 
         let queue = self.queue.clone();
         let id = mail.id.0.clone();
 
         unblock(move || {
-            let dest_dir = queue.sub_dir(&*id)?;
+            let dest_dir = queue
+                .sub_dir(&*id)
+                .map_err(|e| Error::OpeningFolderInQueue(id.clone(), QueueType::Queue, e))?;
 
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
@@ -217,28 +341,66 @@ where
                 .encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
 
-            let tmp_file = dest_dir.new_file(&tmp_sched_file, ONLY_USER_RW)?;
-            serde_json::to_writer(tmp_file, &schedule)?;
+            let tmp_file = dest_dir
+                .new_file(&tmp_sched_file, ONLY_USER_RW)
+                .map_err(|e| {
+                    Error::CreatingFileInMail(
+                        tmp_sched_file.to_string(),
+                        PathBuf::from(&*id),
+                        QueueType::Queue,
+                        e,
+                    )
+                })?;
+            serde_json::to_writer(tmp_file, &schedule).map_err(|e| {
+                Error::WritingJsonFileInMail(
+                    tmp_sched_file.to_string(),
+                    PathBuf::from(&*id),
+                    QueueType::Queue,
+                    e,
+                )
+            })?;
 
-            dest_dir.local_rename(&tmp_sched_file, SCHEDULE_FILE)?;
+            dest_dir
+                .local_rename(&tmp_sched_file, SCHEDULE_FILE)
+                .map_err(|e| {
+                    Error::RenamingFileInMail(
+                        tmp_sched_file.to_string(),
+                        SCHEDULE_FILE,
+                        id,
+                        QueueType::Queue,
+                        e,
+                    )
+                })?;
 
-            Ok::<_, io::Error>(())
+            Ok(())
         })
         .await?;
         Ok(())
     }
 
+    // TODO: factor out send_start, send_done, send_cancel, etc.
     async fn send_start(
         &self,
         mail: FsQueuedMail,
-    ) -> Result<Option<FsInflightMail>, (FsQueuedMail, io::Error)> {
+    ) -> Result<Option<FsInflightMail>, (FsQueuedMail, Error)> {
         let queue = self.queue.clone();
         let inflight = self.inflight.clone();
         unblock(
             move || match openat::rename(&*queue, &*mail.id.0, &*inflight, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_inflight())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    Err((
+                        mail,
+                        Error::MovingMailBetweenQueues(
+                            id,
+                            QueueType::Queue,
+                            QueueType::Inflight,
+                            e,
+                        ),
+                    ))
+                }
             },
         )
         .await
@@ -247,14 +409,25 @@ where
     async fn send_done(
         &self,
         mail: FsInflightMail,
-    ) -> Result<Option<FsPendingCleanupMail>, (FsInflightMail, io::Error)> {
+    ) -> Result<Option<FsPendingCleanupMail>, (FsInflightMail, Error)> {
         let inflight = self.inflight.clone();
         let cleanup = self.cleanup.clone();
         unblock(
             move || match openat::rename(&*inflight, &*mail.id.0, &*cleanup, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_pending_cleanup())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    Err((
+                        mail,
+                        Error::MovingMailBetweenQueues(
+                            id,
+                            QueueType::Inflight,
+                            QueueType::Cleanup,
+                            e,
+                        ),
+                    ))
+                }
             },
         )
         .await
@@ -263,14 +436,25 @@ where
     async fn send_cancel(
         &self,
         mail: FsInflightMail,
-    ) -> Result<Option<FsQueuedMail>, (FsInflightMail, io::Error)> {
+    ) -> Result<Option<FsQueuedMail>, (FsInflightMail, Error)> {
         let inflight = self.inflight.clone();
         let queue = self.queue.clone();
         unblock(
             move || match openat::rename(&*inflight, &*mail.id.0, &*queue, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_queued())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    Err((
+                        mail,
+                        Error::MovingMailBetweenQueues(
+                            id,
+                            QueueType::Inflight,
+                            QueueType::Queue,
+                            e,
+                        ),
+                    ))
+                }
             },
         )
         .await
@@ -279,14 +463,20 @@ where
     async fn drop(
         &self,
         mail: FsQueuedMail,
-    ) -> Result<Option<FsPendingCleanupMail>, (FsQueuedMail, io::Error)> {
+    ) -> Result<Option<FsPendingCleanupMail>, (FsQueuedMail, Error)> {
         let queue = self.queue.clone();
         let cleanup = self.cleanup.clone();
         unblock(
             move || match openat::rename(&*queue, &*mail.id.0, &*cleanup, &*mail.id.0) {
                 Ok(()) => Ok(Some(mail.into_pending_cleanup())),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    Err((
+                        mail,
+                        Error::MovingMailBetweenQueues(id, QueueType::Queue, QueueType::Cleanup, e),
+                    ))
+                }
             },
         )
         .await
@@ -295,53 +485,78 @@ where
     async fn cleanup(
         &self,
         mail: FsPendingCleanupMail,
-    ) -> Result<bool, (FsPendingCleanupMail, io::Error)> {
+    ) -> Result<bool, (FsPendingCleanupMail, Error)> {
         let cleanup = self.cleanup.clone();
         let data = self.data.clone();
         unblock(move || {
             let dest = match cleanup.read_link(&*mail.id.0) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
-                Err(e) => return Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    return Err((mail, Error::ReadingLinkInQueue(id, QueueType::Cleanup, e)));
+                }
                 Ok(d) => d,
             };
 
             let dest_dir = match cleanup.sub_dir(&*mail.id.0) {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
-                Err(e) => return Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    return Err((mail, Error::OpeningFolderInQueue(id, QueueType::Cleanup, e)));
+                }
                 Ok(d) => d,
             };
 
             match dest_dir.remove_file(METADATA_FILE) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    let id = PathBuf::from(&*mail.id.0);
+                    return Err((
+                        mail,
+                        Error::RemovingFileFromMail(METADATA_FILE, id, QueueType::Cleanup, e),
+                    ));
+                }
                 _ => (),
             }
 
             match dest_dir.remove_file(SCHEDULE_FILE) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    let id = PathBuf::from(&*mail.id.0);
+                    return Err((
+                        mail,
+                        Error::RemovingFileFromMail(SCHEDULE_FILE, id, QueueType::Cleanup, e),
+                    ));
+                }
                 _ => (),
             }
 
             let mail_dir = match dest_dir.sub_dir("..") {
                 Ok(d) => d,
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    let id = mail.id.0.clone();
+                    return Err((mail, Error::OpeningParentFromMail(id, e)));
+                }
                 Err(_) => return Ok(false),
             };
 
             let dest_name = match dest.file_name() {
                 Some(d) => d,
                 None => {
+                    let id = mail.id.0.clone();
                     return Err((
                         mail,
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "could not extract destination uuid from message symlink",
-                        ),
+                        Error::SymlinkPointsToNonDestinationSubfolder(id, QueueType::Cleanup, dest),
                     ));
                 }
             };
 
             match mail_dir.remove_dir(dest_name) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    let id = PathBuf::from(&*mail.id.0);
+                    return Err((
+                        mail,
+                        Error::RemovingFolderFromQueue(id, QueueType::Cleanup, e),
+                    ));
+                }
                 _ => (),
             }
 
@@ -349,7 +564,16 @@ where
             // `mut` is required here because list_self() returns an Iterator
             let mut mail_dir_list = match mail_dir.list_self() {
                 Ok(l) => l,
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    let mail_dir_path = dest
+                        .parent()
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| dest.join(".."));
+                    return Err((
+                        mail,
+                        Error::ListingFolderInQueue(mail_dir_path, QueueType::Cleanup, e),
+                    ));
+                }
                 Err(_) => return Ok(false),
             };
             let should_rm_mail_dir =
@@ -357,25 +581,60 @@ where
 
             if should_rm_mail_dir {
                 match mail_dir.remove_file(CONTENTS_FILE) {
-                    Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                        let mail_dir_path = dest
+                            .parent()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| dest.join(".."));
+                        return Err((
+                            mail,
+                            Error::RemovingFileFromMail(
+                                CONTENTS_FILE,
+                                mail_dir_path,
+                                QueueType::Cleanup,
+                                e,
+                            ),
+                        ));
+                    }
                     _ => (),
                 }
 
-                let mail_name = match dest.parent().and_then(|p| p.file_name()) {
-                    Some(m) => m,
-                    None => {
+                let mail_name = match dest.strip_prefix(DATA_DIR_FROM_OTHER_QUEUE) {
+                    Ok(m) => match m.parent() {
+                        Some(m) => m,
+                        None => {
+                            let id = mail.id.0.clone();
+                            return Err((
+                                mail,
+                                Error::SymlinkPointsToNonDestinationSubfolder(
+                                    id,
+                                    QueueType::Cleanup,
+                                    dest,
+                                ),
+                            ));
+                        }
+                    },
+                    Err(_) => {
+                        // StripPrefixError contains no useful information
+                        let id = mail.id.0.clone();
                         return Err((
                             mail,
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "could not extract mail uuid from message symlink",
-                            ),
+                            Error::SymlinkDoesNotPointToDataQueue(id, QueueType::Cleanup, dest),
                         ));
                     }
                 };
 
                 match data.remove_dir(mail_name) {
-                    Err(e) if e.kind() != io::ErrorKind::NotFound => return Err((mail, e)),
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                        return Err((
+                            mail,
+                            Error::RemovingFolderFromQueue(
+                                mail_name.to_owned(),
+                                QueueType::Data,
+                                e,
+                            ),
+                        ));
+                    }
                     _ => (),
                 }
             }
@@ -383,7 +642,13 @@ where
             match cleanup.remove_file(&*mail.id.0) {
                 Ok(()) => Ok(true),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-                Err(e) => Err((mail, e)),
+                Err(e) => {
+                    let id = mail.id.0.clone();
+                    Err((
+                        mail,
+                        Error::RemovingFileFromQueue(id, QueueType::Cleanup, e),
+                    ))
+                }
             }
         })
         .await
@@ -397,22 +662,26 @@ struct FoundMail {
 
 async fn scan_folder<P>(
     path: P,
-) -> impl 'static + Send + Stream<Item = Result<QueueId, (io::Error, Option<QueueId>)>>
+) -> impl 'static + Send + Stream<Item = Result<QueueId, (Error, Option<QueueId>)>>
 where
     P: 'static + Send + AsRef<Path>,
 {
+    let root_path = Arc::new(path.as_ref().to_owned());
     let it = unblock(move || WalkDir::new(path).into_iter()).await;
     smol::stream::iter(it)
-        .then(move |p| async move {
-            let p = p.map_err(|e| (io::Error::from(e), None))?;
-            if !p.path_is_symlink() {
-                Ok(None)
-            } else {
-                let path = p.path().to_str().ok_or((
-                    io::Error::new(io::ErrorKind::InvalidData, "file path is not utf-8"),
-                    None,
-                ))?;
-                Ok(Some(QueueId::new(path)))
+        .then(move |p| {
+            let root_path = root_path.clone();
+            async move {
+                let p = p.map_err(|e| (Error::WalkingDirectory(root_path.clone(), e), None))?;
+                if !p.path_is_symlink() {
+                    Ok(None)
+                } else {
+                    let path_str = p
+                        .path()
+                        .to_str()
+                        .ok_or_else(|| (Error::NonUtf8Path(root_path.clone()), None))?;
+                    Ok(Some(QueueId::new(path_str)))
+                }
             }
         })
         .filter_map(|r| async move { r.transpose() })
@@ -421,18 +690,25 @@ where
 async fn scan_queue<P>(
     path: P,
     dir: Arc<Dir>,
-) -> impl 'static + Send + Stream<Item = Result<FoundMail, (io::Error, Option<QueueId>)>>
+) -> impl 'static + Send + Stream<Item = Result<FoundMail, (Error, Option<QueueId>)>>
 where
     P: 'static + Send + AsRef<Path>,
 {
+    let root_path = Arc::new(path.as_ref().to_owned());
     scan_folder(path).await.then(move |id| {
         let dir = dir.clone();
+        let root_path = root_path.clone();
         async move {
             let id = id?;
             let schedule_path = Path::new(&*id.0).join(SCHEDULE_FILE);
             let schedule = unblock(move || {
-                dir.open_file(&schedule_path)
-                    .and_then(|f| serde_json::from_reader(f).map_err(io::Error::from))
+                let schedule_file = dir.open_file(&schedule_path).map_err(|e| {
+                    Error::OpeningFileInFolder(schedule_path.clone(), root_path.clone(), e)
+                })?;
+                serde_json::from_reader(schedule_file).map_err(|e| {
+                    let file_path = root_path.join(schedule_path);
+                    Error::ParsingJson(file_path, e)
+                })
             })
             .await
             .map_err(|e| (e, Some(id.clone())))?;
@@ -541,19 +817,47 @@ fn make_dest_dir<U>(
     dest_id: &str,
     metadata: &MailMetadata<U>,
     schedule: &ScheduleInfo,
-) -> io::Result<FsQueuedMail>
+) -> Result<FsQueuedMail, Error>
 where
     U: 'static + Send + Sync + for<'a> serde::Deserialize<'a> + serde::Serialize,
 {
     // TODO: clean up self dest dir when having an io error
-    mail_dir.create_dir(dest_id, ONLY_USER_RW)?;
-    let dest_dir = mail_dir.sub_dir(dest_id)?;
+    mail_dir.create_dir(dest_id, ONLY_USER_RW).map_err(|e| {
+        Error::CreatingFolderInMail(
+            dest_id.to_string(),
+            mail_uuid.to_string(),
+            QueueType::Data,
+            e,
+        )
+    })?;
+    let dest_dir = mail_dir.sub_dir(dest_id).map_err(|e| {
+        Error::OpeningFolderInMail(
+            dest_id.to_string(),
+            mail_uuid.to_string(),
+            QueueType::Data,
+            e,
+        )
+    })?;
 
-    let schedule_file = dest_dir.new_file(SCHEDULE_FILE, ONLY_USER_RW)?;
-    serde_json::to_writer(schedule_file, &schedule)?;
+    let dest_path = || Path::new(mail_uuid).join(dest_id);
 
-    let metadata_file = dest_dir.new_file(METADATA_FILE, ONLY_USER_RW)?;
-    serde_json::to_writer(metadata_file, &metadata)?;
+    let schedule_file = dest_dir
+        .new_file(SCHEDULE_FILE, ONLY_USER_RW)
+        .map_err(|e| {
+            Error::CreatingFileInMail(SCHEDULE_FILE.to_string(), dest_path(), QueueType::Data, e)
+        })?;
+    serde_json::to_writer(schedule_file, &schedule).map_err(|e| {
+        Error::WritingJsonFileInMail(SCHEDULE_FILE.to_string(), dest_path(), QueueType::Data, e)
+    })?;
+
+    let metadata_file = dest_dir
+        .new_file(METADATA_FILE, ONLY_USER_RW)
+        .map_err(|e| {
+            Error::CreatingFileInMail(METADATA_FILE.to_string(), dest_path(), QueueType::Data, e)
+        })?;
+    serde_json::to_writer(metadata_file, &metadata).map_err(|e| {
+        Error::WritingJsonFileInMail(METADATA_FILE.to_string(), dest_path(), QueueType::Data, e)
+    })?;
 
     let mut dest_uuid_buf: [u8; 45] = Uuid::encode_buffer();
     let dest_uuid = Uuid::new_v4()
@@ -563,7 +867,9 @@ where
     let mut symlink_value = PathBuf::from(DATA_DIR_FROM_OTHER_QUEUE);
     symlink_value.push(&mail_uuid);
     symlink_value.push(dest_id);
-    queue.symlink(&*dest_uuid, &symlink_value)?;
+    queue.symlink(&*dest_uuid, &symlink_value).map_err(|e| {
+        Error::SymlinkingIntoQueue(dest_uuid.to_string(), QueueType::Queue, symlink_value, e)
+    })?;
 
     Ok(FsQueuedMail::found(FoundMail {
         id: QueueId(Arc::new(dest_uuid.to_string())),
@@ -599,13 +905,19 @@ where
     async fn commit(
         mut self,
         destinations: Vec<(MailMetadata<U>, ScheduleInfo)>,
-    ) -> io::Result<Vec<FsQueuedMail>> {
+    ) -> Result<Vec<FsQueuedMail>, Error> {
         match self.flush().await {
             Ok(()) => (),
             Err(e) => {
+                let mail_uuid = self.mail_uuid.clone();
                 unblock(move || cleanup_contents_dir(&self.queue, self.mail_uuid, &self.mail_dir))
                     .await;
-                return Err(e);
+                return Err(Error::FlushingMailContents(
+                    CONTENTS_FILE,
+                    mail_uuid,
+                    QueueType::Data,
+                    e,
+                ));
             }
         }
         let destinations = destinations

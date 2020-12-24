@@ -75,19 +75,13 @@ impl smtp_client::Config for ClientConfig {
 struct QueueConfig;
 
 #[async_trait]
-impl smtp_queue::Config<Meta, <FsStorage<Meta> as smtp_queue::Storage<Meta>>::Error>
-    for QueueConfig
-{
+impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
     async fn next_interval(&self, _s: smtp_queue::ScheduleInfo) -> Option<Duration> {
         // TODO: most definitely should try again
         None
     }
 
-    async fn log_storage_error(
-        &self,
-        err: <FsStorage<Meta> as smtp_queue::Storage<Meta>>::Error,
-        id: Option<QueueId>,
-    ) {
+    async fn log_storage_error(&self, err: smtp_queue_fs::Error, id: Option<QueueId>) {
         error!(error = ?err, queue_id = ?id, "Storage error");
     }
 
