@@ -82,7 +82,7 @@ impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
     }
 
     async fn log_storage_error(&self, err: smtp_queue_fs::Error, id: Option<QueueId>) {
-        error!(error = ?err, queue_id = ?id, "Storage error");
+        error!(error = ?anyhow::Error::new(err), queue_id = ?id, "Storage error");
     }
 
     async fn log_queued_mail_vanished(&self, id: QueueId) {
@@ -279,15 +279,10 @@ where
     where
         R: Send + Unpin + AsyncRead,
     {
-        let mut enqueuer = match self
-            .queue
-            .enqueue()
-            .await
-            .with_context(|| "Opening an enqueuer")
-        {
+        let mut enqueuer = match self.queue.enqueue().await {
             Ok(enqueuer) => enqueuer,
             Err(e) => {
-                error!(error = ?e, "Internal server error while opening an enqueuer");
+                error!(error = ?anyhow::Error::new(e), "Internal server error while opening an enqueuer");
                 return Decision::Reject(self.internal_server_error());
             }
         };
