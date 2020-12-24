@@ -13,6 +13,7 @@ async-trait = "0.1.30"
 chrono = { version = "0.4.11", features = ["serde"] }
 futures = "0.3.4"
 serde = { version = "1.0.110", features = ["derive"] }
-smtp-message = { path = "../smtp-message", features = ["serde"] }
 smol = "1.2.5"
 time = "0.1.44"
+
+smtp-message = { path = "../smtp-message", features = ["serde"] }
