@@ -83,6 +83,8 @@ pub trait Config<U, StorageError>: 'static + Send + Sync {
     async fn next_interval(&self, s: ScheduleInfo) -> Option<Duration>;
 
     async fn log_storage_error(&self, err: StorageError, id: Option<QueueId>);
+    async fn log_found_inflight(&self, inflight: QueueId);
+    async fn log_found_pending_cleanup(&self, pcm: QueueId);
     async fn log_queued_mail_vanished(&self, id: QueueId);
     async fn log_inflight_mail_vanished(&self, id: QueueId);
     async fn log_pending_cleanup_mail_vanished(&self, id: QueueId);
@@ -346,6 +348,7 @@ where
             match inflight {
                 Err((e, id)) => self.q.config.log_storage_error(e, id).await,
                 Ok(inflight) => {
+                    self.q.config.log_found_inflight(inflight.id()).await;
                     let this = self.clone();
                     self.q
                         .executor
@@ -398,6 +401,7 @@ where
             match pcm {
                 Err((e, id)) => self.q.config.log_storage_error(e, id).await,
                 Ok(pcm) => {
+                    self.q.config.log_found_pending_cleanup(pcm.id()).await;
                     let this = self.clone();
                     self.q
                         .executor

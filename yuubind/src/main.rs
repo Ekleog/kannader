@@ -13,7 +13,7 @@ use chrono::Utc;
 use easy_parallel::Parallel;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
 use smol::unblock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
@@ -83,6 +83,14 @@ impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
 
     async fn log_storage_error(&self, err: smtp_queue_fs::Error, id: Option<QueueId>) {
         error!(error = ?anyhow::Error::new(err), queue_id = ?id, "Storage error");
+    }
+
+    async fn log_found_inflight(&self, inflight: QueueId) {
+        warn!(queue_id=?inflight, "Found inflight mail, waiting {:?} before sending", self.found_inflight_check_delay());
+    }
+
+    async fn log_found_pending_cleanup(&self, pcm: QueueId) {
+        warn!(queue_id=?pcm, "Found mail pending cleanup");
     }
 
     async fn log_queued_mail_vanished(&self, id: QueueId) {
