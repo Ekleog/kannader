@@ -536,6 +536,7 @@ impl Localpart<&str> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+// TODO: this can be serialized *much* better than the default serde serializers
 pub struct Email<S = String> {
     pub localpart: Localpart<S>,
     pub hostname: Option<Hostname<S>>,
