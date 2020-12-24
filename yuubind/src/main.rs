@@ -13,7 +13,7 @@ use chrono::Utc;
 use easy_parallel::Parallel;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
 use smol::unblock;
-use tracing::error;
+use tracing::{error, info};
 
 use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
@@ -360,6 +360,9 @@ where
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
+    info!("Yuubind starting up");
+
     let ex = Arc::new(smol::Executor::new());
 
     // TODO: figure out a better shutdown story than brutally killing the server
@@ -434,6 +437,8 @@ fn main() {
                     .await
                     .with_context(|| "Binding on the listening port")?;
                 let mut incoming = listener.incoming();
+
+                info!("Server up, waiting for connections");
                 while let Some(stream) = incoming.next().await {
                     let stream = stream.with_context(|| "Receiving a new incoming stream")?;
                     ex.spawn(smtp_server::interact(
