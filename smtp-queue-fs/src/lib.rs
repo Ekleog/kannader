@@ -81,9 +81,6 @@ pub enum Error {
     #[error("Opening file ‘{0}’ from parent directory of mail ‘{1}’")]
     OpeningFileInMailParent(Arc<String>, #[source] io::Error),
 
-    #[error("Failed making file handle async")]
-    MakingFileAsync(#[source] io::Error),
-
     #[error("Creating folder ‘{0}’ in {1:?} queue")]
     CreatingFolderInQueue(String, QueueType, #[source] io::Error),
 
@@ -273,8 +270,7 @@ where
                 .map_err(|e| Error::OpeningParentFromMail(mail.clone(), e))?
                 .open_file(CONTENTS_FILE)
                 .map_err(|e| Error::OpeningFileInMailParent(mail, e))?;
-            let reader =
-                Box::pin(smol::Async::new(contents_file).map_err(Error::MakingFileAsync)?) as _;
+            let reader = Box::pin(smol::Unblock::new(contents_file)) as _;
             Ok((metadata, reader))
         })
         .await
@@ -311,7 +307,7 @@ where
                 mail_uuid: mail_uuid.to_string(),
                 mail_dir,
                 queue,
-                writer: Box::pin(smol::Async::new(contents_file).map_err(Error::MakingFileAsync)?),
+                writer: Box::pin(smol::Unblock::new(contents_file)),
                 phantom: PhantomData,
             })
         })
