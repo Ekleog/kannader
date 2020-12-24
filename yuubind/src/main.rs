@@ -279,7 +279,12 @@ where
     where
         R: Send + Unpin + AsyncRead,
     {
-        let mut enqueuer = match self.queue.enqueue().await {
+        let mut enqueuer = match self
+            .queue
+            .enqueue()
+            .await
+            .with_context(|| "Opening an enqueuer")
+        {
             Ok(enqueuer) => enqueuer,
             Err(e) => {
                 error!(error = ?e, "Internal server error while opening an enqueuer");
