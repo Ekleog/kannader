@@ -53,7 +53,7 @@ pub struct MailMetadata<U> {
     pub metadata: U,
 }
 
-#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ScheduleInfo {
     pub at: DateTime<Utc>,
     pub last_attempt: Option<DateTime<Utc>>,
