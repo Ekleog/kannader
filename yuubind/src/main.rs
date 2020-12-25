@@ -112,8 +112,11 @@ impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
 
 fn transport_error_client_to_queue(
     err: smtp_client::TransportError,
+    text: &'static str,
 ) -> smtp_queue::TransportFailure {
-    match err.severity() {
+    let severity = err.severity();
+    warn!(error = ?anyhow::Error::new(err), "{}", text);
+    match severity {
         smtp_client::TransportErrorSeverity::Local => smtp_queue::TransportFailure::Local,
         smtp_client::TransportErrorSeverity::NetworkTransient => {
             smtp_queue::TransportFailure::NetworkTransient
@@ -166,18 +169,29 @@ where
         self.0
             .get_destination(meta.to.hostname.as_ref().unwrap_or(&localhost))
             .await
-            .map_err(transport_error_client_to_queue)
+            .map_err(|e| {
+                transport_error_client_to_queue(
+                    e,
+                    "Transport error while trying to get destination",
+                )
+            })
     }
 
     async fn connect(
         &self,
         dest: &Self::Destination,
     ) -> Result<Self::Sender, smtp_queue::TransportFailure> {
+        info!(destination = %dest, "Connecting to remote server");
         self.0
             .connect(dest)
             .await
             .map(QueueTransportSender)
-            .map_err(transport_error_client_to_queue)
+            .map_err(|e| {
+                transport_error_client_to_queue(
+                    e,
+                    "Transport error while trying to connect to destination",
+                )
+            })
     }
 }
 
@@ -193,10 +207,13 @@ impl smtp_queue::TransportSender<Meta> for QueueTransportSender {
     where
         Reader: Send + AsyncRead,
     {
+        // TODO: pass through mail id so that it's possible to log it
         self.0
             .send(meta.from.as_ref(), &meta.to, mail)
             .await
-            .map_err(transport_error_client_to_queue)
+            .map_err(|e| {
+                transport_error_client_to_queue(e, "Transport error while trying to send email")
+            })
     }
 }
 
