@@ -4,6 +4,11 @@ rec {
     url = "https://github.com/NixOS/nixpkgs/archive/e9158eca70ae59e73fae23be5d13d3fa0cfc78b4.tar.gz";
     sha256 = "0cnmvnvin9ixzl98fmlm3g17l6w95gifqfb3rfxs55c0wj2ddy53";
   };
+  naerskSrc = builtins.fetchTarball {
+    # The following is the latest version as of 2020-12-25
+    url = "https://github.com/nmattia/naersk/archive/a76924cbbb17c387e5ae4998a4721d88a3ac95c0.tar.gz";
+    sha256 = "09b5g2krf8mfpajgz2bgapkv3dpimg0qx1nfpjafcrsk0fhxmqay";
+  };
   rustOverlaySrc = builtins.fetchTarball {
     # The following is the latest version as of 2020-12-13
     url = "https://github.com/mozilla/nixpkgs-mozilla/archive/8c007b60731c07dd7a052cce508de3bb1ae849b4.tar.gz";
@@ -27,4 +32,8 @@ rec {
   #  channel = "stable";
   #  sha256 = "0pddwpkpwnihw37r8s92wamls8v0mgya67g9m8h6p5zwgh4il1z6";
   #};
+  naersk = pkgs.callPackage naerskSrc {
+    rustc = rustNightlyChannel.rust;
+    cargo = rustNightlyChannel.cargo;
+  };
 }
