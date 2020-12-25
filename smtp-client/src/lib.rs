@@ -1,5 +1,6 @@
 use std::{
-    cmp, collections::BTreeMap, future::Future, io, net::IpAddr, ops::Range, pin::Pin, sync::Arc,
+    cmp, collections::BTreeMap, fmt, future::Future, io, net::IpAddr, ops::Range, pin::Pin,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -29,6 +30,12 @@ pub type DynAsyncReadWrite =
 #[derive(Eq, Hash, PartialEq)]
 pub struct Destination {
     host: Hostname,
+}
+
+impl fmt::Display for Destination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.host.fmt(f)
+    }
 }
 
 #[async_trait]
