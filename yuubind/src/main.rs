@@ -62,7 +62,7 @@ impl smtp_client::Config for ClientConfig {
     where
         IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
     {
-        let io = self.0.connect("", io).await?;
+        let io = self.0.connect("nodomainyet", io).await?;
         let (r, w) = io.split();
         let io = duplexify::Duplex::new(
             Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
