@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io::IoSlice,
     iter,
     net::{Ipv4Addr, Ipv6Addr},
@@ -316,6 +317,12 @@ where
     }
 }
 
+impl<S: AsRef<str>> fmt::Display for Hostname<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.raw().as_ref())
+    }
+}
+
 impl<S: PartialEq> std::cmp::PartialEq for Hostname<S> {
     fn eq(&self, o: &Hostname<S>) -> bool {
         self.raw() == o.raw()
@@ -449,6 +456,12 @@ where
     #[inline]
     pub fn as_io_slices(&self) -> impl Iterator<Item = IoSlice> {
         iter::once(IoSlice::new(self.raw().as_ref().as_ref()))
+    }
+}
+
+impl<S: AsRef<str>> fmt::Display for Localpart<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.raw().as_ref())
     }
 }
 
@@ -615,6 +628,16 @@ where
                 localpart: self.localpart.to_ref(),
                 hostname: Some(h.to_ref()),
             },
+        }
+    }
+}
+
+impl<S: AsRef<str>> fmt::Display for Email<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref hostname) = self.hostname {
+            write!(f, "<{}@{}>", self.localpart, hostname)
+        } else {
+            write!(f, "<{}>", self.localpart)
         }
     }
 }
