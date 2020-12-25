@@ -1080,7 +1080,7 @@ mod tests {
                     .expect("walkdir always returns files with full path"),
             );
             if file.file_name() == ".empty" {
-                std::fs::remove_file(file.path()).expect("removing .empty file");
+                // Do not copy over .empty files
             } else if file.file_type().is_dir() {
                 std::fs::create_dir(new_path).expect("creating directory");
             } else if file.file_type().is_file() {
