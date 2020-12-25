@@ -19,3 +19,7 @@ smol = "1.2.5"
 thiserror = "1.0.22"
 uuid = { version = "0.8.1", features = ["v4"] }
 walkdir = "2.3.1"
+
+[dev-dependencies]
+dir-diff = "0.3.2"
+tempdir = "0.3.7"

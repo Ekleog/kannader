@@ -62,7 +62,7 @@ pub enum Error {
     ParsingJson(PathBuf, #[source] serde_json::Error),
 
     #[error("Opening folder ‘{0}’ in {1:?} queue")]
-    OpeningFolderInQueue(Arc<String>, QueueType, #[source] io::Error),
+    OpeningFolderInQueue(PathBuf, QueueType, #[source] io::Error),
 
     #[error("Opening file ‘{0}’ in mail ‘{1}’ of queue {2:?}")]
     OpeningFileInMail(&'static str, Arc<String>, QueueType, #[source] io::Error),
@@ -118,6 +118,9 @@ pub enum Error {
 
     #[error("Removing folder ‘{0}’ from {1:?} queue")]
     RemovingFolderFromQueue(PathBuf, QueueType, #[source] io::Error),
+
+    #[error("Removing folder ‘{0}’ from mail ‘{1}’ in {2:?} queue")]
+    RemovingFolderFromMail(PathBuf, PathBuf, QueueType, #[source] io::Error),
 
     #[error("Listing folder ‘{0}’ in {1:?} queue")]
     ListingFolderInQueue(PathBuf, QueueType, #[source] io::Error),
@@ -260,9 +263,9 @@ where
                 .read_link(&*mail)
                 .map_err(|e| Error::ReadingLinkInQueue(mail.clone(), QueueType::Inflight, e))?;
 
-            let dest_dir = inflight
-                .sub_dir(&dest_path_from_inflight)
-                .map_err(|e| Error::OpeningFolderInQueue(mail.clone(), QueueType::Inflight, e))?;
+            let dest_dir = inflight.sub_dir(&dest_path_from_inflight).map_err(|e| {
+                Error::OpeningFolderInQueue(PathBuf::from(&*mail), QueueType::Inflight, e)
+            })?;
             let metadata_file = dest_dir.open_file(METADATA_FILE).map_err(|e| {
                 Error::OpeningFileInMail(METADATA_FILE, mail.clone(), QueueType::Inflight, e)
             })?;
@@ -294,7 +297,7 @@ where
                 Error::CreatingFolderInQueue(mail_uuid.to_string(), QueueType::Data, e)
             })?;
             let mail_dir = data.sub_dir(&*mail_uuid).map_err(|e| {
-                Error::OpeningFolderInQueue(Arc::new(mail_uuid.to_string()), QueueType::Data, e)
+                Error::OpeningFolderInQueue(PathBuf::from(&*mail_uuid), QueueType::Data, e)
             })?;
             let contents_file = mail_dir
                 .new_file(CONTENTS_FILE, ONLY_USER_RW)
@@ -335,9 +338,9 @@ where
                 .read_link(&*id)
                 .map_err(|e| Error::ReadingLinkInQueue(id.clone(), QueueType::Queue, e))?;
 
-            let dest_dir = queue
-                .sub_dir(&dest_path_from_inflight)
-                .map_err(|e| Error::OpeningFolderInQueue(id.clone(), QueueType::Queue, e))?;
+            let dest_dir = queue.sub_dir(&dest_path_from_inflight).map_err(|e| {
+                Error::OpeningFolderInQueue(PathBuf::from(&*id), QueueType::Queue, e)
+            })?;
 
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
@@ -503,44 +506,72 @@ where
                 Ok(d) => d,
             };
 
-            let dest_dir = match cleanup.sub_dir(&dest) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            let mut mail_vanished = match cleanup.sub_dir(&dest) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => true,
                 Err(e) => {
-                    let id = mail.id.0.clone();
+                    let id = PathBuf::from(&*mail.id.0);
                     return Err((mail, Error::OpeningFolderInQueue(id, QueueType::Cleanup, e)));
                 }
-                Ok(d) => d,
+                Ok(dest_dir) => {
+                    match dest_dir.remove_file(METADATA_FILE) {
+                        Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                            let id = PathBuf::from(&*mail.id.0);
+                            return Err((
+                                mail,
+                                Error::RemovingFileFromMail(
+                                    METADATA_FILE,
+                                    id,
+                                    QueueType::Cleanup,
+                                    e,
+                                ),
+                            ));
+                        }
+                        _ => (),
+                    }
+
+                    match dest_dir.remove_file(SCHEDULE_FILE) {
+                        Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                            let id = PathBuf::from(&*mail.id.0);
+                            return Err((
+                                mail,
+                                Error::RemovingFileFromMail(
+                                    SCHEDULE_FILE,
+                                    id,
+                                    QueueType::Cleanup,
+                                    e,
+                                ),
+                            ));
+                        }
+                        _ => (),
+                    }
+
+                    false
+                }
             };
 
-            match dest_dir.remove_file(METADATA_FILE) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    let id = PathBuf::from(&*mail.id.0);
-                    return Err((
-                        mail,
-                        Error::RemovingFileFromMail(METADATA_FILE, id, QueueType::Cleanup, e),
-                    ));
-                }
-                _ => (),
-            }
-
-            match dest_dir.remove_file(SCHEDULE_FILE) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    let id = PathBuf::from(&*mail.id.0);
-                    return Err((
-                        mail,
-                        Error::RemovingFileFromMail(SCHEDULE_FILE, id, QueueType::Cleanup, e),
-                    ));
-                }
-                _ => (),
-            }
-
-            let mail_dir = match dest_dir.sub_dir("..") {
-                Ok(d) => d,
-                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+            let mail_name = match dest.strip_prefix(DATA_DIR_FROM_OTHER_QUEUE) {
+                Ok(m) => match m.parent() {
+                    Some(m) => m,
+                    None => {
+                        let id = mail.id.0.clone();
+                        return Err((
+                            mail,
+                            Error::SymlinkPointsToNonDestinationSubfolder(
+                                id,
+                                QueueType::Cleanup,
+                                dest,
+                            ),
+                        ));
+                    }
+                },
+                Err(_) => {
+                    // StripPrefixError contains no useful information
                     let id = mail.id.0.clone();
-                    return Err((mail, Error::OpeningParentFromMail(id, e)));
+                    return Err((
+                        mail,
+                        Error::SymlinkDoesNotPointToDataQueue(id, QueueType::Cleanup, dest),
+                    ));
                 }
-                Err(_) => return Ok(false),
             };
 
             let dest_name = match dest.file_name() {
@@ -554,32 +585,73 @@ where
                 }
             };
 
-            match mail_dir.remove_dir(dest_name) {
+            let mail_dir = match data.sub_dir(mail_name) {
+                Ok(d) => d,
                 Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    let id = PathBuf::from(&*mail.id.0);
                     return Err((
                         mail,
-                        Error::RemovingFolderFromQueue(id, QueueType::Cleanup, e),
+                        Error::OpeningFolderInQueue(mail_name.to_owned(), QueueType::Data, e),
                     ));
                 }
-                _ => (),
+                Err(_) => {
+                    // The whole mail vanished, there's nothing more to do apart from removing the
+                    // symlink
+                    match cleanup.remove_file(&*mail.id.0) {
+                        Ok(()) => return Ok(false),
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+                        Err(e) => {
+                            let id = mail.id.0.clone();
+                            return Err((
+                                mail,
+                                Error::RemovingFileFromQueue(id, QueueType::Cleanup, e),
+                            ));
+                        }
+                    }
+                }
+            };
+
+            match mail_dir.remove_dir(dest_name) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    return Err((
+                        mail,
+                        Error::RemovingFolderFromMail(
+                            PathBuf::from(dest_name),
+                            mail_name.to_owned(),
+                            QueueType::Cleanup,
+                            e,
+                        ),
+                    ));
+                }
+                Err(_) => mail_vanished = true,
+                Ok(()) => (),
             }
 
             // rm mail_dir iff the only remaining file is CONTENTS_FILE
-            // `mut` is required here because list_self() returns an Iterator
-            let mut mail_dir_list = match mail_dir.list_self() {
+            // `mut` is required here because list_dir() returns an Iterator
+            let mut mail_dir_list = match mail_dir.list_dir(".") {
                 Ok(l) => l,
                 Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    let mail_dir_path = dest
-                        .parent()
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| dest.join(".."));
                     return Err((
                         mail,
-                        Error::ListingFolderInQueue(mail_dir_path, QueueType::Cleanup, e),
+                        Error::ListingFolderInQueue(mail_name.to_owned(), QueueType::Data, e),
                     ));
                 }
-                Err(_) => return Ok(false),
+                Err(_) => {
+                    // The whole mail vanished, there's nothing more to do apart from removing the
+                    // symlink
+                    // TODO: the below match occurs a few times, factor it out
+                    match cleanup.remove_file(&*mail.id.0) {
+                        Ok(()) => return Ok(false),
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+                        Err(e) => {
+                            let id = mail.id.0.clone();
+                            return Err((
+                                mail,
+                                Error::RemovingFileFromQueue(id, QueueType::Cleanup, e),
+                            ));
+                        }
+                    }
+                }
             };
             let should_rm_mail_dir =
                 mail_dir_list.all(|e| matches!(e, Ok(e) if e.file_name() == CONTENTS_FILE));
@@ -604,31 +676,6 @@ where
                     _ => (),
                 }
 
-                let mail_name = match dest.strip_prefix(DATA_DIR_FROM_OTHER_QUEUE) {
-                    Ok(m) => match m.parent() {
-                        Some(m) => m,
-                        None => {
-                            let id = mail.id.0.clone();
-                            return Err((
-                                mail,
-                                Error::SymlinkPointsToNonDestinationSubfolder(
-                                    id,
-                                    QueueType::Cleanup,
-                                    dest,
-                                ),
-                            ));
-                        }
-                    },
-                    Err(_) => {
-                        // StripPrefixError contains no useful information
-                        let id = mail.id.0.clone();
-                        return Err((
-                            mail,
-                            Error::SymlinkDoesNotPointToDataQueue(id, QueueType::Cleanup, dest),
-                        ));
-                    }
-                };
-
                 match data.remove_dir(mail_name) {
                     Err(e) if e.kind() != io::ErrorKind::NotFound => {
                         return Err((
@@ -645,16 +692,18 @@ where
             }
 
             match cleanup.remove_file(&*mail.id.0) {
-                Ok(()) => Ok(true),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Ok(()) => (),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => mail_vanished = true,
                 Err(e) => {
                     let id = mail.id.0.clone();
-                    Err((
+                    return Err((
                         mail,
                         Error::RemovingFileFromQueue(id, QueueType::Cleanup, e),
-                    ))
+                    ));
                 }
             }
+
+            Ok(!mail_vanished)
         })
         .await
     }
@@ -724,6 +773,7 @@ where
     })
 }
 
+#[derive(Debug)]
 pub struct FsQueuedMail {
     id: QueueId,
     schedule: ScheduleInfo,
@@ -759,6 +809,7 @@ impl smtp_queue::QueuedMail for FsQueuedMail {
     }
 }
 
+#[derive(Debug)]
 pub struct FsInflightMail {
     id: QueueId,
     schedule: ScheduleInfo,
@@ -790,6 +841,7 @@ impl smtp_queue::InflightMail for FsInflightMail {
     }
 }
 
+#[derive(Debug)]
 pub struct FsPendingCleanupMail {
     id: QueueId,
 }
@@ -885,6 +937,8 @@ where
 }
 
 /// Blocking function!
+// TODO: factor out with FsStorage::cleanup? This will require
+// thinking of a way to handle errors properly
 fn cleanup_dest_dir(mail_dir: &Dir, dest_id: &str) {
     // TODO: consider logging IO errors on cleanups that follow an IO error
     let dest_dir = match mail_dir.sub_dir(dest_id) {
@@ -898,6 +952,8 @@ fn cleanup_dest_dir(mail_dir: &Dir, dest_id: &str) {
 }
 
 /// Blocking function!
+// TODO: factor out with FsStorage::cleanup? This will require
+// thinking of a way to handle errors properly
 fn cleanup_contents_dir(queue: &Dir, mail_uuid: String, mail_dir: &Dir) {
     // TODO: consider logging IO errors on cleanups that follow an IO error
     let _ = mail_dir.remove_file(CONTENTS_FILE);
@@ -985,5 +1041,94 @@ impl<U> AsyncWrite for FsEnqueuer<U> {
         bufs: &[IoSlice],
     ) -> Poll<io::Result<usize>> {
         unsafe { self.map_unchecked_mut(|s| &mut s.writer) }.poll_write_vectored(cx, bufs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io::BufRead;
+
+    use tempdir::TempDir;
+
+    use smtp_queue::Storage;
+
+    fn sleep_for_debug() {
+        if let Ok(_) = std::env::var("DEBUGGING") {
+            println!("Sleeping until pressing enter");
+            std::io::stdin().lock().lines().next();
+        } else {
+            println!("Skipping debug point, export DEBUGGING=1 to enable debug points");
+        }
+    }
+
+    fn setup<F: AsRef<Path>>(fixture: F) -> (TempDir, Arc<PathBuf>) {
+        // Create temporary directory
+        let dir = TempDir::new("yuubind-test").expect("creating tempdir");
+        println!("Directory is at {}", dir.path().display());
+
+        // Copy the fixture in place, removing the .empty files
+        // Both copy_dir and fs_extra fail on broken symlinks, which we do need for
+        // testing
+        for file in WalkDir::new(fixture.as_ref()).into_iter() {
+            let file = file.expect("walking through tempdir");
+            let old_path = file.path();
+            let new_path = dir.path().join("queue").join(
+                file.path()
+                    .strip_prefix(fixture.as_ref())
+                    .expect("walkdir always returns files with full path"),
+            );
+            if file.file_name() == ".empty" {
+                std::fs::remove_file(file.path()).expect("removing .empty file");
+            } else if file.file_type().is_dir() {
+                std::fs::create_dir(new_path).expect("creating directory");
+            } else if file.file_type().is_file() {
+                std::fs::copy(old_path, new_path).expect("copying file");
+            } else if file.file_type().is_symlink() {
+                std::os::unix::fs::symlink(
+                    std::fs::read_link(old_path).expect("reading symlink"),
+                    new_path,
+                )
+                .expect("creating symlink");
+            } else {
+                panic!("Found file that is in no known category");
+            }
+        }
+
+        // Return the result
+        let path = Arc::new(dir.path().join("queue"));
+        sleep_for_debug();
+        (dir, path)
+    }
+
+    fn confirm<R: AsRef<Path>>(path: Arc<PathBuf>, expected_res: R) {
+        let (_dir, expected_res_path) = setup(expected_res);
+
+        let is_different =
+            dir_diff::is_different(&*path, &*expected_res_path).expect("diffing results");
+
+        assert!(!is_different, "results are different");
+    }
+
+    #[test]
+    fn cleanup_broken_link() {
+        let (_dir, path) = setup("res/cleanup-broken-link/before");
+        smol::block_on(async {
+            let stor = FsStorage::<()>::new(path.clone())
+                .await
+                .expect("creating storage");
+            let did_cleanup = stor
+                .cleanup(FsPendingCleanupMail {
+                    id: QueueId::new("07dca3bc-961d-450a-8ab3-1324015c6802"),
+                })
+                .await
+                .expect("cleaning up");
+            assert!(
+                !did_cleanup,
+                "claimed to do cleanup, while the email has already vanished"
+            );
+        });
+        confirm(path, "res/cleanup-broken-link/after");
     }
 }
