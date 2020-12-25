@@ -46,8 +46,14 @@ pub enum Error {
     #[error("Opening folder ‘{0}’")]
     OpeningFolder(Arc<PathBuf>, #[source] io::Error),
 
+    #[error("Creating folder ‘{0}’")]
+    CreatingFolder(Arc<PathBuf>, #[source] io::Error),
+
     #[error("Opening sub-folder ‘{1}’ of folder ‘{0}’")]
     OpeningSubFolder(Arc<PathBuf>, &'static str, #[source] io::Error),
+
+    #[error("Creating sub-folder ‘{1}’ of folder ‘{0}’")]
+    CreatingSubFolder(Arc<PathBuf>, &'static str, #[source] io::Error),
 
     #[error("Recursively walking directory ‘{0}’")]
     WalkingDirectory(Arc<PathBuf>, #[source] walkdir::Error),
@@ -152,46 +158,47 @@ pub struct FsStorage<U> {
 
 impl<U> FsStorage<U> {
     pub async fn new(path: Arc<PathBuf>) -> Result<FsStorage<U>, Error> {
-        let main_dir = {
-            let path2 = path.clone();
-            Arc::new(
-                unblock(move || Dir::open(&*path2))
-                    .await
-                    .map_err(|e| Error::OpeningFolder(path.clone(), e))?,
-            )
+        macro_rules! maybe_create_and_open_generic {
+            ($data:ident, $open:expr, $open_err:expr, $create:expr, $create_err:expr,) => {{
+                let data1 = $data.clone();
+                let data2 = $data.clone();
+                let data3 = $data.clone();
+                match unblock(move || $open(data1)).await {
+                    Ok(res) => Arc::new(res),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                        unblock(move || $create(data2)).await.map_err($create_err)?;
+                        Arc::new(unblock(move || $open(data3)).await.map_err($open_err)?)
+                    }
+                    Err(e) => return Err($open_err(e)),
+                }
+            }};
         };
-        let data = {
-            let main_dir = main_dir.clone();
-            Arc::new(
-                unblock(move || main_dir.sub_dir(DATA_DIR))
-                    .await
-                    .map_err(|e| Error::OpeningSubFolder(path.clone(), DATA_DIR, e))?,
-            )
+
+        let main_dir = maybe_create_and_open_generic!(
+            path,
+            |p: Arc<PathBuf>| Dir::open(&*p),
+            |e| Error::OpeningFolder(path.clone(), e),
+            |p: Arc<PathBuf>| std::fs::create_dir(&*p),
+            |e| Error::CreatingFolder(path.clone(), e),
+        );
+
+        macro_rules! maybe_create_and_open {
+            ($sub_path:ident) => {
+                maybe_create_and_open_generic!(
+                    main_dir,
+                    |d: Arc<Dir>| d.sub_dir($sub_path),
+                    |e| Error::OpeningSubFolder(path.clone(), $sub_path, e),
+                    |d: Arc<Dir>| d.create_dir($sub_path, ONLY_USER_RWX),
+                    |e| Error::CreatingSubFolder(path.clone(), $sub_path, e),
+                )
+            };
         };
-        let queue = {
-            let main_dir = main_dir.clone();
-            Arc::new(
-                unblock(move || main_dir.sub_dir(QUEUE_DIR))
-                    .await
-                    .map_err(|e| Error::OpeningSubFolder(path.clone(), QUEUE_DIR, e))?,
-            )
-        };
-        let inflight = {
-            let main_dir = main_dir.clone();
-            Arc::new(
-                unblock(move || main_dir.sub_dir(INFLIGHT_DIR))
-                    .await
-                    .map_err(|e| Error::OpeningSubFolder(path.clone(), INFLIGHT_DIR, e))?,
-            )
-        };
-        let cleanup = {
-            let main_dir = main_dir.clone();
-            Arc::new(
-                unblock(move || main_dir.sub_dir(CLEANUP_DIR))
-                    .await
-                    .map_err(|e| Error::OpeningSubFolder(path.clone(), CLEANUP_DIR, e))?,
-            )
-        };
+
+        let data = maybe_create_and_open!(DATA_DIR);
+        let queue = maybe_create_and_open!(QUEUE_DIR);
+        let inflight = maybe_create_and_open!(INFLIGHT_DIR);
+        let cleanup = maybe_create_and_open!(CLEANUP_DIR);
+
         Ok(FsStorage {
             path,
             data,
@@ -1109,6 +1116,17 @@ mod tests {
             dir_diff::is_different(&*path, &*expected_res_path).expect("diffing results");
 
         assert!(!is_different, "results are different");
+    }
+
+    #[test]
+    fn create_queue_folders() {
+        let (_dir, path) = setup("res/create-queue-folders/before");
+        smol::block_on(async {
+            FsStorage::<()>::new(path.clone())
+                .await
+                .expect("creating storage");
+        });
+        confirm(path, "res/create-queue-folders/after");
     }
 
     #[test]
