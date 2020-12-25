@@ -9,7 +9,11 @@ use chrono::Utc;
 use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use rand::prelude::SliceRandom;
 use smol::net::TcpStream;
-use trust_dns_resolver::{error::ResolveError, proto::error::ProtoError, AsyncResolver, IntoName};
+use trust_dns_resolver::{
+    error::{ResolveError, ResolveErrorKind},
+    proto::error::ProtoError,
+    AsyncResolver, IntoName,
+};
 
 use smtp_message::{
     nom, Command, Email, EnhancedReplyCodeSubject, EscapingDataWriter, Hostname, Parameters, Reply,
@@ -94,7 +98,7 @@ pub trait Config {
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
-    #[error("Retrieving MX DNS records for ‘{1}’")]
+    #[error("Retrieving MX DNS records for ‘{0}’")]
     DnsMx(String, #[source] ResolveError),
 
     #[error("Converting hostname ‘{0}’ to to-be-resolved name")]
@@ -383,11 +387,24 @@ where
         // TODO: consider adding a `.` at the end of `host`... but is it
         // actually allowed?
         // Run MX lookup
-        let lookup = self
-            .resolver
-            .mx_lookup(host)
-            .await
-            .map_err(|e| TransportError::DnsMx(host.to_owned(), e))?;
+        let lookup = self.resolver.mx_lookup(host).await;
+        let lookup = match lookup {
+            Ok(l) => l,
+            Err(e) => {
+                if let ResolveErrorKind::NoRecordsFound { .. } = e.kind() {
+                    // If there are no MX records, try A/AAAA records
+                    return self
+                        .connect_to_host(
+                            host.into_name()
+                                .map_err(|e| TransportError::HostToTrustDns(host.to_owned(), e))?,
+                            SMTP_PORT,
+                        )
+                        .await;
+                } else {
+                    return Err(TransportError::DnsMx(host.to_owned(), e));
+                }
+            }
+        };
 
         // Retrieve the actual records
         let mut mx_records = BTreeMap::new();
@@ -400,6 +417,8 @@ where
 
         // If there are no MX records, try A/AAAA records
         if mx_records.is_empty() {
+            // TODO: is this actually required? trust_dns_resolver should return
+            // NoRecordsFound anyway
             return self
                 .connect_to_host(
                     host.into_name()
@@ -470,6 +489,8 @@ where
         ip: IpAddr,
         port: u16,
     ) -> Result<Sender<Cfg>, TransportError> {
+        // TODO: bind to specified outgoing IP address with net2 (first bind the builder
+        // to the outgoing IP, then connect)
         let io = TcpStream::connect((ip, port))
             .await
             .map_err(|e| TransportError::Connecting(ip, port, e))?;
