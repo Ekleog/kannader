@@ -801,6 +801,7 @@ where
                             } else {
                                 // handle_mail did not call complete, let's read until the end and
                                 // then return an error
+                                // TODO: 128 is probably too small?
                                 let ignore_buf = &mut [0u8; 128];
                                 // TODO: consider whether it would make sense to have a separate
                                 // timeout here... giving as much time for sending the whole DATA
