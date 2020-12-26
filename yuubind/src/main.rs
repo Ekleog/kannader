@@ -78,6 +78,7 @@ struct QueueConfig;
 impl smtp_queue::Config<Meta, smtp_queue_fs::Error> for QueueConfig {
     async fn next_interval(&self, _s: smtp_queue::ScheduleInfo) -> Option<Duration> {
         // TODO: most definitely should try again
+        // TODO: add bounce support to both transport and here
         None
     }
 
@@ -182,6 +183,7 @@ where
         dest: &Self::Destination,
     ) -> Result<Self::Sender, smtp_queue::TransportFailure> {
         info!(destination = %dest, "Connecting to remote server");
+        // TODO: log the IP to which we're connecting
         self.0
             .connect(dest)
             .await
@@ -459,7 +461,7 @@ fn main() {
                 .await?;
                 let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
                 let server_cfg = Arc::new(ServerConfig { acceptor, queue });
-                let listener = smol::net::TcpListener::bind("127.0.0.1:2525")
+                let listener = smol::net::TcpListener::bind("0.0.0.0:2525")
                     .await
                     .with_context(|| "Binding on the listening port")?;
                 let mut incoming = listener.incoming();
