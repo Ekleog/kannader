@@ -41,5 +41,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
+      - run: nix-shell --pure --run 'cargo update'
       - run: nix-build default.nix
       - run: nix-build tests/basic-test.nix
