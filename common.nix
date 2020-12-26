@@ -16,7 +16,12 @@ rec {
   };
   rustOverlay = import rustOverlaySrc;
   pkgs = import pkgsSrc {
-    overlays = [ rustOverlay ];
+    overlays = [
+      rustOverlay
+      (self: super: {
+        yuubind = import ./. {};
+      })
+    ];
   };
   rustNightlyChannel = pkgs.rustChannelOf {
     date = "2020-12-21";
