@@ -34,3 +34,12 @@ jobs:
       - uses: cachix/install-nix-action@v12
       - run: nix-shell --pure --run 'mdbook build book'
       - run: nix-shell --pure --run 'mdbook test book'
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v12
+      - run: nix-build default.nix
+      - run: nix-build tests/basic-test.nix
