@@ -1,6 +1,6 @@
 with import ../common.nix;
 
-import (pkgs.path + "/nixos/tests/make-test-python.nix") (_: {
+(import (pkgs.path + "/nixos/tests/make-test-python.nix") (_: {
   name = "basic-test";
 
   nodes = {
@@ -76,4 +76,6 @@ import (pkgs.path + "/nixos/tests/make-test-python.nix") (_: {
         "check-test-mail 'alice@local' 'bob@mx.a.opensmtpd.local' 'cookies'"
     )
   '';
+}) {}).overrideAttrs (_: {
+  requiredSystemFeatures = ["nixos-test"]; # Remove kvm requirement
 })
