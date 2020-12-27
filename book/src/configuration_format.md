@@ -42,15 +42,14 @@ However, Lua has some big issues: the only good implementations that
 exist are all written in C, and running such code unsandboxed would go
 against yuubind's safety motto. It would be surprising if not a single
 security flaw was present in Lua[^security]. Another major issue of
-Lua is its exoticity. While other programs, like rspamd or nginx,
+Lua is its being exotic. While other programs, like rspamd or nginx,
 already use or allow Lua scripting, system administrators usually are
 not fluent in Lua.
 
-This led to the research of another option. Option which arose with
-the idea of sandboxing a Lua VM: it is possible to run any kind of
-interpreter from within a sandbox. And a sandbox mechanism that
-recently gained quite a lot of traction is WebAssembly (thereafter
-abbreviated wasm).
+This led to searching for another option. Thus arose the idea of
+sandboxing a Lua VM: it is possible to run any kind of interpreter
+from within a sandbox. And a sandbox mechanism that recently gained
+quite a lot of traction is WebAssembly (thereafter abbreviated wasm).
 
 Wasm is *fast*. Wasm provides a sandbox. Wasm interpreters are
 designed for safety, as they run untrusted code found anywhere on the
@@ -66,9 +65,9 @@ requirements, is ease of use. Yet, it is maybe one of our most
 important objectives with yuubind's configuration format: to provide a
 configurable, *yet easy* configuration format.
 
-This can thanksfully be worked around, by using “wrappers.” These
-take the configurability of the wasm hooks, and turn it into an
-easy-to-use format.
+This can thankfully be worked around, by using “wrappers.” These take
+the configurability of the wasm hooks, and turn it into an easy-to-use
+format.
 
 These “wrappers” are, in fact, only pre-compiled wasm blobs that are
 provided alongside yuubind. They provide configuration formats that
