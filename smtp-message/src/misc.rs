@@ -214,18 +214,34 @@ pub enum Hostname<S = String> {
     Ipv4 { raw: S, ip: Ipv4Addr },
 }
 
-impl<S> Hostname<S> {
-    pub fn parse_until<'a, 'b>(
-        term: &'b [u8],
-    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
-    where
-        'a: 'b,
-        S: 'b + From<&'a str>,
-    {
+macro_rules! parse_hostname {
+    (expected_length: $len:expr) => {
+        parse_hostname!(
+            @unsafe_impl,
+            apply_regex(&HOSTNAME_ASCII),
+            apply_regex(&HOSTNAME_UTF8),
+            |b: &[u8]| $len == b.len(),
+        )
+    };
+
+    (terminator: $until_term:ident) => {
+        parse_hostname!(
+            @unsafe_impl,
+            terminated(apply_regex(&HOSTNAME_ASCII), terminate($until_term)),
+            terminated(apply_regex(&HOSTNAME_UTF8), terminate($until_term)),
+            |_| true,
+        )
+    };
+
+    (@unsafe_impl, $ascii_regex:expr, $utf8_regex:expr, $check:expr,) => {
         alt((
             map_opt(
-                terminated(apply_regex(&HOSTNAME_ASCII), terminate(term)),
+                $ascii_regex,
                 |b: &[u8]| {
+                    if !$check(b) {
+                        return None;
+                    }
+
                     // The three below unsafe are OK, thanks to our
                     // regex validating that `b` is proper ascii
                     // (and thus utf-8)
@@ -247,12 +263,16 @@ impl<S> Hostname<S> {
                 },
             ),
             map_opt(
-                terminated(apply_regex(&HOSTNAME_UTF8), terminate(term)),
-                |res: &[u8]| {
+                $utf8_regex,
+                |b: &[u8]| {
+                    if !$check(b) {
+                        return None;
+                    }
+
                     // The below unsafe is OK, thanks to our regex
                     // never disabling the `u` flag and thus
                     // validating that the match is proper utf-8
-                    let raw = unsafe { str::from_utf8_unchecked(res) };
+                    let raw = unsafe { str::from_utf8_unchecked(b) };
 
                     // TODO: looks like idna exposes only an
                     // allocating method for validating an IDNA domain
@@ -273,6 +293,26 @@ impl<S> Hostname<S> {
                 },
             ),
         ))
+    };
+}
+
+impl<S> Hostname<S> {
+    pub fn parse<'a, 'b>(data: &'a [u8]) -> IResult<&'a [u8], Hostname<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
+        parse_hostname!(expected_length: data.len())(data)
+    }
+
+    pub fn parse_until<'a, 'b>(
+        term: &'b [u8],
+    ) -> impl 'b + FnMut(&'a [u8]) -> IResult<&'a [u8], Hostname<S>>
+    where
+        'a: 'b,
+        S: 'b + From<&'a str>,
+    {
+        parse_hostname!(terminator: term)
     }
 }
 
@@ -816,7 +856,21 @@ mod tests {
             }),
         ];
         for (inp, rem, out) in tests {
+            // Test parse_until
             let parsed = terminated(Hostname::parse_until(b">"), tag(b">"))(inp);
+            println!(
+                "\nTest: {:?}\nParse_until result: {:?}\nExpected: {:?}",
+                show_bytes(inp),
+                parsed,
+                out
+            );
+            match parsed {
+                Ok((rest, host)) => assert!(rest == *rem && host.deep_equal(out)),
+                x => panic!("Unexpected result: {:?}", x),
+            }
+
+            // Test parse
+            let parsed = Hostname::parse(&inp[..inp.len() - 1]);
             println!(
                 "\nTest: {:?}\nParse result: {:?}\nExpected: {:?}",
                 show_bytes(inp),
@@ -834,7 +888,13 @@ mod tests {
     fn hostname_incomplete() {
         let tests: &[&[u8]] = &[b"[1.2", b"[IPv6:0::"];
         for inp in tests {
+            // Test parse_until
             let r = Hostname::<&str>::parse_until(b">")(inp);
+            println!("{:?}:  {:?}", show_bytes(inp), r);
+            assert!(r.unwrap_err().is_incomplete());
+
+            // Test parse
+            let r = Hostname::<&str>::parse(inp);
             println!("{:?}:  {:?}", show_bytes(inp), r);
             assert!(r.unwrap_err().is_incomplete());
         }
@@ -846,9 +906,16 @@ mod tests {
             b"-foo.bar>",                 // No sub-domain starting with a dash
             b"\xFF>",                     // No invalid utf-8
             "élégance.-fr>".as_bytes(), // No dashes in utf-8 either
+            b"foo.bar!>",                 // For parse: reject when there is trailing data
         ];
         for inp in tests {
+            // Test parse_until
             let r = Hostname::<String>::parse_until(b">")(inp);
+            println!("{:?}: {:?}", show_bytes(inp), r);
+            assert!(!r.unwrap_err().is_incomplete());
+
+            // Test parse
+            let r = Hostname::<String>::parse(&inp[..inp.len() - 1]);
             println!("{:?}: {:?}", show_bytes(inp), r);
             assert!(!r.unwrap_err().is_incomplete());
         }
