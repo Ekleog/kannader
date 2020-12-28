@@ -16,7 +16,7 @@ duplexify = "1.2.2"
 futures = { version = "0.3.8", features = ["write-all-vectored"] }
 rand = "0.8.0"
 smol = "1.2.5"
-thiserror = "1.0.22"
+thiserror = "1.0.23"
 trust-dns-resolver = { version = "0.19.6", default-features = false }
 
 smtp-message = { path = "../smtp-message" }
