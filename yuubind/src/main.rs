@@ -53,7 +53,7 @@ struct ClientConfig(async_tls::TlsConnector);
 impl smtp_client::Config for ClientConfig {
     fn ehlo_hostname(&self) -> Hostname<&str> {
         // TODO: this is ugly
-        Hostname::parse_until(b"!")(b"localhost!")
+        Hostname::parse(b"localhost")
             .expect("failed parsing static str")
             .1
     }
@@ -163,7 +163,7 @@ where
     ) -> Result<Self::Destination, smtp_queue::TransportFailure> {
         // TODO: this should most likely be a const or similar; and definitely not
         // recomputed on each call to destination
-        let localhost = Hostname::parse_until(b"!")(b"localhost!")
+        let localhost = Hostname::parse(b"localhost")
             .expect("failed to parse constant hostname")
             .1
             .to_owned();
