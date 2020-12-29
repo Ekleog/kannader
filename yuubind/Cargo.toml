@@ -9,7 +9,7 @@ description = "A highly configurable SMTP server written in Rust"
 edition = "2018"
 
 [dependencies]
-anyhow = "1.0.36"
+anyhow = "1.0.37"
 async-std-resolver = "0.19.6"
 async-tls = "0.11.0"
 async-trait = "0.1.30"
