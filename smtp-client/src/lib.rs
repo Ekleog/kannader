@@ -438,6 +438,9 @@ where
             mxes.shuffle(&mut rand::thread_rng());
 
             // Then try to connect to each address
+            // TODO: sometimes the DNS server already returns the IP alongside the MX record
+            // in the answer to the MX request, in which case we could directly
+            // connect_to_ip
             for mx in mxes {
                 match self.connect_to_host(mx.clone(), SMTP_PORT).await {
                     Ok(sender) => return Ok(sender),
