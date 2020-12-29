@@ -412,14 +412,14 @@ fn main() {
                 let client = smtp_client::Client::new(
                     async_std_resolver::resolver_from_system_conf()
                         .await
-                        .with_context(|| "Configuring a resolver from system configuration")?,
+                        .context("Configuring a resolver from system configuration")?,
                     Arc::new(ClientConfig(connector)),
                 );
 
                 // Spawn the queue
                 let storage = FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
                     .await
-                    .with_context(|| "Opening the queue storage folder")?;
+                    .context("Opening the queue storage folder")?;
                 let queue = smtp_queue::Queue::new(
                     ex.clone(),
                     QueueConfig,
@@ -440,21 +440,19 @@ fn main() {
 
                     // Load the certificates and keys
                     let cert = rustls::internal::pemfile::certs(&mut io::BufReader::new(
-                        std::fs::File::open(CERT_FILE)
-                            .with_context(|| "Opening the certificate file")?,
+                        std::fs::File::open(CERT_FILE).context("Opening the certificate file")?,
                     ))
                     .map_err(|()| anyhow!("Failed parsing the certificate file"))?;
                     let keys =
                         rustls::internal::pemfile::pkcs8_private_keys(&mut io::BufReader::new(
-                            std::fs::File::open(KEY_FILE)
-                                .with_context(|| "Opening the key file")?,
+                            std::fs::File::open(KEY_FILE).context("Opening the key file")?,
                         ))
                         .map_err(|()| anyhow!("Parsing the key file"))?;
                     anyhow::ensure!(keys.len() == 1, "Multiple keys found in the key file");
                     let key = keys.into_iter().next().unwrap();
                     tls_server_cfg
                         .set_single_cert(cert, key)
-                        .with_context(|| "Setting the key and certificate")?;
+                        .context("Setting the key and certificate")?;
 
                     Ok(tls_server_cfg)
                 })
@@ -463,12 +461,12 @@ fn main() {
                 let server_cfg = Arc::new(ServerConfig { acceptor, queue });
                 let listener = smol::net::TcpListener::bind("0.0.0.0:2525")
                     .await
-                    .with_context(|| "Binding on the listening port")?;
+                    .context("Binding on the listening port")?;
                 let mut incoming = listener.incoming();
 
                 info!("Server up, waiting for connections");
                 while let Some(stream) = incoming.next().await {
-                    let stream = stream.with_context(|| "Receiving a new incoming stream")?;
+                    let stream = stream.context("Receiving a new incoming stream")?;
                     ex.spawn(smtp_server::interact(
                         stream,
                         smtp_server::IsAlreadyTls::No,
