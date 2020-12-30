@@ -14,8 +14,7 @@ pkgs.stdenv.mkDerivation {
     ]) ++
     (with rustNightlyChannel; [
       cargo
-      rust
-      rustfmt-preview
+      (rust.override { targets = ["wasm32-unknown-unknown"]; })
     ])
   );
 }
