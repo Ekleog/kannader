@@ -1,3 +1,5 @@
+#![feature(core_intrinsics, try_blocks)]
+
 // TODO: split into multiple processes, with multiple uids (stretch goal: do not
 // require root and allow the user to directly call multiple executables and
 // pass it the pre-opened sockets)
@@ -5,20 +7,24 @@
 // TODO: make everything configurable, and actually implement the wasm scheme
 // described in the docs
 
-use std::{borrow::Cow, io, path::PathBuf, pin::Pin, sync::Arc, time::Duration};
+use std::{borrow::Cow, io, path::PathBuf, pin::Pin, rc::Rc, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, ensure, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use easy_parallel::Parallel;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
+use scoped_tls::scoped_thread_local;
 use smol::unblock;
+use structopt::StructOpt;
 use tracing::{error, info, warn};
 
 use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
 use smtp_queue_fs::FsStorage;
 use smtp_server::Decision;
+
+use yuubind_rpc::types_capnp;
 
 const NUM_THREADS: usize = 4;
 const QUEUE_DIR: &str = "/tmp/yuubind/queue";
@@ -47,7 +53,174 @@ impl rustls::ServerCertVerifier for NoCertVerifier {
     }
 }
 
-struct ClientConfig(async_tls::TlsConnector);
+fn capnpify<F>(
+    function: &'static str,
+    memory: wasmtime::Memory,
+    allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
+    deallocate: Rc<dyn Fn(u32, u32) -> Result<(), wasmtime::Trap>>,
+    wasm_fun: F,
+) -> Box<
+    dyn Fn(
+        capnp::message::Builder<capnp::message::HeapAllocator>,
+    ) -> anyhow::Result<capnp::message::Reader<capnp::serialize::OwnedSegments>>,
+>
+where
+    F: 'static + Fn(u32, u32) -> Result<u64, wasmtime::Trap>,
+{
+    Box::new(move |arg| {
+        // Compute the size of the argument
+        let size = capnp::serialize::compute_serialized_size_in_words(&arg);
+        debug_assert!(
+            size < u32::MAX as usize,
+            "Message size above u32::MAX, something is really wrong"
+        );
+        let size = size as u32;
+
+        // Allocate argument buffer
+        let ptr = allocate(size)
+            .with_context(|| format!("Allocating argument buffer for ‘{}’", function))?;
+        ensure!(
+            (ptr as usize).saturating_add(size as usize) < memory.data_size(),
+            "Wasm allocator returned allocation outside of its memory"
+        );
+
+        // Serialize to argument buffer
+        // TODO: implement capnp::io::Write for a VolatileWriter that directly
+        // volatile-copies the message bytes to wasm memory
+        let vec = capnp::serialize::write_message_to_words(&arg);
+        debug_assert_eq!(
+            size as usize,
+            vec.len(),
+            "capnp-computed size is {} but actual size is {}",
+            size,
+            vec.len()
+        );
+        unsafe {
+            std::intrinsics::volatile_copy_nonoverlapping_memory(
+                memory.data_ptr().add(ptr as usize),
+                &vec[0],
+                size as usize,
+            );
+        }
+
+        // Call the function
+        let res_u64 =
+            wasm_fun(ptr, size).with_context(|| format!("Running wasm function ‘{}’", function))?;
+        let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
+        let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
+        ensure!(
+            res_ptr.saturating_add(res_size) < memory.data_size(),
+            "Wasm function ‘{}’ returned allocation outside of its memory",
+            function
+        );
+
+        // Recover the return slice
+        let mut res_msg = vec![0; res_size];
+        unsafe {
+            std::intrinsics::volatile_copy_nonoverlapping_memory(
+                &mut res_msg[0],
+                memory.data_ptr().add(res_ptr),
+                res_size,
+            );
+        }
+
+        // Deallocate the return slice
+        deallocate(res_ptr as u32, res_size as u32)
+            .with_context(|| format!("Deallocating return buffer for function ‘{}’", function))?;
+
+        // Read the result
+        // TODO: figure out a way to not copy that a second time
+        let res =
+            capnp::serialize::read_message(&res_msg[..], capnp::message::ReaderOptions::new())
+                .with_context(|| format!("Deserializing return message of ‘{}’", function))?;
+
+        Ok(res)
+    })
+}
+
+struct WasmConfig {
+    /// Below functions are all implemented in wasm with:
+    ///
+    /// Parameters: (address, size) of the allocated block containing
+    /// the capnp message. Ownership is passed to the called function.
+    ///
+    /// Return: u64 whose upper 32 bits are the size and lower 32 bits
+    /// the address of a block containing the capnp message. Ownership
+    /// is passed to the caller function.
+    ///
+    /// Note: the semantic signature for the functions on the wasm
+    /// side swaps Builder and Reader, as the serialization is
+    /// in-between
+    // TODO: think of optimizing heap allocations away by using the
+    // sozu-inspired idea of per-connection buffers?
+    client_config_must_do_tls: Box<
+        dyn Fn(
+            capnp::message::Builder<capnp::message::HeapAllocator>,
+        ) -> anyhow::Result<capnp::message::Reader<capnp::serialize::OwnedSegments>>,
+    >,
+}
+
+impl WasmConfig {
+    fn new(engine: &wasmtime::Engine, module: &wasmtime::Module) -> anyhow::Result<WasmConfig> {
+        let store = wasmtime::Store::new(engine);
+        let instance = wasmtime::Instance::new(&store, module, &[])
+            .context("Instantiating the wasm configuration blob")?;
+        let memory = instance
+            .get_memory("memory")
+            .ok_or_else(|| anyhow!("Failed to find memory export ‘memory’"))?;
+
+        macro_rules! get_func {
+            ($getter:ident, $function:expr) => {
+                instance
+                    .get_func(stringify!($function))
+                    .ok_or_else(|| {
+                        anyhow!("Failed to find function export ‘{}’", stringify!($function))
+                    })?
+                    .$getter()
+                    .with_context(|| {
+                        format!("Failed to check the type of ‘{}’", stringify!($function))
+                    })?
+            };
+        }
+
+        // Parameter: size of the block to allocate
+        // Return: address of the allocated block
+        let allocate = Rc::new(get_func!(get1, "allocate"));
+
+        // Parameters: (address, size) of the block to deallocate
+        let deallocate = Rc::new(get_func!(get2, "deallocate"));
+
+        macro_rules! do_it {
+            ( $( $function:ident ),+ ) => {
+                Ok(WasmConfig {
+                    $(
+                        $function: capnpify(
+                            stringify!($function),
+                            memory.clone(),
+                            allocate.clone(),
+                            deallocate.clone(),
+                            get_func!(get2, $function),
+                        )
+                    ),+
+                })
+            };
+        }
+
+        do_it!(client_config_must_do_tls)
+    }
+}
+
+scoped_thread_local!(static WASM_CONFIG: WasmConfig);
+
+struct ClientConfig {
+    connector: async_tls::TlsConnector,
+}
+
+impl ClientConfig {
+    fn new(connector: async_tls::TlsConnector) -> ClientConfig {
+        ClientConfig { connector }
+    }
+}
 
 #[async_trait]
 impl smtp_client::Config for ClientConfig {
@@ -58,11 +231,43 @@ impl smtp_client::Config for ClientConfig {
             .1
     }
 
+    fn must_do_tls(&self) -> bool {
+        // TODO: have this communication schema for all hooks
+        WASM_CONFIG.with(|wasm_config| {
+            let mut arg = capnp::message::Builder::new_default();
+            {
+                let _unit_nothing_to_set = arg.init_root::<types_capnp::unit::Builder>();
+            }
+            let res: anyhow::Result<bool> = try {
+                let res_msg = (wasm_config.client_config_must_do_tls)(arg)
+                    .context("Running wasm callback for ‘ClientConfig::must_do_tls’")?;
+                let res_reader = res_msg
+                    .get_root::<types_capnp::bool::Reader>()
+                    .context("Retrieving capnp reader for ‘ClientConfig::must_do_tls’")?;
+                // TODO: the below should be in yuubind-rpc
+                let res_which = res_reader
+                    .which()
+                    .context("Retrieving result for ‘ClientConfig::must_do_tls’")?;
+                match res_which {
+                    types_capnp::bool::Which::True(()) => true,
+                    types_capnp::bool::Which::False(()) => false,
+                }
+            };
+            match res {
+                Ok(res) => res,
+                Err(e) => {
+                    error!(error = ?e, "Internal server error in ‘must_do_tls’");
+                    true // Return the conservative answer
+                }
+            }
+        })
+    }
+
     async fn tls_connect<IO>(&self, io: IO) -> io::Result<DynAsyncReadWrite>
     where
         IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
     {
-        let io = self.0.connect("nodomainyet", io).await?;
+        let io = self.connector.connect("nodomainyet", io).await?;
         let (r, w) = io.split();
         let io = duplexify::Duplex::new(
             Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
@@ -387,10 +592,41 @@ where
     }
 }
 
-fn main() {
+#[derive(structopt::StructOpt)]
+#[structopt(
+    name = "yuubind",
+    about = "A highly configurable SMTP server written in Rust."
+)]
+struct Opt {
+    /// Path to the wasm configuration blob
+    #[structopt(
+        short,
+        long,
+        parse(from_os_str),
+        default_value = "/etc/yuubind/config.wasm"
+    )]
+    // TODO: have wasm configuration blobs pre-provided in /usr/lib or similar
+    config: PathBuf,
+}
+
+fn main() -> anyhow::Result<()> {
+    // Parse configuration
+    let opt = Opt::from_args();
+
+    // Setup logging
     tracing_subscriber::fmt::init();
     info!("Yuubind starting up");
 
+    // Load the configuration and run WasmConfig::new once to make sure errors are
+    // caught early on
+    // TODO: limit the stack size, and make sure we always build with all
+    // optimizations
+    let engine = wasmtime::Engine::default();
+    let module = wasmtime::Module::from_file(&engine, &opt.config)
+        .context("Compiling the wasm configuration blob")?;
+    WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+
+    // Start the executor
     let ex = Arc::new(smol::Executor::new());
 
     // TODO: figure out a better shutdown story than brutally killing the server
@@ -398,92 +634,106 @@ fn main() {
     let (signal, shutdown) = smol::channel::unbounded::<()>();
 
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
-        .each(0..NUM_THREADS, |_| smol::block_on(ex.run(shutdown.recv())))
-        .finish(|| {
-            smol::block_on(async {
-                // Prepare the clients
-                let mut tls_client_cfg =
-                    rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
-                // TODO: see for configuring persistence, for more performance?
-                tls_client_cfg
-                    .dangerous()
-                    .set_certificate_verifier(Arc::new(NoCertVerifier));
-                let connector = async_tls::TlsConnector::from(tls_client_cfg);
-                let client = smtp_client::Client::new(
-                    async_std_resolver::resolver_from_system_conf()
+        .each(0..NUM_THREADS, |_| {
+            let wasm_config =
+                WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+            WASM_CONFIG.set(&wasm_config, || {
+                smol::block_on(ex.run(async {
+                    shutdown
+                        .recv()
                         .await
-                        .context("Configuring a resolver from system configuration")?,
-                    Arc::new(ClientConfig(connector)),
-                );
-
-                // Spawn the queue
-                let storage = FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
-                    .await
-                    .context("Opening the queue storage folder")?;
-                let queue = smtp_queue::Queue::new(
-                    ex.clone(),
-                    QueueConfig,
-                    storage,
-                    QueueTransport(client),
-                )
-                .await;
-
-                // Spawn the server
-                let tls_server_cfg = unblock(|| {
-                    // Configure rustls
-                    let mut tls_server_cfg = rustls::ServerConfig::with_ciphersuites(
-                        rustls::NoClientAuth::new(),
-                        &rustls::ALL_CIPHERSUITES,
-                    );
+                        .context("Receiving shutdown notification")
+                }))
+            })
+        })
+        .finish(|| {
+            let wasm_config =
+                WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+            WASM_CONFIG.set(&wasm_config, || {
+                smol::block_on(async {
+                    // Prepare the clients
+                    let mut tls_client_cfg =
+                        rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
                     // TODO: see for configuring persistence, for more performance?
-                    // TODO: support SNI
+                    tls_client_cfg
+                        .dangerous()
+                        .set_certificate_verifier(Arc::new(NoCertVerifier));
+                    let connector = async_tls::TlsConnector::from(tls_client_cfg);
+                    let client = smtp_client::Client::new(
+                        async_std_resolver::resolver_from_system_conf()
+                            .await
+                            .context("Configuring a resolver from system configuration")?,
+                        Arc::new(ClientConfig::new(connector)),
+                    );
 
-                    // Load the certificates and keys
-                    let cert = rustls::internal::pemfile::certs(&mut io::BufReader::new(
-                        std::fs::File::open(CERT_FILE).context("Opening the certificate file")?,
-                    ))
-                    .map_err(|()| anyhow!("Failed parsing the certificate file"))?;
-                    let keys =
-                        rustls::internal::pemfile::pkcs8_private_keys(&mut io::BufReader::new(
-                            std::fs::File::open(KEY_FILE).context("Opening the key file")?,
+                    // Spawn the queue
+                    let storage = FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
+                        .await
+                        .context("Opening the queue storage folder")?;
+                    let queue = smtp_queue::Queue::new(
+                        ex.clone(),
+                        QueueConfig,
+                        storage,
+                        QueueTransport(client),
+                    )
+                    .await;
+
+                    // Spawn the server
+                    let tls_server_cfg = unblock(|| {
+                        // Configure rustls
+                        let mut tls_server_cfg = rustls::ServerConfig::with_ciphersuites(
+                            rustls::NoClientAuth::new(),
+                            &rustls::ALL_CIPHERSUITES,
+                        );
+                        // TODO: see for configuring persistence, for more performance?
+                        // TODO: support SNI
+
+                        // Load the certificates and keys
+                        let cert = rustls::internal::pemfile::certs(&mut io::BufReader::new(
+                            std::fs::File::open(CERT_FILE)
+                                .context("Opening the certificate file")?,
                         ))
-                        .map_err(|()| anyhow!("Parsing the key file"))?;
-                    anyhow::ensure!(keys.len() == 1, "Multiple keys found in the key file");
-                    let key = keys.into_iter().next().unwrap();
-                    tls_server_cfg
-                        .set_single_cert(cert, key)
-                        .context("Setting the key and certificate")?;
+                        .map_err(|()| anyhow!("Failed parsing the certificate file"))?;
+                        let keys =
+                            rustls::internal::pemfile::pkcs8_private_keys(&mut io::BufReader::new(
+                                std::fs::File::open(KEY_FILE).context("Opening the key file")?,
+                            ))
+                            .map_err(|()| anyhow!("Parsing the key file"))?;
+                        anyhow::ensure!(keys.len() == 1, "Multiple keys found in the key file");
+                        let key = keys.into_iter().next().unwrap();
+                        tls_server_cfg
+                            .set_single_cert(cert, key)
+                            .context("Setting the key and certificate")?;
 
-                    Ok(tls_server_cfg)
+                        Ok(tls_server_cfg)
+                    })
+                    .await?;
+                    let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
+                    let server_cfg = Arc::new(ServerConfig { acceptor, queue });
+                    let listener = smol::net::TcpListener::bind("0.0.0.0:2525")
+                        .await
+                        .context("Binding on the listening port")?;
+                    let mut incoming = listener.incoming();
+
+                    info!("Server up, waiting for connections");
+                    while let Some(stream) = incoming.next().await {
+                        let stream = stream.context("Receiving a new incoming stream")?;
+                        ex.spawn(smtp_server::interact(
+                            stream,
+                            smtp_server::IsAlreadyTls::No,
+                            (),
+                            server_cfg.clone(),
+                        ))
+                        .detach();
+                    }
+
+                    // Close all the things
+                    std::mem::drop(signal);
+
+                    Ok(())
                 })
-                .await?;
-                let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
-                let server_cfg = Arc::new(ServerConfig { acceptor, queue });
-                let listener = smol::net::TcpListener::bind("0.0.0.0:2525")
-                    .await
-                    .context("Binding on the listening port")?;
-                let mut incoming = listener.incoming();
-
-                info!("Server up, waiting for connections");
-                while let Some(stream) = incoming.next().await {
-                    let stream = stream.context("Receiving a new incoming stream")?;
-                    ex.spawn(smtp_server::interact(
-                        stream,
-                        smtp_server::IsAlreadyTls::No,
-                        (),
-                        server_cfg.clone(),
-                    ))
-                    .detach();
-                }
-
-                // Close all the things
-                std::mem::drop(signal);
-
-                Ok(())
             })
         });
 
-    if let Err(e) = res {
-        error!(err = ?e, "Error while running yuubind");
-    }
+    res
 }

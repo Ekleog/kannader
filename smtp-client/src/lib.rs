@@ -50,6 +50,7 @@ pub trait Config {
         true
     }
 
+    // TODO: make this parameterized on the destination
     fn must_do_tls(&self) -> bool {
         false
     }
