@@ -10,6 +10,9 @@ edition = "2018"
 
 target = "wasm32-unknown-unknown"
 
+[lib]
+test = false
+
 [dependencies]
 capnp = "0.14.0"
 static_assertions = "1.1.0"
