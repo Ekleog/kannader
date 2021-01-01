@@ -12,5 +12,7 @@ naersk.buildPackage {
     capnproto
   ];
 
+  copyLibs = true;
+
   inherit release;
 }
