@@ -42,8 +42,8 @@ rec {
       pname = "cargo";
       version = "dev";
       src = builtins.fetchTarball {
-        url = "https://github.com/rust-lang/cargo/archive/c5f233d1a058b976a6cf718cf46afc98f949a771.tar.gz";
-        sha256 = "0hqphm4sz176jdixi91zrn82xdbci9m2pjy3zmhh3v8jb0akmmdj";
+        url = "https://github.com/rust-lang/cargo/archive/cae7be8a17d50d69ed80a9bc3bf3c5a052f2a568.tar.gz";
+        sha256 = "1bh5fjrr245wsj0ib7c7yqp83d7brxbygya9fxjgmvkqra3vlgbj";
       };
       buildInputs = with pkgs; [ openssl pkg-config ];
       copySources = ["crates/cargo-test-macro" "crates/cargo-test-support"];
