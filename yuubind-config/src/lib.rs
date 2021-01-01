@@ -18,7 +18,7 @@ macro_rules! implement {
 
         // TODO: make the caller able to specify the callbacks
         #[no_mangle]
-        unsafe extern "C" fn allocate(size: usize) -> usize {
+        pub unsafe extern "C" fn allocate(size: usize) -> usize {
             // Note: always allocate with alignment of 8 so that capnp's
             // read_message_from_flat_slice is happy
             // TODO: handle alloc error (ie. null return) properly
@@ -26,7 +26,7 @@ macro_rules! implement {
         }
 
         #[no_mangle]
-        unsafe extern "C" fn deallocate(ptr: usize, size: usize) {
+        pub unsafe extern "C" fn deallocate(ptr: usize, size: usize) {
             unsafe { alloc::dealloc(ptr as *mut u8, Layout::from_size_align_unchecked(size, 8)) }
         }
 
@@ -46,7 +46,7 @@ macro_rules! implement {
         // TODO: handle errors properly (but what does “properly” exactly mean here?
         // anyway, probably not `.unwrap()` / `assert!`...)
         #[no_mangle]
-        unsafe extern "C" fn client_config_must_do_tls(ptr: usize, size: usize) -> u64 {
+        pub unsafe extern "C" fn client_config_must_do_tls(ptr: usize, size: usize) -> u64 {
             // Deserialize from the argument slice
             let mut arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
             let arg = capnp::serialize::read_message_from_flat_slice(
