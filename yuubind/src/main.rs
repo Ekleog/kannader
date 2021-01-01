@@ -172,14 +172,10 @@ impl WasmConfig {
         macro_rules! get_func {
             ($getter:ident, $function:expr) => {
                 instance
-                    .get_func(stringify!($function))
-                    .ok_or_else(|| {
-                        anyhow!("Failed to find function export ‘{}’", stringify!($function))
-                    })?
+                    .get_func($function)
+                    .ok_or_else(|| anyhow!("Failed to find function export ‘{}’", $function))?
                     .$getter()
-                    .with_context(|| {
-                        format!("Failed to check the type of ‘{}’", stringify!($function))
-                    })?
+                    .with_context(|| format!("Failed to check the type of ‘{}’", $function))?
             };
         }
 
@@ -199,7 +195,7 @@ impl WasmConfig {
                             memory.clone(),
                             allocate.clone(),
                             deallocate.clone(),
-                            get_func!(get2, $function),
+                            get_func!(get2, stringify!($function)),
                         )
                     ),+
                 })
