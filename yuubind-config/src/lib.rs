@@ -46,9 +46,9 @@ macro_rules! implement {
         // TODO: handle errors properly (but what does “properly” exactly mean here?
         // anyway, probably not `.unwrap()` / `assert!`...)
         #[no_mangle]
-        pub unsafe extern "C" fn client_config_must_do_tls(ptr: usize, size: usize) -> u64 {
+        pub unsafe extern "C" fn client_config_must_do_tls(arg_ptr: usize, arg_size: usize) -> u64 {
             // Deserialize from the argument slice
-            let mut arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
+            let mut arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
             let arg = capnp::serialize::read_message_from_flat_slice(
                 &mut arg_slice,
                 capnp::message::ReaderOptions::new(),
@@ -60,9 +60,13 @@ macro_rules! implement {
             let res = client_config_must_do_tls_impl(arg);
 
             // Allocate return buffer
-            let ret_size: usize = capnp::serialize::compute_serialized_size_in_words(&res);
+            // TODO: use constant once it's there https://github.com/capnproto/capnproto-rust/issues/217
+            let ret_size: usize = 8 * capnp::serialize::compute_serialized_size_in_words(&res);
             let ret_ptr: usize = allocate(ret_size);
-            let ret_slice = std::slice::from_raw_parts_mut(ret_ptr as *mut u8, size);
+            let ret_slice = std::slice::from_raw_parts_mut(ret_ptr as *mut u8, ret_size);
+
+            // Serialize the result to the return buffer
+            capnp::serialize::write_message(ret_slice, &res).unwrap();
 
             // We know that usize is u32 thanks to the above const_assert
             ((ret_size as u64) << 32) | (ret_ptr as u64)
