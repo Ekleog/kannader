@@ -69,7 +69,8 @@ where
 {
     Box::new(move |arg| {
         // Compute the size of the argument
-        let size = capnp::serialize::compute_serialized_size_in_words(&arg);
+        // TODO: use constant once it's there https://github.com/capnproto/capnproto-rust/issues/217
+        let size = 8 * capnp::serialize::compute_serialized_size_in_words(&arg);
         debug_assert!(
             size < u32::MAX as usize,
             "Message size above u32::MAX, something is really wrong"
