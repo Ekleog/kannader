@@ -1,0 +1,16 @@
+[package]
+name = "yuubind-config-example"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "Example configuration system for yuubind"
+edition = "2018"
+
+publish = false
+
+target = "wasm32-unknown-unknown"
+
+[dependencies]
+yuubind-config = { path = "../yuubind-config" }

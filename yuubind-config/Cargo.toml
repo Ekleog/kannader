@@ -1,0 +1,14 @@
+[package]
+name = "yuubind-config"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "Configuration system for yuubind"
+edition = "2018"
+
+target = "wasm32-unknown-unknown"
+
+[dependencies]
+static_assertions = "1.1.0"

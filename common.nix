@@ -5,9 +5,9 @@ rec {
     sha256 = "0cnmvnvin9ixzl98fmlm3g17l6w95gifqfb3rfxs55c0wj2ddy53";
   };
   naerskSrc = builtins.fetchTarball {
-    # The following is the latest version as of 2020-12-25
-    url = "https://github.com/nmattia/naersk/archive/a76924cbbb17c387e5ae4998a4721d88a3ac95c0.tar.gz";
-    sha256 = "09b5g2krf8mfpajgz2bgapkv3dpimg0qx1nfpjafcrsk0fhxmqay";
+    # TODO: go back to an upstream version once https://github.com/nmattia/naersk/pull/135 lands
+    url = "https://github.com/nmattia/naersk/archive/fbafd172683402310c9907586ac78f8cc609a5f5.tar.gz";
+    sha256 = "0sfrsarg05qx3z3rj5zw51s71i050kyp08gn3912hkrmh2p6ycla";
   };
   rustOverlaySrc = builtins.fetchTarball {
     # The following is the latest version as of 2020-12-13
@@ -23,10 +23,31 @@ rec {
       })
     ];
   };
-  rustNightlyChannel = pkgs.rustChannelOf {
+  rustNightlyChannelRaw = pkgs.rustChannelOf {
     date = "2020-12-21";
     channel = "nightly";
     sha256 = "0dbwc67mlfpq9zm3wcmwgg7jcspb62y3r0i3cj1g18jrs486vq6p";
+  };
+  naerskRaw = pkgs.callPackage naerskSrc {
+    rustc = rustNightlyChannelRaw.rust;
+    cargo = rustNightlyChannelRaw.cargo;
+  };
+  rustNightlyChannel = rustNightlyChannelRaw // {
+    rust = rustNightlyChannelRaw.rust.override {
+      targets = ["wasm32-unknown-unknown"];
+    };
+    # TODO: remove override when https://github.com/rust-lang/cargo/pull/9030
+    # lands
+    cargo = naerskRaw.buildPackage {
+      pname = "cargo";
+      version = "dev";
+      src = builtins.fetchTarball {
+        url = "https://github.com/rust-lang/cargo/archive/c5f233d1a058b976a6cf718cf46afc98f949a771.tar.gz";
+        sha256 = "0hqphm4sz176jdixi91zrn82xdbci9m2pjy3zmhh3v8jb0akmmdj";
+      };
+      buildInputs = with pkgs; [ openssl pkg-config ];
+      copySources = ["crates/cargo-test-macro" "crates/cargo-test-support"];
+    };
   };
   #rustBetaChannel = pkgs.rustChannelOf {
   #  date = "2018-04-20";
