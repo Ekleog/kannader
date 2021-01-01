@@ -3274,7 +3274,9 @@ dependencies = [
 name = "yuubind-config"
 version = "0.1.0"
 dependencies = [
+ "capnp",
  "static_assertions",
+ "yuubind-rpc",
 ]
 
 [[package]]
