@@ -1,14 +1,19 @@
 { pkgs, ... }:
 
+let
+  # TODO: should have pkgs.yuubind instead of this import, after
+  # having figured out how to make sure pkgs is the overlayed pkgs
+  yuubind = import ../default.nix {};
+in
 {
   networking.firewall.allowedTCPPorts = [ 2525 ];
 
   systemd.services.yuubind = {
     wantedBy = ["multi-user.target"];
     after = ["network.target"];
-    # TODO: should have pkgs.yuubind instead of this import, after
-    # having figured out how to make sure pkgs is the overlayed pkgs
-    script = "RUST_LOG=debug ${import ../default.nix {}}/bin/yuubind";
+    script = ''
+      RUST_LOG="debug,cranelift=info" ${yuubind}/bin/yuubind -c ${yuubind}/lib/yuubind_config_example.wasm
+    '';
     preStart = ''
       #!/bin/sh
       set -ex
