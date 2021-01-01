@@ -37,7 +37,7 @@ macro_rules! implement {
             let mut res = capnp::message::Builder::new_default();
             {
                 let mut res = res.init_root::<types_capnp::bool::Builder>();
-                res.set_true(());
+                res.set_false(());
             }
             res
         }
