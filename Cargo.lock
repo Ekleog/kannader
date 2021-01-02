@@ -2402,6 +2402,7 @@ dependencies = [
  "futures",
  "smol",
  "smtp-message",
+ "smtp-server-types",
 ]
 
 [[package]]
@@ -2415,6 +2416,14 @@ dependencies = [
  "libfuzzer-sys",
  "smtp-message",
  "smtp-server",
+]
+
+[[package]]
+name = "smtp-server-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "smtp-message",
 ]
 
 [[package]]

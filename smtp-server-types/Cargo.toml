@@ -1,0 +1,14 @@
+[package]
+name = "smtp-server-types"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "Types required for configuring the smtp-server crate"
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0.118", features = ["derive"] }
+
+smtp-message = { path = "../smtp-message" }

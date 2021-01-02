@@ -12,18 +12,10 @@ use smtp_message::{
     NextCrLfState, Reply, ReplyCode,
 };
 
+pub use smtp_server_types::{ConnectionMetadata, Decision, HelloInfo, MailMetadata};
+
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
-
-#[must_use]
-pub enum Decision {
-    Accept,
-    Reject(Reply<Cow<'static, str>>),
-    Kill {
-        reply: Option<Reply<Cow<'static, str>>>,
-        res: io::Result<()>,
-    },
-}
 
 #[must_use]
 pub enum DecisionWithResponse {
@@ -33,23 +25,6 @@ pub enum DecisionWithResponse {
         reply: Option<Reply<Cow<'static, str>>>,
         res: io::Result<()>,
     },
-}
-
-pub struct MailMetadata<U> {
-    pub user: U,
-    pub from: Option<Email>,
-    pub to: Vec<Email>,
-}
-
-pub struct HelloInfo {
-    pub is_ehlo: bool,
-    pub hostname: Hostname,
-}
-
-pub struct ConnectionMetadata<U> {
-    pub user: U,
-    pub hello: Option<HelloInfo>,
-    pub is_encrypted: bool,
 }
 
 #[async_trait]
