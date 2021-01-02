@@ -328,7 +328,7 @@ where
         from: Option<Email>,
         meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
+    ) -> Decision<Option<Email>> {
         // TODO: have this communication schema for all hooks
         WASM_CONFIG.with(|wasm_config| {
             let res = (wasm_config.server_config.filter_from)(from, meta, conn_meta);
@@ -336,7 +336,9 @@ where
                 Ok(res) => res.into(),
                 Err(e) => {
                     error!(error = ?e, "Internal server error in ‘filter_from’");
-                    Decision::Reject(self.internal_server_error())
+                    Decision::Reject {
+                        reply: self.internal_server_error(),
+                    }
                 }
             }
         })
@@ -344,12 +346,15 @@ where
 
     async fn filter_to(
         &self,
-        _to: &mut Email<&str>,
+        to: Email,
         _meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
         _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
+    ) -> Decision<Email> {
         // TODO: this is BAD
-        Decision::Accept
+        Decision::Accept {
+            reply: self.rcpt_okay(),
+            res: to,
+        }
     }
 
     /// Note: the EscapedDataReader has an inner buffer size of
@@ -364,7 +369,7 @@ where
         stream: &mut smtp_message::EscapedDataReader<'a, R>,
         meta: smtp_server::MailMetadata<Self::MailUserMeta>,
         _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision
+    ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
     {
@@ -372,7 +377,9 @@ where
             Ok(enqueuer) => enqueuer,
             Err(e) => {
                 error!(error = ?anyhow::Error::new(e), "Internal server error while opening an enqueuer");
-                return Decision::Reject(self.internal_server_error());
+                return Decision::Reject {
+                    reply: self.internal_server_error(),
+                };
             }
         };
         // TODO: MUST add Received header at least
@@ -398,12 +405,16 @@ where
                                 }
                             }
                         }
-                        return Decision::Reject(self.internal_server_error());
+                        return Decision::Reject {
+                            reply: self.internal_server_error(),
+                        };
                     }
                 }
                 Err(e) => {
                     error!(error = ?e, "Internal server error while reading data from network");
-                    return Decision::Reject(self.internal_server_error());
+                    return Decision::Reject {
+                        reply: self.internal_server_error(),
+                    };
                 }
             }
         }
@@ -412,7 +423,9 @@ where
             // Stream isn't finished, as we read until end-of-stream it means that there was
             // an error somewhere
             error!("Stream stopped returning any bytes without actually finishing");
-            Decision::Reject(self.internal_server_error())
+            Decision::Reject {
+                reply: self.internal_server_error(),
+            }
         } else {
             // Stream is finished, let's complete it then commit the file to the queue and
             // acept
@@ -437,14 +450,19 @@ where
                 .collect();
             if let Err(e) = enqueuer.commit(destinations).await {
                 error!(error = ?e, "Internal server error while committing mail");
-                Decision::Reject(self.internal_server_error())
+                Decision::Reject {
+                    reply: self.internal_server_error(),
+                }
             } else {
-                Decision::Accept
+                Decision::Accept {
+                    reply: self.mail_accepted(),
+                    res: (),
+                }
             }
         }
     }
 
-    fn hostname(&self) -> Cow<'static, str> {
+    fn hostname(&self, _conn_meta: &smtp_server::ConnectionMetadata<Vec<u8>>) -> Cow<'static, str> {
         "localhost".into()
     }
 }

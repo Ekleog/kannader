@@ -23,7 +23,7 @@ impl smtp_server::Config for FuzzConfig {
     type ConnectionUserMeta = ();
     type MailUserMeta = ();
 
-    fn hostname(&self) -> Cow<'static, str> {
+    fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> Cow<'static, str> {
         "test.example.org".into()
     }
 
@@ -50,38 +50,51 @@ impl smtp_server::Config for FuzzConfig {
         from: Option<Email>,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
+    ) -> Decision<Option<Email>> {
         if let Some(from) = from {
             let loc = from.localpart.raw().as_bytes();
             if loc.len() >= 2 && loc[0] > loc[1] {
-                Decision::Accept
+                Decision::Accept {
+                    reply: self.mail_okay(),
+                    res: Some(from),
+                }
             } else {
-                Decision::Reject(Reply {
-                    code: ReplyCode::POLICY_REASON,
-                    ecode: None,
-                    text: vec!["forbidden user".into()],
-                })
+                Decision::Reject {
+                    reply: Reply {
+                        code: ReplyCode::POLICY_REASON,
+                        ecode: None,
+                        text: vec!["forbidden user".into()],
+                    },
+                }
             }
         } else {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.mail_okay(),
+                res: from,
+            }
         }
     }
 
     async fn filter_to(
         &self,
-        to: &mut Email<&str>,
+        to: Email,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
+    ) -> Decision<Email> {
         let loc = to.localpart.raw().as_bytes();
         if loc.len() >= 2 && loc[0] > loc[1] {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.rcpt_okay(),
+                res: to,
+            }
         } else {
-            Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["forbidden user".into()],
-            })
+            Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["forbidden user".into()],
+                },
+            }
         }
     }
 
@@ -91,29 +104,36 @@ impl smtp_server::Config for FuzzConfig {
         reader: &mut EscapedDataReader<'a, R>,
         mail: MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision
+    ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
     {
         let mut ignore = Vec::new();
         if reader.read_to_end(&mut ignore).await.is_err() {
-            return Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["io error".into()],
-            });
+            return Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["io error".into()],
+                },
+            };
         }
         reader.complete();
         if mail.to.len() > 3 {
             // This is stupid, please use filter_to instead if you're not just willing
             // to fuzz
-            Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["too many recipients".into()],
-            })
+            Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["too many recipients".into()],
+                },
+            }
         } else {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.mail_accepted(),
+                res: (),
+            }
         }
     }
 }

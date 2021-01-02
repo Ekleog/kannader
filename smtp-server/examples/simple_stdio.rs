@@ -16,7 +16,7 @@ impl smtp_server::Config for SimpleConfig {
     type ConnectionUserMeta = ();
     type MailUserMeta = ();
 
-    fn hostname(&self) -> Cow<'static, str> {
+    fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> Cow<'static, str> {
         "simple.example.org".into()
     }
 
@@ -43,38 +43,45 @@ impl smtp_server::Config for SimpleConfig {
         from: Option<Email>,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
+    ) -> Decision<Option<Email>> {
         if let Some(from) = from {
             let loc = from.localpart.raw();
             if loc == "whitelisted" {
-                Decision::Accept
-            } else {
-                Decision::Reject(Reply {
-                    code: ReplyCode::POLICY_REASON,
-                    ecode: None,
-                    text: vec!["The sender is not the 'whitelisted' user".into()],
-                })
+                return Decision::Accept {
+                    reply: self.mail_okay(),
+                    res: Some(from),
+                };
             }
-        } else {
-            Decision::Accept
+        }
+        Decision::Reject {
+            reply: Reply {
+                code: ReplyCode::POLICY_REASON,
+                ecode: None,
+                text: vec!["The sender is not the 'whitelisted' user".into()],
+            },
         }
     }
 
     async fn filter_to(
         &self,
-        to: &mut Email<&str>,
+        to: Email,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision {
-        let loc = *to.localpart.raw();
+    ) -> Decision<Email> {
+        let loc = to.localpart.raw();
         if loc != "forbidden" {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.rcpt_okay(),
+                res: to,
+            }
         } else {
-            Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["The 'forbidden' user is forbidden".into()],
-            })
+            Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["The 'forbidden' user is forbidden".into()],
+                },
+            }
         }
     }
 
@@ -83,27 +90,34 @@ impl smtp_server::Config for SimpleConfig {
         reader: &mut EscapedDataReader<'a, R>,
         _mail: MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision
+    ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
     {
         let mut text = Vec::new();
         if reader.read_to_end(&mut text).await.is_err() {
-            return Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["io error".into()],
-            });
+            return Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["io error".into()],
+                },
+            };
         }
         reader.complete();
         if text.windows(5).find(|s| s == b"swearwords").is_some() {
-            Decision::Reject(Reply {
-                code: ReplyCode::POLICY_REASON,
-                ecode: None,
-                text: vec!["No 'swearwords' here".into()],
-            })
+            Decision::Reject {
+                reply: Reply {
+                    code: ReplyCode::POLICY_REASON,
+                    ecode: None,
+                    text: vec!["No 'swearwords' here".into()],
+                },
+            }
         } else {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.mail_accepted(),
+                res: (),
+            }
         }
     }
 }

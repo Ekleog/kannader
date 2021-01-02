@@ -17,16 +17,6 @@ pub use smtp_server_types::{ConnectionMetadata, Decision, HelloInfo, MailMetadat
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
 
-#[must_use]
-pub enum DecisionWithResponse {
-    Accept(Reply<Cow<'static, str>>),
-    Reject(Reply<Cow<'static, str>>),
-    Kill {
-        reply: Option<Reply<Cow<'static, str>>>,
-        res: io::Result<()>,
-    },
-}
-
 #[async_trait]
 pub trait Config: Send + Sync {
     type ConnectionUserMeta: Send;
@@ -43,10 +33,23 @@ pub trait Config: Send + Sync {
     async fn filter_hello(
         &self,
         is_ehlo: bool,
-        hostname: &mut Hostname<&str>,
+        hostname: Hostname,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
-        Decision::Accept
+    ) -> Decision<HelloInfo> {
+        // Set early for can_do_tls to be able to use it
+        // TODO: this should all be abstracted away to the configuration
+        conn_meta.hello = Some(HelloInfo {
+            is_ehlo,
+            hostname: hostname.clone(),
+        });
+        Decision::Accept {
+            reply: if is_ehlo {
+                self.ehlo_okay(&conn_meta)
+            } else {
+                self.helo_okay(&conn_meta)
+            },
+            res: HelloInfo { is_ehlo, hostname },
+        }
     }
 
     #[allow(unused_variables)]
@@ -77,22 +80,25 @@ pub trait Config: Send + Sync {
         from: Option<Email>,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision;
+    ) -> Decision<Option<Email>>;
 
     async fn filter_to(
         &self,
-        to: &mut Email<&str>,
+        to: Email,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision;
+    ) -> Decision<Email>;
 
     #[allow(unused_variables)]
     async fn filter_data(
         &self,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
-        Decision::Accept
+    ) -> Decision<()> {
+        Decision::Accept {
+            reply: self.data_okay(),
+            res: (),
+        }
     }
 
     /// Note: the EscapedDataReader has an inner buffer size of
@@ -107,7 +113,7 @@ pub trait Config: Send + Sync {
         stream: &mut EscapedDataReader<'a, R>,
         meta: MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision
+    ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead;
 
@@ -116,19 +122,27 @@ pub trait Config: Send + Sync {
         &self,
         meta: &mut Option<MailMetadata<Self::MailUserMeta>>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
-        Decision::Accept
+    ) -> Decision<()> {
+        Decision::Accept {
+            reply: self.rset_okay(),
+            res: (),
+        }
     }
 
     #[allow(unused_variables)]
     async fn handle_starttls(
         &self,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Decision {
+    ) -> Decision<()> {
         if self.can_do_tls(conn_meta) {
-            Decision::Accept
+            Decision::Accept {
+                reply: self.starttls_okay(),
+                res: (),
+            }
         } else {
-            Decision::Reject(self.command_not_supported())
+            Decision::Reject {
+                reply: self.command_not_supported(),
+            }
         }
     }
 
@@ -137,8 +151,10 @@ pub trait Config: Send + Sync {
         &self,
         name: MaybeUtf8<&str>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> DecisionWithResponse {
-        DecisionWithResponse::Reject(self.command_unimplemented())
+    ) -> Decision<()> {
+        Decision::Reject {
+            reply: self.command_unimplemented(),
+        }
     }
 
     #[allow(unused_variables)]
@@ -146,14 +162,17 @@ pub trait Config: Send + Sync {
         &self,
         name: MaybeUtf8<&str>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> DecisionWithResponse {
-        DecisionWithResponse::Accept(Reply {
-            code: ReplyCode::CANNOT_VRFY_BUT_PLEASE_TRY,
-            ecode: Some(EnhancedReplyCode::SUCCESS_DEST_VALID.into()),
-            text: vec![MaybeUtf8::Utf8(
-                "Cannot VRFY user, but will accept message and attempt delivery".into(),
-            )],
-        })
+    ) -> Decision<()> {
+        Decision::Accept {
+            reply: Reply {
+                code: ReplyCode::CANNOT_VRFY_BUT_PLEASE_TRY,
+                ecode: Some(EnhancedReplyCode::SUCCESS_DEST_VALID.into()),
+                text: vec![MaybeUtf8::Utf8(
+                    "Cannot VRFY user, but will accept message and attempt delivery".into(),
+                )],
+            },
+            res: (),
+        }
     }
 
     #[allow(unused_variables)]
@@ -161,14 +180,17 @@ pub trait Config: Send + Sync {
         &self,
         subject: MaybeUtf8<&str>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> DecisionWithResponse {
-        DecisionWithResponse::Accept(Reply {
-            code: ReplyCode::HELP_MESSAGE,
-            ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
-            text: vec![MaybeUtf8::Utf8(
-                "See https://tools.ietf.org/html/rfc5321".into(),
-            )],
-        })
+    ) -> Decision<()> {
+        Decision::Accept {
+            reply: Reply {
+                code: ReplyCode::HELP_MESSAGE,
+                ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+                text: vec![MaybeUtf8::Utf8(
+                    "See https://tools.ietf.org/html/rfc5321".into(),
+                )],
+            },
+            res: (),
+        }
     }
 
     #[allow(unused_variables)]
@@ -176,16 +198,19 @@ pub trait Config: Send + Sync {
         &self,
         string: MaybeUtf8<&str>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> DecisionWithResponse {
-        DecisionWithResponse::Accept(self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()))
+    ) -> Decision<()> {
+        Decision::Accept {
+            reply: self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+            res: (),
+        }
     }
 
     #[allow(unused_variables)]
     async fn handle_quit(
         &self,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> DecisionWithResponse {
-        DecisionWithResponse::Kill {
+    ) -> Decision<()> {
+        Decision::Kill {
             reply: Some(Reply {
                 code: ReplyCode::CLOSING_CHANNEL,
                 ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
@@ -195,17 +220,31 @@ pub trait Config: Send + Sync {
         }
     }
 
-    fn hostname(&self) -> Cow<'static, str>;
+    fn hostname(
+        &self,
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Cow<'static, str>;
 
-    fn banner(&self) -> Cow<'static, str> {
+    // TODO: extract all the below functions that aren't used directly
+    // from interact to helper functions
+
+    fn banner(
+        &self,
+        _conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Cow<'static, str> {
         "Service ready".into()
     }
 
-    fn welcome_banner(&self) -> Reply<Cow<'static, str>> {
+    fn welcome_banner(
+        &self,
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply<Cow<'static, str>> {
         Reply {
             code: ReplyCode::SERVICE_READY,
             ecode: None,
-            text: vec![MaybeUtf8::Utf8(self.hostname() + " " + self.banner())],
+            text: vec![MaybeUtf8::Utf8(
+                self.hostname(conn_meta) + " " + self.banner(conn_meta),
+            )],
         }
     }
 
@@ -229,7 +268,7 @@ pub trait Config: Send + Sync {
         &self,
         conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Reply<Cow<'static, str>> {
-        let mut banner = self.hostname();
+        let mut banner = self.hostname(conn_meta);
         let additional_banner = self.hello_banner(conn_meta);
         if additional_banner.len() > 0 {
             banner += " ";
@@ -246,7 +285,7 @@ pub trait Config: Send + Sync {
         &self,
         conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Reply<Cow<'static, str>> {
-        let mut banner = self.hostname();
+        let mut banner = self.hostname(conn_meta);
         let additional_banner = self.hello_banner(conn_meta);
         if additional_banner.len() > 0 {
             banner += " ";
@@ -516,12 +555,25 @@ where
         };
     }
 
-    macro_rules! simple_handler {
-        ($handler:expr) => {
-            match $handler {
-                DecisionWithResponse::Accept(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Reject(r) => send_reply!(io, r).await?,
-                DecisionWithResponse::Kill { reply, res } => {
+    macro_rules! dispatch_decision {
+        ($e:expr, Accept($reply:pat, $res:pat) => $accept:block) => {
+            dispatch_decision!($e,
+                Reject(reply) => {
+                    send_reply!(io, reply).await?
+                }
+                Accept($reply, $res) => $accept
+            )
+        };
+
+        (
+            $e:expr,
+            Reject($reply_r:pat) => $reject:block
+            Accept($reply_a:pat, $res_a:pat) => $accept:block
+        ) => {
+            match $e {
+                Decision::Accept { reply: $reply_a, res: $res_a } => $accept,
+                Decision::Reject { reply: $reply_r } => $reject,
+                Decision::Kill { reply, res } => {
                     if let Some(r) = reply {
                         send_reply!(io, r).await?;
                     }
@@ -531,7 +583,18 @@ where
         };
     }
 
-    send_reply!(io, cfg.welcome_banner()).await?;
+    macro_rules! simple_handler {
+        ($handler:expr) => {
+            dispatch_decision! {
+                $handler,
+                Accept(reply, ()) => {
+                    send_reply!(io, reply).await?;
+                }
+            }
+        };
+    }
+
+    send_reply!(io, cfg.welcome_banner(&conn_meta)).await?;
 
     loop {
         if unhandled.is_empty() {
@@ -595,50 +658,29 @@ where
             None => (),
 
             // TODO: find some way to unify with the below branch
-            Some(Command::Ehlo { mut hostname }) => match conn_meta.hello {
+            Some(Command::Ehlo { hostname }) => match conn_meta.hello {
                 Some(_) => {
                     send_reply!(io, cfg.already_did_hello()).await?;
                 }
-                None => match cfg.filter_hello(true, &mut hostname, &mut conn_meta).await {
-                    Decision::Reject(r) => {
-                        send_reply!(io, r).await?;
-                    }
-                    Decision::Kill { reply, res } => {
-                        if let Some(r) = reply {
-                            send_reply!(io, r).await?;
-                        }
-                        return res;
-                    }
-                    Decision::Accept => {
-                        conn_meta.hello = Some(HelloInfo {
-                            is_ehlo: true,
-                            hostname: hostname.into_owned(),
-                        });
-                        send_reply!(io, cfg.ehlo_okay(&conn_meta)).await?;
+                None => dispatch_decision! {
+                    cfg.filter_hello(true, hostname.into_owned(), &mut conn_meta)
+                        .await,
+                    Accept(reply, res) => {
+                        conn_meta.hello = Some(res);
+                        send_reply!(io, reply).await?;
                     }
                 },
             },
 
-            Some(Command::Helo { mut hostname }) => match conn_meta.hello {
+            Some(Command::Helo { hostname }) => match conn_meta.hello {
                 Some(_) => {
                     send_reply!(io, cfg.already_did_hello()).await?;
                 }
-                None => match cfg.filter_hello(false, &mut hostname, &mut conn_meta).await {
-                    Decision::Reject(r) => {
-                        send_reply!(io, r).await?;
-                    }
-                    Decision::Kill { reply, res } => {
-                        if let Some(r) = reply {
-                            send_reply!(io, r).await?;
-                        }
-                        return res;
-                    }
-                    Decision::Accept => {
-                        conn_meta.hello = Some(HelloInfo {
-                            is_ehlo: false,
-                            hostname: hostname.into_owned(),
-                        });
-                        send_reply!(io, cfg.helo_okay(&conn_meta)).await?;
+                None => dispatch_decision! {
+                    cfg.filter_hello(false, hostname.into_owned(), &mut conn_meta).await,
+                    Accept(reply, res) => {
+                        conn_meta.hello = Some(res);
+                        send_reply!(io, reply).await?;
                     }
                 },
             },
@@ -663,28 +705,17 @@ where
                                 from: None,
                                 to: Vec::with_capacity(4),
                             };
-                            match cfg
-                                .filter_from(
+                            dispatch_decision! {
+                                cfg.filter_from(
                                     email.as_ref().map(|e| e.clone().into_owned()),
                                     &mut mail_metadata,
                                     &mut conn_meta,
                                 )
-                                .await
-                            {
-                                Decision::Reject(r) => {
-                                    send_reply!(io, r).await?;
-                                }
-                                Decision::Kill { reply, res } => {
-                                    if let Some(r) = reply {
-                                        send_reply!(io, r).await?;
-                                    }
-                                    return res;
-                                }
-                                Decision::Accept => {
-                                    // TODO: migrate this logic towards filter from
-                                    mail_metadata.from = email.map(|e| e.into_owned());
+                                .await,
+                                Accept(reply, res) => {
+                                    mail_metadata.from = res;
                                     mail_meta = Some(mail_metadata);
-                                    send_reply!(io, cfg.mail_okay()).await?;
+                                    send_reply!(io, reply).await?;
                                 }
                             }
                         }
@@ -694,32 +725,19 @@ where
 
             Some(Command::Rcpt {
                 path: _path,
-                mut email,
+                email,
                 params: _params,
             }) => match mail_meta {
                 None => {
                     send_reply!(io, cfg.rcpt_before_mail()).await?;
                 }
-                Some(ref mut mail_meta_unw) => {
-                    match cfg
-                        .filter_to(&mut email, mail_meta_unw, &mut conn_meta)
-                        .await
-                    {
-                        Decision::Reject(r) => {
-                            send_reply!(io, r).await?;
-                        }
-                        Decision::Kill { reply, res } => {
-                            if let Some(r) = reply {
-                                send_reply!(io, r).await?;
-                            }
-                            return res;
-                        }
-                        Decision::Accept => {
-                            mail_meta_unw.to.push(email.into_owned());
-                            send_reply!(io, cfg.rcpt_okay()).await?;
-                        }
+                Some(ref mut mail_meta_unw) => dispatch_decision! {
+                    cfg.filter_to(email.into_owned(), mail_meta_unw, &mut conn_meta).await,
+                    Accept(reply, res) => {
+                        mail_meta_unw.to.push(res);
+                        send_reply!(io, reply).await?;
                     }
-                }
+                },
             },
 
             Some(Command::Data) => match mail_meta.take() {
@@ -730,19 +748,14 @@ where
                     send_reply!(io, cfg.data_before_rcpt()).await?;
                 }
                 Some(mut mail_meta_unw) => {
-                    match cfg.filter_data(&mut mail_meta_unw, &mut conn_meta).await {
-                        Decision::Reject(r) => {
+                    dispatch_decision! {
+                        cfg.filter_data(&mut mail_meta_unw, &mut conn_meta).await,
+                        Reject(reply) => {
                             mail_meta = Some(mail_meta_unw);
-                            send_reply!(io, r).await?;
+                            send_reply!(io, reply).await?;
                         }
-                        Decision::Kill { reply, res } => {
-                            if let Some(r) = reply {
-                                send_reply!(io, r).await?;
-                            }
-                            return res;
-                        }
-                        Decision::Accept => {
-                            send_reply!(io, cfg.data_okay()).await?;
+                        Accept(reply, ()) => {
+                            send_reply!(io, reply).await?;
                             let mut reader =
                                 EscapedDataReader::new(rdbuf, unhandled.clone(), &mut io);
                             let decision = cfg
@@ -757,27 +770,14 @@ where
                                 false
                             };
                             if reader_was_completed {
-                                match decision {
-                                    Decision::Accept => {
-                                        send_reply!(io, cfg.mail_accepted()).await?;
-                                    }
-                                    Decision::Kill { reply, res } => {
-                                        if let Some(r) = reply {
-                                            send_reply!(io, r).await?;
-                                        }
-                                        return res;
-                                    }
-                                    Decision::Reject(r) => {
-                                        send_reply!(io, r).await?;
-                                        // Other mail systems (at least postfix,
-                                        // OpenSMTPD and gmail) appear to drop
-                                        // the state on an unsuccessful DATA
-                                        // command (eg. too long,
-                                        // non-RFC5322-compliant, etc.).
-                                        // Couldn't find the RFC reference
-                                        // anywhere, though.
-                                    }
-                                }
+                                // Other mail systems (at least
+                                // postfix, OpenSMTPD and gmail)
+                                // appear to drop the state on an
+                                // unsuccessful DATA command (eg. too
+                                // long, non-RFC5322-compliant, etc.).
+                                // Couldn't find the RFC reference
+                                // anywhere, though.
+                                simple_handler!(decision);
                             } else {
                                 // handle_mail did not call complete, let's read until the end and
                                 // then return an error
@@ -804,19 +804,11 @@ where
                 }
             },
 
-            Some(Command::Rset) => match cfg.handle_rset(&mut mail_meta, &mut conn_meta).await {
-                Decision::Accept => {
+            Some(Command::Rset) => dispatch_decision! {
+                cfg.handle_rset(&mut mail_meta, &mut conn_meta).await,
+                Accept(reply, ()) => {
                     mail_meta = None;
-                    send_reply!(io, cfg.rset_okay()).await?;
-                }
-                Decision::Reject(r) => {
-                    send_reply!(io, r).await?;
-                }
-                Decision::Kill { reply, res } => {
-                    if let Some(r) = reply {
-                        send_reply!(io, r).await?;
-                    }
-                    return res;
+                    send_reply!(io, reply).await?;
                 }
             },
 
@@ -827,18 +819,10 @@ where
                 } else if !unhandled.is_empty() {
                     send_reply!(io, cfg.pipeline_forbidden_after_starttls()).await?;
                 } else {
-                    match cfg.handle_starttls(&mut conn_meta).await {
-                        Decision::Reject(r) => {
-                            send_reply!(io, r).await?;
-                        }
-                        Decision::Kill { reply, res } => {
-                            if let Some(r) = reply {
-                                send_reply!(io, r).await?;
-                            }
-                            return res;
-                        }
-                        Decision::Accept => {
-                            send_reply!(io, cfg.starttls_okay()).await?;
+                    dispatch_decision! {
+                        cfg.handle_starttls(&mut conn_meta).await,
+                        Accept(reply, ()) => {
+                            send_reply!(io, reply).await?;
                             io = cfg.tls_accept(io, &mut conn_meta).await?;
                             mail_meta = None;
                             conn_meta.is_encrypted = true;
@@ -897,7 +881,7 @@ mod tests {
         type ConnectionUserMeta = ();
         type MailUserMeta = ();
 
-        fn hostname(&self) -> Cow<'static, str> {
+        fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> Cow<'static, str> {
             "test.example.org".into()
         }
 
@@ -924,34 +908,44 @@ mod tests {
             addr: Option<Email>,
             _meta: &mut MailMetadata<()>,
             _conn_meta: &mut ConnectionMetadata<()>,
-        ) -> Decision {
+        ) -> Decision<Option<Email>> {
             // TODO: have a helper function for the Email::parse_until that just works(tm)
             // for uses such as this one
             if addr == Some(Email::parse_bracketed(b"<bad@quux.example.org>").unwrap()) {
-                Decision::Reject(Reply {
-                    code: ReplyCode::POLICY_REASON,
-                    ecode: None,
-                    text: vec!["User 'bad' banned".into()],
-                })
+                Decision::Reject {
+                    reply: Reply {
+                        code: ReplyCode::POLICY_REASON,
+                        ecode: None,
+                        text: vec!["User 'bad' banned".into()],
+                    },
+                }
             } else {
-                Decision::Accept
+                Decision::Accept {
+                    reply: self.mail_okay(),
+                    res: addr,
+                }
             }
         }
 
         async fn filter_to(
             &self,
-            email: &mut Email<&str>,
+            email: Email,
             _meta: &mut MailMetadata<()>,
             _conn_meta: &mut ConnectionMetadata<()>,
-        ) -> Decision {
-            if *email.localpart.raw() == "baz" {
-                Decision::Reject(Reply {
-                    code: ReplyCode::MAILBOX_UNAVAILABLE,
-                    ecode: None,
-                    text: vec!["No user 'baz'".into()],
-                })
+        ) -> Decision<Email> {
+            if email.localpart.raw() == "baz" {
+                Decision::Reject {
+                    reply: Reply {
+                        code: ReplyCode::MAILBOX_UNAVAILABLE,
+                        ecode: None,
+                        text: vec!["No user 'baz'".into()],
+                    },
+                }
             } else {
-                Decision::Accept
+                Decision::Accept {
+                    reply: self.rcpt_okay(),
+                    res: email,
+                }
             }
         }
 
@@ -960,7 +954,7 @@ mod tests {
             reader: &mut EscapedDataReader<'a, R>,
             meta: MailMetadata<()>,
             _conn_meta: &mut ConnectionMetadata<()>,
-        ) -> Decision
+        ) -> Decision<()>
         where
             R: Send + Unpin + AsyncRead,
         {
@@ -970,27 +964,37 @@ mod tests {
                 // Note: this is a stupid buggy implementation.
                 // But it allows us to test more code in
                 // interrupted_data.
-                return Decision::Accept;
+                return Decision::Accept {
+                    reply: self.mail_accepted(),
+                    res: (),
+                };
             }
             reader.complete();
             if res.is_err() {
-                Decision::Reject(Reply {
-                    code: ReplyCode::BAD_SEQUENCE,
-                    ecode: None,
-                    text: vec!["Closed the channel before end of message".into()],
-                })
+                Decision::Reject {
+                    reply: Reply {
+                        code: ReplyCode::BAD_SEQUENCE,
+                        ecode: None,
+                        text: vec!["Closed the channel before end of message".into()],
+                    },
+                }
             } else if mail_text.windows(5).position(|x| x == b"World").is_some() {
-                Decision::Reject(Reply {
-                    code: ReplyCode::POLICY_REASON,
-                    ecode: None,
-                    text: vec!["Don't you dare say 'World'!".into()],
-                })
+                Decision::Reject {
+                    reply: Reply {
+                        code: ReplyCode::POLICY_REASON,
+                        ecode: None,
+                        text: vec!["Don't you dare say 'World'!".into()],
+                    },
+                }
             } else {
                 self.mails
                     .lock()
                     .expect("failed to load mutex")
                     .push((meta.from, meta.to, mail_text));
-                Decision::Accept
+                Decision::Accept {
+                    reply: self.mail_accepted(),
+                    res: (),
+                }
             }
         }
     }

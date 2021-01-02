@@ -7,8 +7,6 @@
 //! `&mut` references taken as arguments are taken as though they were
 //! by value, and then returned as supplementary arguments in a tuple.
 
-pub use smtp_message::{Email, Hostname, Reply};
-
 pub mod server {
     pub use smtp_server_types::SerializableDecision;
 
@@ -281,6 +279,6 @@ define_communicator! {
             from: ( ) Option<smtp_message::Email>,
             meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
-        ) -> smtp_server_types::SerializableDecision;
+        ) -> smtp_server_types::SerializableDecision<Option<smtp_message::Email>>;
     }
 }
