@@ -50,6 +50,7 @@ pub enum ReplyCodeCategory {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReplyCode(pub [u8; 3]);
 
 #[rustfmt::skip]
@@ -127,6 +128,7 @@ impl ReplyCode {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
 pub enum EnhancedReplyCodeClass {
     Success = 2,
@@ -135,6 +137,7 @@ pub enum EnhancedReplyCodeClass {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum EnhancedReplyCodeSubject {
     Undefined,
     Addressing,
@@ -147,6 +150,7 @@ pub enum EnhancedReplyCodeSubject {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct EnhancedReplyCode<S> {
     pub raw: S,
     pub class: EnhancedReplyCodeClass,
@@ -370,6 +374,7 @@ impl EnhancedReplyCode<&str> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReplyLine<S> {
     pub code: ReplyCode,
     pub last: bool,
@@ -462,6 +467,7 @@ where
 // str> for the ascii variants
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Reply<S> {
     pub code: ReplyCode,
     pub ecode: Option<EnhancedReplyCode<S>>,
