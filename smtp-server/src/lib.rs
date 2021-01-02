@@ -74,7 +74,7 @@ pub trait Config: Send + Sync {
 
     async fn filter_from(
         &self,
-        from: &mut Option<Email<&str>>,
+        from: Option<Email>,
         meta: &mut MailMetadata<Self::MailUserMeta>,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision;
@@ -645,7 +645,7 @@ where
 
             Some(Command::Mail {
                 path: _path,
-                mut email,
+                email,
                 params: _params,
             }) => {
                 if conn_meta.hello.is_none() {
@@ -664,7 +664,11 @@ where
                                 to: Vec::with_capacity(4),
                             };
                             match cfg
-                                .filter_from(&mut email, &mut mail_metadata, &mut conn_meta)
+                                .filter_from(
+                                    email.as_ref().map(|e| e.clone().into_owned()),
+                                    &mut mail_metadata,
+                                    &mut conn_meta,
+                                )
                                 .await
                             {
                                 Decision::Reject(r) => {
@@ -677,6 +681,7 @@ where
                                     return res;
                                 }
                                 Decision::Accept => {
+                                    // TODO: migrate this logic towards filter from
                                     mail_metadata.from = email.map(|e| e.into_owned());
                                     mail_meta = Some(mail_metadata);
                                     send_reply!(io, cfg.mail_okay()).await?;
@@ -916,13 +921,13 @@ mod tests {
 
         async fn filter_from(
             &self,
-            addr: &mut Option<Email<&str>>,
+            addr: Option<Email>,
             _meta: &mut MailMetadata<()>,
             _conn_meta: &mut ConnectionMetadata<()>,
         ) -> Decision {
             // TODO: have a helper function for the Email::parse_until that just works(tm)
             // for uses such as this one
-            if *addr == Some(Email::parse_bracketed(b"<bad@quux.example.org>").unwrap()) {
+            if addr == Some(Email::parse_bracketed(b"<bad@quux.example.org>").unwrap()) {
                 Decision::Reject(Reply {
                     code: ReplyCode::POLICY_REASON,
                     ecode: None,

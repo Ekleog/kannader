@@ -5,6 +5,7 @@ members = [ "smtp-message", "smtp-message/fuzz",
             "smtp-queue", "smtp-queue-fs",
             "yuubind-rpc",
             "yuubind",
+            "yuubind-config-types",
             "yuubind-config",
             "yuubind-config-example",
             "benches" ]

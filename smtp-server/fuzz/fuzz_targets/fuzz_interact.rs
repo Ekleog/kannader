@@ -47,7 +47,7 @@ impl smtp_server::Config for FuzzConfig {
 
     async fn filter_from(
         &self,
-        from: &mut Option<Email<&str>>,
+        from: Option<Email>,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
     ) -> Decision {

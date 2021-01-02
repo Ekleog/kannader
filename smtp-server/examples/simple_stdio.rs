@@ -40,12 +40,12 @@ impl smtp_server::Config for SimpleConfig {
 
     async fn filter_from(
         &self,
-        from: &mut Option<Email<&str>>,
+        from: Option<Email>,
         _meta: &mut MailMetadata<()>,
         _conn_meta: &mut ConnectionMetadata<()>,
     ) -> Decision {
         if let Some(from) = from {
-            let loc = *from.localpart.raw();
+            let loc = from.localpart.raw();
             if loc == "whitelisted" {
                 Decision::Accept
             } else {

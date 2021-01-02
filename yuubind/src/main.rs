@@ -1,4 +1,4 @@
-#![feature(core_intrinsics, try_blocks)]
+#![feature(core_intrinsics, destructuring_assignment)]
 
 // TODO: split into multiple processes, with multiple uids (stretch goal: do not
 // require root and allow the user to directly call multiple executables and
@@ -9,7 +9,7 @@
 
 use std::{borrow::Cow, io, path::PathBuf, pin::Pin, rc::Rc, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, ensure, Context};
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use easy_parallel::Parallel;
@@ -23,8 +23,6 @@ use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
 use smtp_queue_fs::FsStorage;
 use smtp_server::Decision;
-
-use yuubind_rpc::types_capnp;
 
 const NUM_THREADS: usize = 4;
 const QUEUE_DIR: &str = "/tmp/yuubind/queue";
@@ -53,112 +51,12 @@ impl rustls::ServerCertVerifier for NoCertVerifier {
     }
 }
 
-fn capnpify<F>(
-    function: &'static str,
-    memory: wasmtime::Memory,
-    allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
-    deallocate: Rc<dyn Fn(u32, u32) -> Result<(), wasmtime::Trap>>,
-    wasm_fun: F,
-) -> Box<
-    dyn Fn(
-        capnp::message::Builder<capnp::message::HeapAllocator>,
-    ) -> anyhow::Result<capnp::message::Reader<capnp::serialize::OwnedSegments>>,
->
-where
-    F: 'static + Fn(u32, u32) -> Result<u64, wasmtime::Trap>,
-{
-    Box::new(move |arg| {
-        // Compute the size of the argument
-        // TODO: use constant once it's there https://github.com/capnproto/capnproto-rust/issues/217
-        let size = 8 * capnp::serialize::compute_serialized_size_in_words(&arg);
-        debug_assert!(
-            size < u32::MAX as usize,
-            "Message size above u32::MAX, something is really wrong"
-        );
-        let size = size as u32;
-
-        // Allocate argument buffer
-        let ptr = allocate(size)
-            .with_context(|| format!("Allocating argument buffer for ‘{}’", function))?;
-        ensure!(
-            (ptr as usize).saturating_add(size as usize) < memory.data_size(),
-            "Wasm allocator returned allocation outside of its memory"
-        );
-
-        // Serialize to argument buffer
-        // TODO: implement capnp::io::Write for a VolatileWriter that directly
-        // volatile-copies the message bytes to wasm memory
-        let vec = capnp::serialize::write_message_to_words(&arg);
-        debug_assert_eq!(
-            size as usize,
-            vec.len(),
-            "capnp-computed size is {} but actual size is {}",
-            size,
-            vec.len()
-        );
-        unsafe {
-            std::intrinsics::volatile_copy_nonoverlapping_memory(
-                memory.data_ptr().add(ptr as usize),
-                &vec[0],
-                size as usize,
-            );
-        }
-
-        // Call the function
-        let res_u64 =
-            wasm_fun(ptr, size).with_context(|| format!("Running wasm function ‘{}’", function))?;
-        let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
-        let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
-        ensure!(
-            res_ptr.saturating_add(res_size) < memory.data_size(),
-            "Wasm function ‘{}’ returned allocation outside of its memory",
-            function
-        );
-
-        // Recover the return slice
-        let mut res_msg = vec![0; res_size];
-        unsafe {
-            std::intrinsics::volatile_copy_nonoverlapping_memory(
-                &mut res_msg[0],
-                memory.data_ptr().add(res_ptr),
-                res_size,
-            );
-        }
-
-        // Deallocate the return slice
-        deallocate(res_ptr as u32, res_size as u32)
-            .with_context(|| format!("Deallocating return buffer for function ‘{}’", function))?;
-
-        // Read the result
-        // TODO: figure out a way to not copy that a second time
-        let res =
-            capnp::serialize::read_message(&res_msg[..], capnp::message::ReaderOptions::new())
-                .with_context(|| format!("Deserializing return message of ‘{}’", function))?;
-
-        Ok(res)
-    })
+mod server_config {
+    yuubind_config_types::server_config_implement_host!();
 }
 
 struct WasmConfig {
-    /// Below functions are all implemented in wasm with:
-    ///
-    /// Parameters: (address, size) of the allocated block containing
-    /// the capnp message. Ownership is passed to the called function.
-    ///
-    /// Return: u64 whose upper 32 bits are the size and lower 32 bits
-    /// the address of a block containing the capnp message. Ownership
-    /// is passed to the caller function.
-    ///
-    /// Note: the semantic signature for the functions on the wasm
-    /// side swaps Builder and Reader, as the serialization is
-    /// in-between
-    // TODO: think of optimizing heap allocations away by using the
-    // sozu-inspired idea of per-connection buffers?
-    client_config_must_do_tls: Box<
-        dyn Fn(
-            capnp::message::Builder<capnp::message::HeapAllocator>,
-        ) -> anyhow::Result<capnp::message::Reader<capnp::serialize::OwnedSegments>>,
-    >,
+    server_config: server_config::HostSide,
 }
 
 impl WasmConfig {
@@ -166,9 +64,6 @@ impl WasmConfig {
         let store = wasmtime::Store::new(engine);
         let instance = wasmtime::Instance::new(&store, module, &[])
             .context("Instantiating the wasm configuration blob")?;
-        let memory = instance
-            .get_memory("memory")
-            .ok_or_else(|| anyhow!("Failed to find memory export ‘memory’"))?;
 
         macro_rules! get_func {
             ($getter:ident, $function:expr) => {
@@ -176,7 +71,7 @@ impl WasmConfig {
                     .get_func($function)
                     .ok_or_else(|| anyhow!("Failed to find function export ‘{}’", $function))?
                     .$getter()
-                    .with_context(|| format!("Failed to check the type of ‘{}’", $function))?
+                    .with_context(|| format!("Checking the type of ‘{}’", $function))?
             };
         }
 
@@ -187,23 +82,10 @@ impl WasmConfig {
         // Parameters: (address, size) of the block to deallocate
         let deallocate = Rc::new(get_func!(get2, "deallocate"));
 
-        macro_rules! do_it {
-            ( $( $function:ident ),+ ) => {
-                Ok(WasmConfig {
-                    $(
-                        $function: capnpify(
-                            stringify!($function),
-                            memory.clone(),
-                            allocate.clone(),
-                            deallocate.clone(),
-                            get_func!(get2, stringify!($function)),
-                        )
-                    ),+
-                })
-            };
-        }
-
-        do_it!(client_config_must_do_tls)
+        Ok(WasmConfig {
+            server_config: server_config::build_host_side(&instance, allocate, deallocate)
+                .context("Getting server configuration")?,
+        })
     }
 }
 
@@ -226,38 +108,6 @@ impl smtp_client::Config for ClientConfig {
         Hostname::parse(b"localhost")
             .expect("failed parsing static str")
             .1
-    }
-
-    fn must_do_tls(&self) -> bool {
-        // TODO: have this communication schema for all hooks
-        WASM_CONFIG.with(|wasm_config| {
-            let mut arg = capnp::message::Builder::new_default();
-            {
-                let _unit_nothing_to_set = arg.init_root::<types_capnp::unit::Builder>();
-            }
-            let res: anyhow::Result<bool> = try {
-                let res_msg = (wasm_config.client_config_must_do_tls)(arg)
-                    .context("Running wasm callback for ‘ClientConfig::must_do_tls’")?;
-                let res_reader = res_msg
-                    .get_root::<types_capnp::bool::Reader>()
-                    .context("Retrieving capnp reader for ‘ClientConfig::must_do_tls’")?;
-                // TODO: the below should be in yuubind-rpc
-                let res_which = res_reader
-                    .which()
-                    .context("Retrieving result for ‘ClientConfig::must_do_tls’")?;
-                match res_which {
-                    types_capnp::bool::Which::True(()) => true,
-                    types_capnp::bool::Which::False(()) => false,
-                }
-            };
-            match res {
-                Ok(res) => res,
-                Err(e) => {
-                    error!(error = ?e, "Internal server error in ‘must_do_tls’");
-                    true // Return the conservative answer
-                }
-            }
-        })
     }
 
     async fn tls_connect<IO>(&self, io: IO) -> io::Result<DynAsyncReadWrite>
@@ -434,8 +284,8 @@ impl<T> smtp_server::Config for ServerConfig<T>
 where
     T: smtp_queue::Transport<Meta>,
 {
-    type ConnectionUserMeta = ();
-    type MailUserMeta = ();
+    type ConnectionUserMeta = Vec<u8>;
+    type MailUserMeta = Vec<u8>;
 
     // TODO: this could have a default implementation if we were able to have a
     // default type of () for MailUserMeta without requiring unstable
@@ -443,7 +293,7 @@ where
         &self,
         _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Self::MailUserMeta {
-        // ()
+        Vec::new() // TODO
     }
 
     // TODO: when GATs are here, we can remove the trait object and return
@@ -475,11 +325,21 @@ where
 
     async fn filter_from(
         &self,
-        _from: &mut Option<Email<&str>>,
-        _meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
-        _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
+        from: Option<Email>,
+        meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
+        conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision {
-        Decision::Accept
+        // TODO: have this communication schema for all hooks
+        WASM_CONFIG.with(|wasm_config| {
+            let res = (wasm_config.server_config.filter_from)(from, meta, conn_meta);
+            match res {
+                Ok(res) => res.into(),
+                Err(e) => {
+                    error!(error = ?e, "Internal server error in ‘filter_from’");
+                    Decision::Reject(self.internal_server_error())
+                }
+            }
+        })
     }
 
     async fn filter_to(
@@ -718,7 +578,7 @@ fn main() -> anyhow::Result<()> {
                         ex.spawn(smtp_server::interact(
                             stream,
                             smtp_server::IsAlreadyTls::No,
-                            (),
+                            Vec::new(), // TODO
                             server_cfg.clone(),
                         ))
                         .detach();

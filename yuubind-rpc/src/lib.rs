@@ -1,3 +1,6 @@
+// TODO: reevaluate need for all these includes once we actually start being
+// multi-process
+
 pub mod decision_capnp {
     include!(concat!(env!("OUT_DIR"), "/schema/decision_capnp.rs"));
 }

@@ -15,6 +15,7 @@ pub enum Decision {
 }
 
 // TODO: make it Accept(Reply<Cow<'static, str>>)
+// TODO: merge with Decision (blocked on https://github.com/serde-rs/serde/issues/1940)
 #[must_use]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum SerializableDecision {
