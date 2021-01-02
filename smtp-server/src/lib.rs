@@ -859,7 +859,7 @@ mod tests {
 
     use async_trait::async_trait;
     use duplexify::Duplex;
-    use futures::{executor, io::Cursor};
+    use futures::executor;
 
     /// Used as `println!("{:?}", show_bytes(b))`
     pub fn show_bytes(b: &[u8]) -> String {
@@ -1171,15 +1171,25 @@ mod tests {
             let cfg = Arc::new(TestConfig {
                 mails: resp_mail.clone(),
             });
-            // TODO: Duplicating &'static mut is awful please don't do it. But I just want
-            // something to work right now and these are only tests so who cares. I'll make
-            // sure to clean this up some day, but it'll probably require writing an
-            // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
-            // and boilerplate-y.
-            let resp = Box::leak(Box::new(Vec::new()));
-            let resp2 = unsafe { &mut *(resp as *mut _) };
-            let io = Duplex::new(Cursor::new(inp), Cursor::new(resp2));
-            executor::block_on(interact(io, IsAlreadyTls::No, (), cfg)).unwrap();
+            let (inp_pipe_r, mut inp_pipe_w) = piper::pipe(1024 * 1024);
+            let (mut out_pipe_r, out_pipe_w) = piper::pipe(1024 * 1024);
+            let io = Duplex::new(inp_pipe_r, out_pipe_w);
+            let resp = executor::block_on(async move {
+                inp_pipe_w
+                    .write_all(inp)
+                    .await
+                    .expect("writing to input pipe");
+                std::mem::drop(inp_pipe_w);
+                interact(io, IsAlreadyTls::No, (), cfg)
+                    .await
+                    .expect("calling interact");
+                let mut resp = Vec::new();
+                out_pipe_r
+                    .read_to_end(&mut resp)
+                    .await
+                    .expect("reading from output pipe");
+                resp
+            });
 
             println!("Expecting: {:?}", show_bytes(out));
             println!("Got      : {:?}", show_bytes(&resp));
@@ -1211,33 +1221,34 @@ mod tests {
     // Fuzzer-found
     #[test]
     fn interrupted_data() {
-        let txt: &[u8] = b"MAIL FROM:foo\r\n\
+        let inp: &[u8] = b"MAIL FROM:foo\r\n\
                            RCPT TO:bar\r\n\
                            DATA\r\n\
                            hello";
         let cfg = Arc::new(TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
         });
-        // TODO: Duplicating &'static mut is awful please don't do it. But I just want
-        // something to work right now and these are only tests so who cares. I'll make
-        // sure to clean this up some day, but it'll probably require writing an
-        // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
-        // and boilerplate-y.
-        let resp = Box::leak(Box::new(Vec::new()));
-        let resp2 = unsafe { &mut *(resp as *mut _) };
-        let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
-        assert_eq!(
-            executor::block_on(interact(io, IsAlreadyTls::No, (), cfg))
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::ConnectionAborted,
-        );
+        let (inp_pipe_r, mut inp_pipe_w) = piper::pipe(1024 * 1024);
+        let (_out_pipe_r, out_pipe_w) = piper::pipe(1024 * 1024);
+        let io = Duplex::new(inp_pipe_r, out_pipe_w);
+        let err_kind = executor::block_on(async move {
+            inp_pipe_w
+                .write_all(inp)
+                .await
+                .expect("writing to input pipe");
+            std::mem::drop(inp_pipe_w);
+            interact(io, IsAlreadyTls::No, (), cfg)
+                .await
+                .expect_err("calling interact")
+                .kind()
+        });
+        assert_eq!(err_kind, io::ErrorKind::ConnectionAborted,);
     }
 
     // Fuzzer-found
     #[test]
     fn no_stack_overflow() {
-        let txt: &[u8] =
+        let inp: &[u8] =
             b"\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
               \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
               \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\n\r\n\r\n\r\n\r\n\n\r\n\n\r\
@@ -1292,15 +1303,19 @@ mod tests {
         let cfg = Arc::new(TestConfig {
             mails: Arc::new(Mutex::new(Vec::new())),
         });
-        // TODO: Duplicating &'static mut is awful please don't do it. But I just want
-        // something to work right now and these are only tests so who cares. I'll make
-        // sure to clean this up some day, but it'll probably require writing an
-        // AsyncWrite implementation for Rc<RefCell<Vec<u8>>>, which is going to be long
-        // and boilerplate-y.
-        let resp = Box::leak(Box::new(Vec::new()));
-        let resp2 = unsafe { &mut *(resp as *mut _) };
-        let io = Duplex::new(Cursor::new(txt), Cursor::new(resp2));
-        executor::block_on(interact(io, IsAlreadyTls::No, (), cfg)).unwrap();
+        let (inp_pipe_r, mut inp_pipe_w) = piper::pipe(1024 * 1024);
+        let (_out_pipe_r, out_pipe_w) = piper::pipe(1024 * 1024);
+        let io = Duplex::new(inp_pipe_r, out_pipe_w);
+        executor::block_on(async move {
+            inp_pipe_w
+                .write_all(inp)
+                .await
+                .expect("writing to input pipe");
+            std::mem::drop(inp_pipe_w);
+            interact(io, IsAlreadyTls::No, (), cfg)
+                .await
+                .expect("calling interact");
+        });
     }
 
     struct MinBoundsIo;

@@ -17,3 +17,6 @@ smol = "1.2.5"
 
 smtp-message = { path = "../smtp-message" }
 smtp-server-types = { path = "../smtp-server-types" }
+
+[dev-dependencies]
+piper = "0.1.3"
