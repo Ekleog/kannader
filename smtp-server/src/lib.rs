@@ -812,7 +812,6 @@ where
                 }
             },
 
-            // TODO: figure out a way to unit test starttls
             Some(Command::Starttls) => {
                 if !cfg.can_do_tls(&conn_meta) {
                     send_reply!(io, cfg.starttls_unsupported()).await?;
@@ -889,7 +888,7 @@ mod tests {
 
         async fn tls_accept<IO>(
             &self,
-            _io: IO,
+            mut io: IO,
             _conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
         ) -> io::Result<
             duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
@@ -897,10 +896,17 @@ mod tests {
         where
             IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
         {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "tls accept not implemented for tests",
-            ))
+            io.write_all(b"<tls server>").await?;
+            let mut buf = [0; 12];
+            io.read_exact(&mut buf).await?;
+            assert_eq!(
+                &buf,
+                b"<tls client>",
+                "got TLS handshake that is not <tls client>: {:?}",
+                show_bytes(&buf)
+            );
+            let (r, w) = io.split();
+            Ok(duplexify::Duplex::new(Box::pin(r), Box::pin(w)))
         }
 
         async fn filter_from(
@@ -1001,17 +1007,17 @@ mod tests {
 
     #[test]
     fn interacts_ok() {
-        let tests: &[(&[u8], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
+        let tests: &[(&[&[u8]], &[u8], &[(Option<&[u8]>, &[&[u8]], &[u8])])] = &[
             (
-                b"EHLO test\r\n\
-                  MAIL FROM:<>\r\n\
-                  RCPT TO:<baz@quux.example.org>\r\n\
-                  RCPT TO:<foo2@bar.example.org>\r\n\
-                  RCPT TO:<foo3@bar.example.org>\r\n\
-                  DATA\r\n\
-                  Hello world\r\n\
-                  .\r\n\
-                  QUIT\r\n",
+                &[b"EHLO test\r\n\
+                    MAIL FROM:<>\r\n\
+                    RCPT TO:<baz@quux.example.org>\r\n\
+                    RCPT TO:<foo2@bar.example.org>\r\n\
+                    RCPT TO:<foo3@bar.example.org>\r\n\
+                    DATA\r\n\
+                    Hello world\r\n\
+                    .\r\n\
+                    QUIT\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250-test.example.org\r\n\
                   250-8BITMIME\r\n\
@@ -1033,13 +1039,13 @@ mod tests {
                 )],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<test@example.org>\r\n\
-                  RCPT TO:<foo@example.org>\r\n\
-                  DATA\r\n\
-                  Hello World\r\n\
-                  .\r\n\
-                  QUIT\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<test@example.org>\r\n\
+                    RCPT TO:<foo@example.org>\r\n\
+                    DATA\r\n\
+                    Hello World\r\n\
+                    .\r\n\
+                    QUIT\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
@@ -1050,15 +1056,15 @@ mod tests {
                 &[],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<bad@quux.example.org>\r\n\
-                  MAIL FROM:<foo@bar.example.org>\r\n\
-                  MAIL FROM:<baz@quux.example.org>\r\n\
-                  RCPT TO:<foo2@bar.example.org>\r\n\
-                  DATA\r\n\
-                  Hello\r\n\
-                  .\r\n\
-                  QUIT\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<bad@quux.example.org>\r\n\
+                    MAIL FROM:<foo@bar.example.org>\r\n\
+                    MAIL FROM:<baz@quux.example.org>\r\n\
+                    RCPT TO:<foo2@bar.example.org>\r\n\
+                    DATA\r\n\
+                    Hello\r\n\
+                    .\r\n\
+                    QUIT\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   550 User 'bad' banned\r\n\
@@ -1075,15 +1081,15 @@ mod tests {
                 )],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<foo@bar.example.org>\r\n\
-                  RSET\r\n\
-                  MAIL FROM:<baz@quux.example.org>\r\n\
-                  RCPT TO:<foo2@bar.example.org>\r\n\
-                  DATA\r\n\
-                  Hello\r\n\
-                  .\r\n\
-                  QUIT\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<foo@bar.example.org>\r\n\
+                    RSET\r\n\
+                    MAIL FROM:<baz@quux.example.org>\r\n\
+                    RCPT TO:<foo2@bar.example.org>\r\n\
+                    DATA\r\n\
+                    Hello\r\n\
+                    .\r\n\
+                    QUIT\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
@@ -1100,10 +1106,10 @@ mod tests {
                 )],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<foo@test.example.com>\r\n\
-                  DATA\r\n\
-                  QUIT\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<foo@test.example.com>\r\n\
+                    DATA\r\n\
+                    QUIT\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
@@ -1112,9 +1118,9 @@ mod tests {
                 &[],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<foo@test.example.com>\r\n\
-                  RCPT TO:<foo@bar.example.org>\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<foo@test.example.com>\r\n\
+                    RCPT TO:<foo@bar.example.org>\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
@@ -1122,10 +1128,10 @@ mod tests {
                 &[],
             ),
             (
-                b"HELO test\r\n\
-                  MAIL FROM:<foo@test.example.com>\r\n\
-                  THISISNOTACOMMAND\r\n\
-                  RCPT TO:<foo@bar.example.org>\r\n",
+                &[b"HELO test\r\n\
+                    MAIL FROM:<foo@test.example.com>\r\n\
+                    THISISNOTACOMMAND\r\n\
+                    RCPT TO:<foo@bar.example.org>\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   250 2.0.0 Okay\r\n\
@@ -1134,17 +1140,17 @@ mod tests {
                 &[],
             ),
             (
-                b"MAIL FROM:<foo@test.example.com>\r\n",
+                &[b"MAIL FROM:<foo@test.example.com>\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   503 5.5.1 Bad sequence of commands\r\n",
                 &[],
             ),
             (
-                b"HELO test\r\n\
-                  EXPN foo\r\n\
-                  VRFY bar\r\n\
-                  HELP baz\r\n\
-                  NOOP\r\n",
+                &[b"HELO test\r\n\
+                    EXPN foo\r\n\
+                    VRFY bar\r\n\
+                    HELP baz\r\n\
+                    NOOP\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   502 5.5.1 Command not implemented\r\n\
@@ -1154,19 +1160,45 @@ mod tests {
                 &[],
             ),
             (
-                b"HELO test\r\n\
-                  EXPN foo\r\n\
-                  QUIT\r\n\
-                  HELP baz\r\n",
+                &[b"HELO test\r\n\
+                    EXPN foo\r\n\
+                    QUIT\r\n\
+                    HELP baz\r\n"],
                 b"220 test.example.org Service ready\r\n\
                   250 test.example.org\r\n\
                   502 5.5.1 Command not implemented\r\n\
                   221 2.0.0 Bye\r\n",
                 &[],
             ),
+            (
+                &[
+                    b"EHLO test\r\n\
+                      STARTTLS\r\n",
+                    b"<tls client>",
+                    b"EHLO test2\r\n",
+                ],
+                b"220 test.example.org Service ready\r\n\
+                  250-test.example.org\r\n\
+                  250-8BITMIME\r\n\
+                  250-ENHANCEDSTATUSCODES\r\n\
+                  250-PIPELINING\r\n\
+                  250-SMTPUTF8\r\n\
+                  250 STARTTLS\r\n\
+                  220 2.0.0 Ready to start TLS\r\n\
+                  <tls server>\
+                  250-test.example.org\r\n\
+                  250-8BITMIME\r\n\
+                  250-ENHANCEDSTATUSCODES\r\n\
+                  250-PIPELINING\r\n\
+                  250 SMTPUTF8\r\n",
+                &[],
+            ),
         ];
         for &(inp, out, mail) in tests {
-            println!("\nSending: {:?}", show_bytes(inp));
+            println!(
+                "\nSending: {:?}",
+                inp.iter().map(|b| show_bytes(*b)).collect::<Vec<_>>()
+            );
             let resp_mail = Arc::new(Mutex::new(Vec::new()));
             let cfg = Arc::new(TestConfig {
                 mails: resp_mail.clone(),
@@ -1174,22 +1206,32 @@ mod tests {
             let (inp_pipe_r, mut inp_pipe_w) = piper::pipe(1024 * 1024);
             let (mut out_pipe_r, out_pipe_w) = piper::pipe(1024 * 1024);
             let io = Duplex::new(inp_pipe_r, out_pipe_w);
-            let resp = executor::block_on(async move {
-                inp_pipe_w
-                    .write_all(inp)
-                    .await
-                    .expect("writing to input pipe");
-                std::mem::drop(inp_pipe_w);
-                interact(io, IsAlreadyTls::No, (), cfg)
-                    .await
-                    .expect("calling interact");
-                let mut resp = Vec::new();
-                out_pipe_r
-                    .read_to_end(&mut resp)
-                    .await
-                    .expect("reading from output pipe");
-                resp
-            });
+            let ((), resp) = smol::block_on(futures::future::join(
+                async move {
+                    for i in inp {
+                        // Yield 100 times to be sure the interact process had enough time to
+                        // process the data
+                        for _ in 0..100usize {
+                            smol::future::yield_now().await;
+                        }
+                        inp_pipe_w
+                            .write_all(i)
+                            .await
+                            .expect("writing to input pipe");
+                    }
+                },
+                async move {
+                    interact(io, IsAlreadyTls::No, (), cfg)
+                        .await
+                        .expect("calling interact");
+                    let mut resp = Vec::new();
+                    out_pipe_r
+                        .read_to_end(&mut resp)
+                        .await
+                        .expect("reading from output pipe");
+                    resp
+                },
+            ));
 
             println!("Expecting: {:?}", show_bytes(out));
             println!("Got      : {:?}", show_bytes(&resp));
