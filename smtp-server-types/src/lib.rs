@@ -4,6 +4,7 @@ use smtp_message::{Email, Hostname, Reply};
 
 // TODO: make it Accept(Reply<Cow<'static, str>>)
 #[must_use]
+#[derive(Debug)]
 pub enum Decision {
     Accept,
     Reject(Reply<Cow<'static, str>>),
@@ -15,7 +16,7 @@ pub enum Decision {
 
 // TODO: make it Accept(Reply<Cow<'static, str>>)
 #[must_use]
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum SerializableDecision {
     Accept,
     Reject(Reply<Cow<'static, str>>),
@@ -38,20 +39,20 @@ impl From<SerializableDecision> for Decision {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MailMetadata<U> {
     pub user: U,
     pub from: Option<Email>,
     pub to: Vec<Email>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct HelloInfo {
     pub is_ehlo: bool,
     pub hostname: Hostname,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct ConnectionMetadata<U> {
     pub user: U,
     pub hello: Option<HelloInfo>,
