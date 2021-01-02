@@ -1,7 +1,7 @@
 [workspace]
 members = [ "smtp-message", "smtp-message/fuzz",
             "smtp-client",
-            "smtp-server", "smtp-server/fuzz",
+            "smtp-server-types", "smtp-server", "smtp-server/fuzz",
             "smtp-queue", "smtp-queue-fs",
             "yuubind-rpc",
             "yuubind",
