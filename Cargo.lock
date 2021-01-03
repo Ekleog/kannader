@@ -1390,7 +1390,6 @@ dependencies = [
 name = "kannader-config"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "kannader-config-types",
  "smtp-message",
  "smtp-server-types",
@@ -1402,7 +1401,6 @@ name = "kannader-config-example"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "chrono",
  "kannader-config",
  "smtp-message",
  "smtp-server-types",
