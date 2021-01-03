@@ -7,6 +7,7 @@ pkgs.stdenv.mkDerivation {
       cacert
       capnproto
       cargo-fuzz
+      cargo-udeps
       gnuplot
       mdbook
       nodejs
