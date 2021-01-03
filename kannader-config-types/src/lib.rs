@@ -28,9 +28,80 @@ pub mod server {
 // interface types, wiggle or similar
 
 #[macro_export]
-macro_rules! allocator_implement_guest {
+macro_rules! implement_host {
     () => {
-        // TODO: make the caller able to specify the callbacks
+        use std::{path::Path, rc::Rc};
+
+        use anyhow::{anyhow, ensure, Context};
+
+        // TODO: take struct name as argument instead of forcing the caller to put in a
+        // mod (and same below)
+        // TODO: factor code out with the below similar code to serialize the argument
+        pub fn setup(
+            path: &Path,
+            instance: &wasmtime::Instance,
+            allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
+        ) -> anyhow::Result<()> {
+            // Recover memory instance
+            let memory = instance
+                .get_memory("memory")
+                .ok_or_else(|| anyhow!("Failed to find memory export ‘memory’"))?;
+
+            // Recover setup function
+            let wasm_fun = instance
+                .get_func("setup")
+                .ok_or_else(|| anyhow!("Failed to find function export ‘setup’"))?
+                .get2()
+                .with_context(|| format!("Checking the type of ‘setup’"))?;
+
+            fn force_type<F: Fn(u32, u32) -> Result<(), wasmtime::Trap>>(_: &F) {}
+            force_type(&wasm_fun);
+
+            // Compute size of function
+            let arg_size: u64 = bincode::serialized_size(path)
+                .context("Figuring out size to allocate for argument buffer for ‘setup’")?;
+            debug_assert!(
+                arg_size <= u32::MAX as u64,
+                "Message size above u32::MAX, something is really wrong"
+            );
+            let arg_size = arg_size as u32;
+
+            // Allocate argument buffer
+            let arg_ptr = allocate(arg_size).context("Allocating argument buffer for ‘setup’")?;
+            ensure!(
+                (arg_ptr as usize).saturating_add(arg_size as usize) < memory.data_size(),
+                "Wasm allocator returned allocation outside of its memory"
+            );
+
+            // Serialize to argument buffer
+            let arg_vec =
+                bincode::serialize(path).context("Serializing argument buffer for ‘setup’")?;
+            debug_assert_eq!(
+                arg_size as usize,
+                arg_vec.len(),
+                "bincode-computed size is {} but actual size is {}",
+                arg_size,
+                arg_vec.len()
+            );
+            unsafe {
+                std::intrinsics::volatile_copy_nonoverlapping_memory(
+                    memory.data_ptr().add(arg_ptr as usize),
+                    &arg_vec[0],
+                    arg_size as usize,
+                );
+            }
+
+            // Call the function
+            let () = wasm_fun(arg_ptr, arg_size).context("Running wasm function ‘setup’")?;
+
+            Ok(())
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! implement_guest {
+    ($vis:vis trait $cfg_trait:ident, $cfg:ty) => {
         #[no_mangle]
         pub unsafe extern "C" fn allocate(size: usize) -> usize {
             // TODO: handle alloc error (ie. null return) properly (trap?)
@@ -47,6 +118,32 @@ macro_rules! allocator_implement_guest {
                     std::alloc::Layout::from_size_align_unchecked(size, 8),
                 )
             }
+        }
+
+        $vis trait $cfg_trait {
+            fn setup(path: std::path::PathBuf) -> Self;
+        }
+
+        std::thread_local! {
+            static KANNADER_CFG: std::cell::RefCell<Option<$cfg>> =
+                std::cell::RefCell::new(None);
+        }
+
+        // TODO: handle errors properly here too (see the TODO down the file)
+        #[no_mangle]
+        pub unsafe extern "C" fn setup(ptr: usize, size: usize) {
+            // Recover the argument
+            let arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
+            let path: std::path::PathBuf = bincode::deserialize(arg_slice).unwrap();
+
+            // Deallocate the memory block
+            deallocate(ptr, size);
+
+            // Run the code
+            KANNADER_CFG.with(|cfg| {
+                assert!(cfg.borrow().is_none());
+                *cfg.borrow_mut() = Some(<$cfg as $cfg_trait>::setup(path));
+            })
         }
 
         #[allow(unused)]
@@ -87,6 +184,7 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, ensure, Context};
 
+// TODO: take struct name as argument instead of forcing the caller to put in a mod (and same above)
 pub struct HostSide {
     $(
         pub $fn: Box<dyn Fn($( implement_host!(@mut_ref $mut $ty) ),*) -> anyhow::Result<$ret>>,
@@ -159,7 +257,7 @@ pub fn build_host_side(
                     std::intrinsics::volatile_copy_nonoverlapping_memory(
                         memory.data_ptr().add(arg_ptr as usize),
                         &arg_vec[0],
-                    arg_size as usize,
+                        arg_size as usize,
                     );
                 }
 
@@ -219,36 +317,19 @@ pub fn build_host_side(
             (@if_mut () $e:expr) => { () };
             (@if_mut (&mut) $e:expr) => { $e };
 
-            ($vis:vis mod $mod_name:ident, $impl_name:ty) => {
-$vis mod $mod_name {
-    use $crate::$guest_impler as implement_guest;
-
-    extern "C" {
-        // These functions are defined in kannader-config, which
-        // depends on this crate so we can't depend on it or it'll end
-        // up as an infinite loop.
-        pub fn allocate(size: usize) -> usize;
-        pub fn deallocate(ptr: usize, size: usize);
-    }
-
-    pub trait WasmSide {
-        $(
-            fn $fn($( $arg: implement_guest!(@mut_ref_ty $mut $ty) ),*) -> $ret;
-        )+
-    }
-}
-
-fn _check_type<F: Fn() -> $impl_name>(f: F) -> impl $mod_name::WasmSide {
-    f()
+            ($cfg:ty, $vis:vis trait $trait_name:ident, $impl_name:ty) => {
+$vis trait $trait_name {
+    $(
+        fn $fn(cfg: & $cfg, $( $arg: $crate::$guest_impler!(@mut_ref_ty $mut $ty) ),*) -> $ret;
+    )+
 }
 
 $(
     // TODO: handle errors properly (but what does “properly” exactly mean here?
-    // anyway, probably not `.unwrap()` / `assert!`...)
+    // anyway, probably not `.unwrap()` / `assert!`...) (and above in the file too)
     #[no_mangle]
     pub unsafe fn $fn_name(arg_ptr: usize, arg_size: usize) -> u64 {
         use $crate::$guest_impler as implement_guest;
-        use $mod_name::{allocate, deallocate};
 
         // Deserialize from the argument slice
         let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
@@ -257,7 +338,12 @@ $(
          // Deallocate the argument slice
         deallocate(arg_ptr, arg_size);
          // Call the callback
-        let res = <$impl_name as $mod_name::WasmSide>::$fn($( implement_guest!(@mut_ref_expr $mut $arg) ),*);
+        let res = KANNADER_CFG.with(|cfg| {
+            <$impl_name as $trait_name>::$fn(
+                cfg.borrow().as_ref().unwrap(),
+                $( implement_guest!(@mut_ref_expr $mut $arg) ),*
+            )
+        });
         let res = (res, $( implement_guest!(@if_mut $mut $arg) ),*);
 
         // Allocate return buffer

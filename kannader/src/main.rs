@@ -7,7 +7,14 @@
 // TODO: make everything configurable, and actually implement the wasm scheme
 // described in the docs
 
-use std::{io, path::PathBuf, pin::Pin, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    pin::Pin,
+    rc::Rc,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -51,6 +58,10 @@ impl rustls::ServerCertVerifier for NoCertVerifier {
     }
 }
 
+mod setup {
+    kannader_config_types::implement_host!();
+}
+
 mod server_config {
     kannader_config_types::server_config_implement_host!();
 }
@@ -60,7 +71,15 @@ struct WasmConfig {
 }
 
 impl WasmConfig {
-    fn new(engine: &wasmtime::Engine, module: &wasmtime::Module) -> anyhow::Result<WasmConfig> {
+    /// Links and sets up a wasm blob for usage
+    ///
+    /// `cfg` is the path to the configuration of the wasm blob. `engine` and
+    /// `module` are the pre-built wasm blob.
+    fn new(
+        cfg: &Path,
+        engine: &wasmtime::Engine,
+        module: &wasmtime::Module,
+    ) -> anyhow::Result<WasmConfig> {
         let store = wasmtime::Store::new(engine);
         let instance = wasmtime::Instance::new(&store, module, &[])
             .context("Instantiating the wasm configuration blob")?;
@@ -82,10 +101,14 @@ impl WasmConfig {
         // Parameters: (address, size) of the block to deallocate
         let deallocate = Rc::new(get_func!(get2, "deallocate"));
 
-        Ok(WasmConfig {
-            server_config: server_config::build_host_side(&instance, allocate, deallocate)
+        let res = WasmConfig {
+            server_config: server_config::build_host_side(&instance, allocate.clone(), deallocate)
                 .context("Getting server configuration")?,
-        })
+        };
+
+        setup::setup(cfg, &instance, allocate).context("Running the setup hook")?;
+
+        Ok(res)
     }
 }
 
@@ -475,12 +498,16 @@ where
 struct Opt {
     /// Path to the wasm configuration blob
     #[structopt(
-        short,
+        short = "b",
         long,
         parse(from_os_str),
         default_value = "/etc/kannader/config.wasm"
     )]
     // TODO: have wasm configuration blobs pre-provided in /usr/lib or similar
+    wasm_blob: PathBuf,
+
+    /// Path to the configuration of the wasm configuration blob
+    #[structopt(short, long, parse(from_os_str), default_value = "")]
     config: PathBuf,
 }
 
@@ -497,9 +524,10 @@ fn main() -> anyhow::Result<()> {
     // TODO: limit the stack size, and make sure we always build with all
     // optimizations
     let engine = wasmtime::Engine::default();
-    let module = wasmtime::Module::from_file(&engine, &opt.config)
+    let module = wasmtime::Module::from_file(&engine, &opt.wasm_blob)
         .context("Compiling the wasm configuration blob")?;
-    WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+    WasmConfig::new(&opt.config, &engine, &module)
+        .context("Preparing the wasm configuration blob")?;
 
     // Start the executor
     let ex = Arc::new(smol::Executor::new());
@@ -510,8 +538,8 @@ fn main() -> anyhow::Result<()> {
 
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
         .each(0..NUM_THREADS, |_| {
-            let wasm_config =
-                WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+            let wasm_config = WasmConfig::new(&opt.config, &engine, &module)
+                .context("Preparing the wasm configuration blob")?;
             WASM_CONFIG.set(&wasm_config, || {
                 smol::block_on(ex.run(async {
                     shutdown
@@ -522,8 +550,8 @@ fn main() -> anyhow::Result<()> {
             })
         })
         .finish(|| {
-            let wasm_config =
-                WasmConfig::new(&engine, &module).context("Linking the wasm configuration blob")?;
+            let wasm_config = WasmConfig::new(&opt.config, &engine, &module)
+                .context("Preparing the wasm configuration blob")?;
             WASM_CONFIG.set(&wasm_config, || {
                 smol::block_on(async {
                     // Prepare the clients
