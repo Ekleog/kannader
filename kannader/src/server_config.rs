@@ -5,11 +5,14 @@ use chrono::Utc;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::error;
 
-use smtp_message::Email;
+use smtp_message::{Email, Hostname, MaybeUtf8, Reply};
 use smtp_queue_fs::FsStorage;
-use smtp_server::{reply, Decision};
+use smtp_server::{reply, Decision, HelloInfo};
 
 use crate::{Meta, QueueConfig, DATABUF_SIZE, WASM_CONFIG};
+
+pub type ConnMeta = smtp_server::ConnectionMetadata<Vec<u8>>;
+pub type MailMeta = smtp_server::MailMetadata<Vec<u8>>;
 
 pub struct ServerConfig<T> {
     acceptor: async_tls::TlsAcceptor,
@@ -28,6 +31,29 @@ where
     }
 }
 
+macro_rules! run_hook {
+    ($fn:ident($($arg:expr),*)) => {
+        run_hook!($fn($($arg),*) ||
+            Decision::Reject {
+                reply: reply::internal_server_error().convert(),
+            }
+        )
+    };
+
+    ($fn:ident($($arg:expr),*) || $res:expr) => {
+        WASM_CONFIG.with(|wasm_config| {
+            let res = (wasm_config.server_config.$fn)($($arg),*);
+            match res {
+                Ok(res) => res.into(),
+                Err(e) => {
+                    error!(error = ?e, "Internal server error in ‘server_config_{}’", stringify!($fn));
+                    $res
+                }
+            }
+        })
+    };
+}
+
 #[async_trait]
 impl<T> smtp_server::Config for ServerConfig<T>
 where
@@ -36,17 +62,37 @@ where
     type ConnectionUserMeta = Vec<u8>;
     type MailUserMeta = Vec<u8>;
 
-    fn hostname(&self, _conn_meta: &smtp_server::ConnectionMetadata<Vec<u8>>) -> &str {
-        "localhost"
+    fn hostname(&self, _: &ConnMeta) -> &str {
+        unimplemented!()
     }
 
-    // TODO: this could have a default implementation if we were able to have a
-    // default type of () for MailUserMeta without requiring unstable
-    async fn new_mail(
+    fn welcome_banner(&self, _: &ConnMeta) -> &str {
+        unimplemented!()
+    }
+
+    fn welcome_banner_reply(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(welcome_banner_reply(conn_meta) || reply::internal_server_error().convert())
+    }
+
+    fn hello_banner(&self, _: &ConnMeta) -> &str {
+        unimplemented!()
+    }
+
+    async fn filter_hello(
         &self,
-        _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Self::MailUserMeta {
-        Vec::new() // TODO
+        is_ehlo: bool,
+        hostname: Hostname,
+        conn_meta: &mut ConnMeta,
+    ) -> Decision<HelloInfo> {
+        run_hook!(filter_hello(is_ehlo, hostname, conn_meta))
+    }
+
+    fn can_do_tls(&self, conn_meta: &ConnMeta) -> bool {
+        // Unfortunately, there is no good way to gracefully fail here
+        run_hook!(
+            // TODO: rust should auto-deref here, report a rust bug
+            can_do_tls((*conn_meta).clone()) || panic!("Error while running the ‘can_do_tls’ hook")
+        )
     }
 
     // TODO: when GATs are here, we can remove the trait object and return
@@ -60,13 +106,18 @@ where
     async fn tls_accept<IO>(
         &self,
         io: IO,
-        _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
+        _conn_meta: &mut ConnMeta,
     ) -> io::Result<
         duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>,
     >
     where
         IO: 'static + Unpin + Send + AsyncRead + AsyncWrite,
     {
+        // TODO: figure out a way to cleanly configure this... maybe having the wasm
+        // blob return one of “rustls” and “native-tls” and then picking the correct
+        // implementation? and then also make the rustls parameters in main.rs
+        // configurable... anyway we have to think about having multiple TLS certs for
+        // multiple SNI hostnames / multiple IP addresses
         let io = self.acceptor.accept(io).await?;
         let (r, w) = io.split();
         let io = duplexify::Duplex::new(
@@ -76,38 +127,31 @@ where
         Ok(io)
     }
 
+    async fn new_mail(&self, conn_meta: &mut ConnMeta) -> Vec<u8> {
+        // Unfortunately, there is no good way to gracefully fail here
+        run_hook!(new_mail(conn_meta) || panic!("Error while running the ‘new_mail’ hook"))
+    }
+
     async fn filter_from(
         &self,
         from: Option<Email>,
-        meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
-        conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
+        meta: &mut MailMeta,
+        conn_meta: &mut ConnMeta,
     ) -> Decision<Option<Email>> {
-        // TODO: have this communication schema for all hooks
-        WASM_CONFIG.with(|wasm_config| {
-            let res = (wasm_config.server_config.filter_from)(from, meta, conn_meta);
-            match res {
-                Ok(res) => res.into(),
-                Err(e) => {
-                    error!(error = ?e, "Internal server error in ‘filter_from’");
-                    Decision::Reject {
-                        reply: reply::internal_server_error().convert(),
-                    }
-                }
-            }
-        })
+        run_hook!(filter_from(from, meta, conn_meta))
     }
 
     async fn filter_to(
         &self,
         to: Email,
-        _meta: &mut smtp_server::MailMetadata<Self::MailUserMeta>,
-        _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
+        meta: &mut MailMeta,
+        conn_meta: &mut ConnMeta,
     ) -> Decision<Email> {
-        // TODO: this is BAD
-        Decision::Accept {
-            reply: reply::okay_to().convert(),
-            res: to,
-        }
+        run_hook!(filter_to(to, meta, conn_meta))
+    }
+
+    async fn filter_data(&self, meta: &mut MailMeta, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(filter_data(meta, conn_meta))
     }
 
     /// Note: the EscapedDataReader has an inner buffer size of
@@ -120,12 +164,14 @@ where
     async fn handle_mail<'a, R>(
         &self,
         stream: &mut smtp_message::EscapedDataReader<'a, R>,
-        meta: smtp_server::MailMetadata<Self::MailUserMeta>,
-        _conn_meta: &mut smtp_server::ConnectionMetadata<Self::ConnectionUserMeta>,
+        meta: MailMeta,
+        _conn_meta: &mut ConnMeta,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
     {
+        // TODO: figure out how to make this properly configurable, allowing to
+        // configure filters, etc.
         let mut enqueuer = match self.queue.enqueue().await {
             Ok(enqueuer) => enqueuer,
             Err(e) => {
@@ -213,5 +259,118 @@ where
                 }
             }
         }
+    }
+
+    async fn handle_rset(
+        &self,
+        meta: &mut Option<MailMeta>,
+        conn_meta: &mut ConnMeta,
+    ) -> Decision<()> {
+        run_hook!(handle_rset(meta, conn_meta))
+    }
+
+    async fn handle_starttls(&self, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(handle_starttls(conn_meta))
+    }
+
+    async fn handle_expn(&self, name: MaybeUtf8<&str>, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(handle_expn(name.convert(), conn_meta))
+    }
+
+    async fn handle_vrfy(&self, name: MaybeUtf8<&str>, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(handle_vrfy(name.convert(), conn_meta))
+    }
+
+    async fn handle_help(
+        &self,
+        subject: MaybeUtf8<&str>,
+        conn_meta: &mut ConnMeta,
+    ) -> Decision<()> {
+        run_hook!(handle_help(subject.convert(), conn_meta))
+    }
+
+    async fn handle_noop(&self, string: MaybeUtf8<&str>, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(handle_noop(string.convert(), conn_meta))
+    }
+
+    async fn handle_quit(&self, conn_meta: &mut ConnMeta) -> Decision<()> {
+        run_hook!(handle_quit(conn_meta))
+    }
+
+    fn already_did_hello(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(already_did_hello(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn mail_before_hello(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(mail_before_hello(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn already_in_mail(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(already_in_mail(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn rcpt_before_mail(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(rcpt_before_mail(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn data_before_rcpt(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(data_before_rcpt(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn data_before_mail(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(data_before_mail(conn_meta) || reply::bad_sequence().convert())
+    }
+
+    fn starttls_unsupported(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(starttls_unsupported(conn_meta) || reply::command_not_supported().convert())
+    }
+
+    fn command_unrecognized(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(command_unrecognized(conn_meta) || reply::command_unrecognized().convert())
+    }
+
+    fn pipeline_forbidden_after_starttls(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(
+            pipeline_forbidden_after_starttls(conn_meta)
+                || reply::pipeline_forbidden_after_starttls().convert()
+        )
+    }
+
+    fn line_too_long(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(line_too_long(conn_meta) || reply::line_too_long().convert())
+    }
+
+    fn handle_mail_did_not_call_complete(&self, conn_meta: &mut ConnMeta) -> Reply {
+        run_hook!(
+            handle_mail_did_not_call_complete(conn_meta)
+                || reply::handle_mail_did_not_call_complete().convert()
+        )
+    }
+
+    fn reply_write_timeout(&self) -> chrono::Duration {
+        // Unfortunately, there is no good way to gracefully fail here
+        // TODO: report a bug to rustc, this type annotation should not be necessary
+        let ms: u64 = run_hook!(
+            reply_write_timeout_in_millis()
+                || panic!("Error while running the ‘reply_write_timeout’ hook")
+        );
+        assert!(
+            ms <= i64::MAX as u64,
+            "Configuration returned an overflowing timeout"
+        );
+        chrono::Duration::milliseconds(ms as i64)
+    }
+
+    fn command_read_timeout(&self) -> chrono::Duration {
+        // Unfortunately, there is no good way to gracefully fail here
+        let ms: u64 = run_hook!(
+            command_read_timeout_in_millis()
+                || panic!("Error while running the ‘command_read_timeout’ hook")
+        );
+        assert!(
+            ms <= i64::MAX as u64,
+            "Configuration returned an overflowing timeout"
+        );
+        chrono::Duration::milliseconds(ms as i64)
     }
 }

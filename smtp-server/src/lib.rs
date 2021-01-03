@@ -21,8 +21,14 @@ pub trait Config: Send + Sync {
     type ConnectionUserMeta: Send;
     type MailUserMeta: Send;
 
+    /// Note: this function is only ever used for the default implementations of
+    /// other functions in this trait. As such, it is OK to leave it
+    /// `unimplemented!()` if other functions are implemented.
     fn hostname(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str;
 
+    /// Note: this function is only ever used for the default implementations of
+    /// other functions in this trait. As such, it is OK to leave it
+    /// `unimplemented!()` if other functions are implemented.
     #[allow(unused_variables)]
     fn welcome_banner(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str {
         "Service ready"
@@ -30,11 +36,14 @@ pub trait Config: Send + Sync {
 
     fn welcome_banner_reply(
         &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Reply {
         reply::welcome_banner(self.hostname(conn_meta), self.welcome_banner(conn_meta))
     }
 
+    /// Note: this function is only ever used for the default implementations of
+    /// other functions in this trait. As such, it is OK to leave it
+    /// `unimplemented!()` if other functions are implemented.
     #[allow(unused_variables)]
     fn hello_banner(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str {
         ""
@@ -221,48 +230,89 @@ pub trait Config: Send + Sync {
         }
     }
 
-    fn already_did_hello(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn already_did_hello(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn mail_before_hello(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn mail_before_hello(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn already_in_mail(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn already_in_mail(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn rcpt_before_mail(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn rcpt_before_mail(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn data_before_rcpt(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn data_before_rcpt(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn data_before_mail(&self) -> Reply<&str> {
-        reply::bad_sequence()
+    #[allow(unused_variables)]
+    fn data_before_mail(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::bad_sequence().convert()
     }
 
-    fn starttls_unsupported(&self) -> Reply<&str> {
-        reply::command_not_supported()
+    #[allow(unused_variables)]
+    fn starttls_unsupported(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::command_not_supported().convert()
     }
 
-    fn command_unrecognized(&self) -> Reply<&str> {
-        reply::command_unrecognized()
+    #[allow(unused_variables)]
+    fn command_unrecognized(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::command_unrecognized().convert()
     }
 
-    fn pipeline_forbidden_after_starttls(&self) -> Reply<&str> {
-        reply::pipeline_forbidden_after_starttls()
+    #[allow(unused_variables)]
+    fn pipeline_forbidden_after_starttls(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::pipeline_forbidden_after_starttls().convert()
     }
 
-    fn line_too_long(&self) -> Reply<&str> {
-        reply::line_too_long()
+    #[allow(unused_variables)]
+    fn line_too_long(&self, conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>) -> Reply {
+        reply::line_too_long().convert()
     }
 
-    fn handle_mail_did_not_call_complete(&self) -> Reply<&str> {
-        reply::handle_mail_did_not_call_complete()
+    #[allow(unused_variables)]
+    fn handle_mail_did_not_call_complete(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply {
+        reply::handle_mail_did_not_call_complete().convert()
     }
 
     fn reply_write_timeout(&self) -> chrono::Duration {
@@ -423,7 +473,7 @@ where
         };
     }
 
-    send_reply!(io, cfg.welcome_banner_reply(&conn_meta)).await?;
+    send_reply!(io, cfg.welcome_banner_reply(&mut conn_meta)).await?;
 
     loop {
         if unhandled.is_empty() {
@@ -453,7 +503,7 @@ where
                     // basically the full buffer. Which means that we have to
                     // error out that the line is too long.
                     read_for_command!(advance_until_crlf(&mut io, rdbuf, &mut unhandled)).await?;
-                    send_reply!(io, cfg.line_too_long()).await?;
+                    send_reply!(io, cfg.line_too_long(&mut conn_meta)).await?;
                 } else {
                     let read = read_for_command!(io.read(&mut rdbuf[unhandled.end..])).await?;
                     if read == 0 {
@@ -469,7 +519,7 @@ where
             Err(_) => {
                 // Syntax error
                 read_for_command!(advance_until_crlf(&mut io, rdbuf, &mut unhandled)).await?;
-                send_reply!(io, cfg.command_unrecognized()).await?;
+                send_reply!(io, cfg.command_unrecognized(&mut conn_meta)).await?;
                 None
             }
             Ok((rem, cmd)) => {
@@ -489,7 +539,7 @@ where
             // TODO: find some way to unify with the below branch
             Some(Command::Ehlo { hostname }) => match conn_meta.hello {
                 Some(_) => {
-                    send_reply!(io, cfg.already_did_hello()).await?;
+                    send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
                 }
                 None => dispatch_decision! {
                     cfg.filter_hello(true, hostname.into_owned(), &mut conn_meta)
@@ -503,7 +553,7 @@ where
 
             Some(Command::Helo { hostname }) => match conn_meta.hello {
                 Some(_) => {
-                    send_reply!(io, cfg.already_did_hello()).await?;
+                    send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
                 }
                 None => dispatch_decision! {
                     cfg.filter_hello(false, hostname.into_owned(), &mut conn_meta).await,
@@ -520,13 +570,13 @@ where
                 params: _params,
             }) => {
                 if conn_meta.hello.is_none() {
-                    send_reply!(io, cfg.mail_before_hello()).await?;
+                    send_reply!(io, cfg.mail_before_hello(&mut conn_meta)).await?;
                 } else {
                     match mail_meta {
                         Some(_) => {
                             // Both postfix and OpenSMTPD just return an error and ignore further
                             // MAIL FROM when there is already a MAIL FROM running
-                            send_reply!(io, cfg.already_in_mail()).await?;
+                            send_reply!(io, cfg.already_in_mail(&mut conn_meta)).await?;
                         }
                         None => {
                             let mut mail_metadata = MailMetadata {
@@ -558,7 +608,7 @@ where
                 params: _params,
             }) => match mail_meta {
                 None => {
-                    send_reply!(io, cfg.rcpt_before_mail()).await?;
+                    send_reply!(io, cfg.rcpt_before_mail(&mut conn_meta)).await?;
                 }
                 Some(ref mut mail_meta_unw) => dispatch_decision! {
                     cfg.filter_to(email.into_owned(), mail_meta_unw, &mut conn_meta).await,
@@ -571,10 +621,10 @@ where
 
             Some(Command::Data) => match mail_meta.take() {
                 None => {
-                    send_reply!(io, cfg.data_before_mail()).await?;
+                    send_reply!(io, cfg.data_before_mail(&mut conn_meta)).await?;
                 }
                 Some(ref mail_meta_unw) if mail_meta_unw.to.is_empty() => {
-                    send_reply!(io, cfg.data_before_rcpt()).await?;
+                    send_reply!(io, cfg.data_before_rcpt(&mut conn_meta)).await?;
                 }
                 Some(mut mail_meta_unw) => {
                     dispatch_decision! {
@@ -626,7 +676,7 @@ where
                                 }
                                 reader.complete();
                                 unhandled = reader.get_unhandled().unwrap();
-                                send_reply!(io, cfg.handle_mail_did_not_call_complete()).await?;
+                                send_reply!(io, cfg.handle_mail_did_not_call_complete(&mut conn_meta)).await?;
                             };
                         }
                     }
@@ -643,9 +693,9 @@ where
 
             Some(Command::Starttls) => {
                 if !cfg.can_do_tls(&conn_meta) {
-                    send_reply!(io, cfg.starttls_unsupported()).await?;
+                    send_reply!(io, cfg.starttls_unsupported(&mut conn_meta)).await?;
                 } else if !unhandled.is_empty() {
-                    send_reply!(io, cfg.pipeline_forbidden_after_starttls()).await?;
+                    send_reply!(io, cfg.pipeline_forbidden_after_starttls(&mut conn_meta)).await?;
                 } else {
                     dispatch_decision! {
                         cfg.handle_starttls(&mut conn_meta).await,

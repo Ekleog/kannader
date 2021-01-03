@@ -59,13 +59,13 @@ pub struct MailMetadata<U> {
     pub to: Vec<Email>,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct HelloInfo {
     pub is_ehlo: bool,
     pub hostname: Hostname,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ConnectionMetadata<U> {
     pub user: U,
     pub hello: Option<HelloInfo>,

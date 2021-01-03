@@ -6,12 +6,17 @@
 //!
 //! `&mut` references taken as arguments are taken as though they were
 //! by value, and then returned as supplementary arguments in a tuple.
+//!
+//! Note: this crate's guest-side implementation is very heavily tied
+//! to the `kannader_config` crate's implementation. This is on
+//! purpose and the two crates should be used together. They are split
+//! for dependency reduction purposes.
 
 pub mod server {
-    pub use smtp_server_types::SerializableDecision;
+    pub use smtp_server_types::{HelloInfo, SerializableDecision};
 
-    pub type ConnectionMetadata = smtp_server_types::ConnectionMetadata<Vec<u8>>;
-    pub type MailMetadata = smtp_server_types::MailMetadata<Vec<u8>>;
+    pub type ConnMeta = smtp_server_types::ConnectionMetadata<Vec<u8>>;
+    pub type MailMeta = smtp_server_types::MailMetadata<Vec<u8>>;
 }
 
 // The functions are all implemented in wasm with:
@@ -101,7 +106,7 @@ macro_rules! implement_host {
 
 #[macro_export]
 macro_rules! implement_guest {
-    ($vis:vis trait $cfg_trait:ident, $cfg:ty) => {
+    ($cfg:ty) => {
         #[no_mangle]
         pub unsafe extern "C" fn allocate(size: usize) -> usize {
             // TODO: handle alloc error (ie. null return) properly (trap?)
@@ -118,10 +123,6 @@ macro_rules! implement_guest {
                     std::alloc::Layout::from_size_align_unchecked(size, 8),
                 )
             }
-        }
-
-        $vis trait $cfg_trait {
-            fn setup(path: std::path::PathBuf) -> Self;
         }
 
         std::thread_local! {
@@ -142,7 +143,7 @@ macro_rules! implement_guest {
             // Run the code
             KANNADER_CFG.with(|cfg| {
                 assert!(cfg.borrow().is_none());
-                *cfg.borrow_mut() = Some(<$cfg as $cfg_trait>::setup(path));
+                *cfg.borrow_mut() = Some(<$cfg as kannader_config::Config>::setup(path));
             })
         }
 
@@ -156,13 +157,17 @@ macro_rules! implement_guest {
 macro_rules! define_communicator {
     (
         communicator
+            $trait_name:ident
+            $cfg_name:ident : Config
             $host_impler:ident
+            $guest_trait_impler:ident
             $guest_impler:ident
             $did_you_call_fn_name:ident
         {
             $(
                 $fn_name:ident =>
-                    fn $fn:ident ( &self, $( $arg:ident : $mut:tt $ty:ty , )* ) -> $ret:ty ;
+                    fn $fn:ident ( &self, $( $arg:ident : $mut:tt $ty:ty , )* ) -> ($ret:ty)
+                        $terminator:tt
             )+
         }
     ) => {
@@ -302,12 +307,30 @@ pub fn build_host_side(
             };
         }
 
-
+        #[doc(hidden)]
         #[macro_export]
-        macro_rules! $guest_impler {
+        macro_rules! $guest_trait_impler {
             (@mut_ref_ty () $type:ty) => { $type };
             (@mut_ref_ty (&mut) $type:ty) => { &mut $type };
 
+            () => {
+pub trait $trait_name {
+    type Cfg: Config;
+
+    $(
+        #[allow(unused_variables)]
+        fn $fn(
+            $cfg_name: &Self::Cfg,
+            $( $arg: $crate::$guest_trait_impler!(@mut_ref_ty $mut $ty) ),*
+        ) -> $ret $terminator
+    )+
+}
+            };
+        }
+
+
+        #[macro_export]
+        macro_rules! $guest_impler {
             (@mut_ref_expr () $e:expr) => { $e };
             (@mut_ref_expr (&mut) $e:expr) => { &mut $e };
 
@@ -317,13 +340,7 @@ pub fn build_host_side(
             (@if_mut () $e:expr) => { () };
             (@if_mut (&mut) $e:expr) => { $e };
 
-            ($cfg:ty, $vis:vis trait $trait_name:ident, $impl_name:ty) => {
-$vis trait $trait_name {
-    $(
-        fn $fn(cfg: & $cfg, $( $arg: $crate::$guest_impler!(@mut_ref_ty $mut $ty) ),*) -> $ret;
-    )+
-}
-
+            ($impl_name:ty) => {
 $(
     // TODO: handle errors properly (but what does “properly” exactly mean here?
     // anyway, probably not `.unwrap()` / `assert!`...) (and above in the file too)
@@ -335,11 +352,13 @@ $(
         let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
         let ( $( implement_guest!(@mut_pat $mut $arg) ),* ) =
             bincode::deserialize(arg_slice).unwrap();
+
          // Deallocate the argument slice
         deallocate(arg_ptr, arg_size);
+
          // Call the callback
         let res = KANNADER_CFG.with(|cfg| {
-            <$impl_name as $trait_name>::$fn(
+            <$impl_name as kannader_config::$trait_name>::$fn(
                 cfg.borrow().as_ref().unwrap(),
                 $( implement_guest!(@mut_ref_expr $mut $arg) ),*
             )
@@ -375,15 +394,254 @@ fn $did_you_call_fn_name() {
 
 define_communicator! {
     communicator
+        ServerConfig
+        cfg: Config
         server_config_implement_host
+        server_config_implement_guest_trait
         server_config_implement_guest
         DID_YOU_CALL_server_config_implement_guest_MACRO
     {
+        server_config_welcome_banner_reply => fn welcome_banner_reply(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply) ;
+
+        server_config_filter_hello => fn filter_hello(
+            &self,
+            is_ehlo: () bool,
+            hostname: () smtp_message::Hostname,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<smtp_server_types::HelloInfo>) ;
+
+        server_config_can_do_tls => fn can_do_tls(
+            &self,
+            conn_meta: () smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (bool)
+        {
+            !conn_meta.is_encrypted &&
+                conn_meta.hello.as_ref().map(|h| h.is_ehlo).unwrap_or(false)
+        }
+
+        server_config_new_mail => fn new_mail(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (Vec<u8>) ;
+
         server_config_filter_from => fn filter_from(
             &self,
-            from: ( ) Option<smtp_message::Email>,
+            from: () Option<smtp_message::Email>,
             meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
-        ) -> smtp_server_types::SerializableDecision<Option<smtp_message::Email>>;
+        ) -> (smtp_server_types::SerializableDecision<Option<smtp_message::Email>>) ;
+
+        server_config_filter_to => fn filter_to(
+            &self,
+            to: () smtp_message::Email,
+            meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<smtp_message::Email>) ;
+
+        server_config_filter_data => fn filter_data(
+            &self,
+            meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Accept {
+                reply: smtp_server_types::reply::okay_data().convert(),
+                res: (),
+            }
+        }
+
+        server_config_handle_rset => fn handle_rset(
+            &self,
+            meta: (&mut) Option<smtp_server_types::MailMetadata<Vec<u8>>>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Accept {
+                reply: smtp_server_types::reply::okay_rset().convert(),
+                res: (),
+            }
+        }
+
+        server_config_handle_starttls => fn handle_starttls(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            if Self::can_do_tls(cfg, (*conn_meta).clone()) {
+                smtp_server_types::SerializableDecision::Accept {
+                    reply: smtp_server_types::reply::okay_starttls().convert(),
+                    res: (),
+                }
+            } else {
+                smtp_server_types::SerializableDecision::Reject {
+                    reply: smtp_server_types::reply::command_not_supported().convert(),
+                }
+            }
+        }
+
+        server_config_handle_expn => fn handle_expn(
+            &self,
+            name: () smtp_message::MaybeUtf8<String>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Reject {
+                reply: smtp_server_types::reply::command_unimplemented().convert(),
+            }
+        }
+
+        server_config_handle_vrfy => fn handle_vrfy(
+            &self,
+            name: () smtp_message::MaybeUtf8<String>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Accept {
+                reply: smtp_server_types::reply::ignore_vrfy().convert(),
+                res: (),
+            }
+        }
+
+        server_config_handle_help => fn handle_help(
+            &self,
+            subject: () smtp_message::MaybeUtf8<String>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Accept {
+                reply: smtp_server_types::reply::ignore_help().convert(),
+                res: (),
+            }
+        }
+
+        server_config_handle_noop => fn handle_noop(
+            &self,
+            string: () smtp_message::MaybeUtf8<String>,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Accept {
+                reply: smtp_server_types::reply::okay_noop().convert(),
+                res: (),
+            }
+        }
+
+        server_config_handle_quit => fn handle_quit(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_server_types::SerializableDecision<()>)
+        {
+            smtp_server_types::SerializableDecision::Kill {
+                reply: Some(smtp_server_types::reply::okay_quit().convert()),
+                res: Ok(()),
+            }
+        }
+
+        server_config_already_did_hello => fn already_did_hello(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_mail_before_hello => fn mail_before_hello(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_already_in_mail => fn already_in_mail(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_rcpt_before_mail => fn rcpt_before_mail(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_data_before_rcpt => fn data_before_rcpt(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_data_before_mail => fn data_before_mail(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::bad_sequence().convert()
+        }
+
+        server_config_starttls_unsupported => fn starttls_unsupported(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::command_not_supported().convert()
+        }
+
+        server_config_command_unrecognized => fn command_unrecognized(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::command_unrecognized().convert()
+        }
+
+        server_config_pipeline_forbidden_after_starttls => fn pipeline_forbidden_after_starttls(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::pipeline_forbidden_after_starttls().convert()
+        }
+
+        server_config_line_too_long => fn line_too_long(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::line_too_long().convert()
+        }
+
+        server_config_handle_mail_did_not_call_complete => fn handle_mail_did_not_call_complete(
+            &self,
+            conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
+        ) -> (smtp_message::Reply)
+        {
+            smtp_server_types::reply::handle_mail_did_not_call_complete().convert()
+        }
+
+        server_config_reply_write_timeout_in_millis => fn reply_write_timeout_in_millis(
+            &self,
+        ) -> (u64)
+        {
+            // 5 minutes in milliseconds
+            5 * 60 * 1000
+        }
+
+        server_config_command_read_timeout_in_millis => fn command_read_timeout_in_millis(
+            &self,
+        ) -> (u64)
+        {
+            // 5 minutes in milliseconds
+            5 * 60 * 1000
+        }
     }
 }
