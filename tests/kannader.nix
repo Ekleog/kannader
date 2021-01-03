@@ -12,7 +12,7 @@ in
     wantedBy = ["multi-user.target"];
     after = ["network.target"];
     script = ''
-      RUST_LOG="debug,cranelift=info" ${kannader}/bin/kannader -c ${kannader}/lib/kannader_config_example.wasm
+      RUST_LOG="debug,cranelift=info" ${kannader}/bin/kannader -b ${kannader}/lib/kannader_config_example.wasm
     '';
     preStart = ''
       #!/bin/sh
