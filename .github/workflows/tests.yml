@@ -7,7 +7,7 @@ on:
 
 jobs:
   cargo-fmt:
-    name: Cargo Fmt And Clippy
+    name: Cargo Fmt, Clippy and Udeps
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -15,6 +15,9 @@ jobs:
       - run: rm -rf ~/.cargo/bin
       - run: nix-shell --pure --run 'cargo fmt --all -- --check'
       - run: nix-shell --pure --run 'cargo clippy --all --all-features -- -D warnings'
+      # cargo-udeps doesn't support package.target (yet)
+      - run: nix-shell --pure --run 'cargo udeps -p kannader --all-targets'
+      - run: nix-shell --pure --run 'cargo udeps -p kannader-config-example --all-targets --target wasm32-unknown-unknown'
 
   cargo-tests:
     name: Cargo Tests
