@@ -48,12 +48,21 @@ macro_rules! allocator_implement_guest {
                 )
             }
         }
+
+        #[allow(unused)]
+        fn DID_YOU_CALL_implement_guest_MACRO() {
+            DID_YOU_CALL_server_config_implement_guest_MACRO();
+        }
     };
 }
 
 macro_rules! define_communicator {
     (
-        communicator $host_impler:ident $guest_impler:ident {
+        communicator
+            $host_impler:ident
+            $guest_impler:ident
+            $did_you_call_fn_name:ident
+        {
             $(
                 $fn_name:ident =>
                     fn $fn:ident ( &self, $( $arg:ident : $mut:tt $ty:ty , )* ) -> $ret:ty ;
@@ -268,13 +277,22 @@ $(
         ((ret_size as u64) << 32) | (ret_ptr as u64)
     }
 )+
+
+#[allow(unused)]
+fn $did_you_call_fn_name() {
+    DID_YOU_CALL_implement_guest_MACRO();
+}
             };
         }
     }
 }
 
 define_communicator! {
-    communicator server_config_implement_host server_config_implement_guest {
+    communicator
+        server_config_implement_host
+        server_config_implement_guest
+        DID_YOU_CALL_server_config_implement_guest_MACRO
+    {
         server_config_filter_from => fn filter_from(
             &self,
             from: ( ) Option<smtp_message::Email>,
