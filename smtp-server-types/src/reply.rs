@@ -1,7 +1,7 @@
 use smtp_message::{EnhancedReplyCode, MaybeUtf8, Reply, ReplyCode};
 
 #[inline]
-pub fn welcome_banner(hostname: &str, banner: &str) -> Reply<String> {
+pub fn welcome_banner(hostname: &str, banner: &str) -> Reply {
     Reply {
         code: ReplyCode::SERVICE_READY,
         ecode: None,
@@ -11,12 +11,7 @@ pub fn welcome_banner(hostname: &str, banner: &str) -> Reply<String> {
 
 /// Usual value for returning “Okay” from `filter_hello`
 #[inline]
-pub fn okay_hello(
-    is_ehlo: bool,
-    local_hostname: &str,
-    banner: &str,
-    can_do_tls: bool,
-) -> Reply<String> {
+pub fn okay_hello(is_ehlo: bool, local_hostname: &str, banner: &str, can_do_tls: bool) -> Reply {
     let mut built_banner = String::from(local_hostname);
     if !banner.is_empty() {
         built_banner += " ";

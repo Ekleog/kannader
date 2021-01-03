@@ -483,7 +483,7 @@ where
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct Reply<S> {
+pub struct Reply<S = String> {
     pub code: ReplyCode,
     pub ecode: Option<EnhancedReplyCode<S>>,
     // TODO: should we try to make constructing a constant reply noalloc?

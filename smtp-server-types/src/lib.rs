@@ -9,14 +9,14 @@ pub mod reply;
 #[derive(Debug)]
 pub enum Decision<T> {
     Accept {
-        reply: Reply<String>,
+        reply: Reply,
         res: T,
     },
     Reject {
-        reply: Reply<String>,
+        reply: Reply,
     },
     Kill {
-        reply: Option<Reply<String>>,
+        reply: Option<Reply>,
         res: io::Result<()>,
     },
 }
@@ -27,14 +27,14 @@ pub enum Decision<T> {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum SerializableDecision<T> {
     Accept {
-        reply: Reply<String>,
+        reply: Reply,
         res: T,
     },
     Reject {
-        reply: Reply<String>,
+        reply: Reply,
     },
     Kill {
-        reply: Option<Reply<String>>,
+        reply: Option<Reply>,
         res: Result<(), String>,
     },
 }

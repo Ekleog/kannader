@@ -31,7 +31,7 @@ pub trait Config: Send + Sync {
     fn welcome_banner_reply(
         &self,
         conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Reply<String> {
+    ) -> Reply {
         reply::welcome_banner(self.hostname(conn_meta), self.welcome_banner(conn_meta))
     }
 

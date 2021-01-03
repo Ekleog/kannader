@@ -140,25 +140,25 @@ pub enum TransportError {
 
     // TODO: add the command as error context
     #[error("Mail-level transient issue: {0}")]
-    TransientMail(Reply<String>),
+    TransientMail(Reply),
 
     #[error("Mailbox-level transient issue: {0}")]
-    TransientMailbox(Reply<String>),
+    TransientMailbox(Reply),
 
     #[error("Mail system-level transient issue: {0}")]
-    TransientMailSystem(Reply<String>),
+    TransientMailSystem(Reply),
 
     #[error("Mail-level permanent issue: {0}")]
-    PermanentMail(Reply<String>),
+    PermanentMail(Reply),
 
     #[error("Mailbox-level permanent issue: {0}")]
-    PermanentMailbox(Reply<String>),
+    PermanentMailbox(Reply),
 
     #[error("Mail system-level permanent issue: {0}")]
-    PermanentMailSystem(Reply<String>),
+    PermanentMailSystem(Reply),
 
     #[error("Unexpected reply code: {0}")]
-    UnexpectedReplyCode(Reply<String>),
+    UnexpectedReplyCode(Reply),
 
     #[error("Timed out while sending data")]
     TimedOutSendingData,
@@ -239,7 +239,7 @@ async fn read_reply<IO>(
     rdbuf: &mut [u8; RDBUF_SIZE],
     unhandled: &mut Range<usize>,
     timeout: chrono::Duration,
-) -> Result<Reply<String>, TransportError>
+) -> Result<Reply, TransportError>
 where
     IO: Unpin + Send + AsyncRead + AsyncWrite,
 {
@@ -305,7 +305,7 @@ where
     }
 }
 
-fn verify_reply(r: Reply<String>, expected: ReplyCodeKind) -> Result<(), TransportError> {
+fn verify_reply(r: Reply, expected: ReplyCodeKind) -> Result<(), TransportError> {
     use EnhancedReplyCodeSubject::*;
     use ReplyCodeKind::*;
     use TransportError::*;
