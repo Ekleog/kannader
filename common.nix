@@ -5,9 +5,9 @@ rec {
     sha256 = "0cnmvnvin9ixzl98fmlm3g17l6w95gifqfb3rfxs55c0wj2ddy53";
   };
   naerskSrc = builtins.fetchTarball {
-    # TODO: go back to an upstream version once https://github.com/nmattia/naersk/pull/135 lands
-    url = "https://github.com/nmattia/naersk/archive/fbafd172683402310c9907586ac78f8cc609a5f5.tar.gz";
-    sha256 = "0sfrsarg05qx3z3rj5zw51s71i050kyp08gn3912hkrmh2p6ycla";
+    # TODO: go back to an upstream version once https://github.com/nmattia/naersk/pull/136 lands
+    url = "https://github.com/nmattia/naersk/archive/b1ebc5f1b4c3cbacb554d1d2d05d547a4951247d.tar.gz";
+    sha256 = "01z4kj5b9anf01bb99q21xcr8kpfxq3hhpc9gkrv9khni6qpdpmk";
   };
   rustOverlaySrc = builtins.fetchTarball {
     # The following is the latest version as of 2020-12-13
@@ -46,7 +46,7 @@ rec {
         sha256 = "1bh5fjrr245wsj0ib7c7yqp83d7brxbygya9fxjgmvkqra3vlgbj";
       };
       buildInputs = with pkgs; [ openssl pkg-config ];
-      copySources = ["crates/cargo-test-macro" "crates/cargo-test-support"];
+      copySources = ["crates"];
     };
   };
   #rustBetaChannel = pkgs.rustChannelOf {
