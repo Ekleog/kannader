@@ -1412,8 +1412,6 @@ dependencies = [
 name = "kannader-config-types"
 version = "0.1.0"
 dependencies = [
- "bincode",
- "chrono",
  "serde",
  "smtp-message",
  "smtp-server-types",
