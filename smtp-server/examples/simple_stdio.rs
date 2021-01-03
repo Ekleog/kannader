@@ -1,13 +1,13 @@
 #![type_length_limit = "200000000"]
 
-use std::{borrow::Cow, pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use duplexify::Duplex;
 use futures::{executor, io, AsyncRead, AsyncReadExt, AsyncWrite};
 
 use smtp_message::{Email, EscapedDataReader, Reply, ReplyCode};
-use smtp_server::{interact, ConnectionMetadata, Decision, IsAlreadyTls, MailMetadata};
+use smtp_server::{interact, reply, ConnectionMetadata, Decision, IsAlreadyTls, MailMetadata};
 
 struct SimpleConfig;
 
@@ -16,8 +16,8 @@ impl smtp_server::Config for SimpleConfig {
     type ConnectionUserMeta = ();
     type MailUserMeta = ();
 
-    fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> Cow<'static, str> {
-        "simple.example.org".into()
+    fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> &str {
+        "simple.example.org"
     }
 
     async fn new_mail(&self, _conn_meta: &mut ConnectionMetadata<()>) {}
@@ -48,7 +48,7 @@ impl smtp_server::Config for SimpleConfig {
             let loc = from.localpart.raw();
             if loc == "whitelisted" {
                 return Decision::Accept {
-                    reply: self.mail_okay(),
+                    reply: reply::okay_from().convert(),
                     res: Some(from),
                 };
             }
@@ -71,7 +71,7 @@ impl smtp_server::Config for SimpleConfig {
         let loc = to.localpart.raw();
         if loc != "forbidden" {
             Decision::Accept {
-                reply: self.rcpt_okay(),
+                reply: reply::okay_to().convert(),
                 res: to,
             }
         } else {
@@ -115,7 +115,7 @@ impl smtp_server::Config for SimpleConfig {
             }
         } else {
             Decision::Accept {
-                reply: self.mail_accepted(),
+                reply: reply::okay_mail().convert(),
                 res: (),
             }
         }

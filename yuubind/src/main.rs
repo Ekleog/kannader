@@ -7,7 +7,7 @@
 // TODO: make everything configurable, and actually implement the wasm scheme
 // described in the docs
 
-use std::{borrow::Cow, io, path::PathBuf, pin::Pin, rc::Rc, sync::Arc, time::Duration};
+use std::{io, path::PathBuf, pin::Pin, rc::Rc, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -22,7 +22,7 @@ use tracing::{error, info, warn};
 use smtp_message::{Email, Hostname};
 use smtp_queue::QueueId;
 use smtp_queue_fs::FsStorage;
-use smtp_server::Decision;
+use smtp_server::{reply, Decision};
 
 const NUM_THREADS: usize = 4;
 const QUEUE_DIR: &str = "/tmp/yuubind/queue";
@@ -287,6 +287,10 @@ where
     type ConnectionUserMeta = Vec<u8>;
     type MailUserMeta = Vec<u8>;
 
+    fn hostname(&self, _conn_meta: &smtp_server::ConnectionMetadata<Vec<u8>>) -> &str {
+        "localhost"
+    }
+
     // TODO: this could have a default implementation if we were able to have a
     // default type of () for MailUserMeta without requiring unstable
     async fn new_mail(
@@ -337,7 +341,7 @@ where
                 Err(e) => {
                     error!(error = ?e, "Internal server error in ‘filter_from’");
                     Decision::Reject {
-                        reply: self.internal_server_error(),
+                        reply: reply::internal_server_error().convert(),
                     }
                 }
             }
@@ -352,7 +356,7 @@ where
     ) -> Decision<Email> {
         // TODO: this is BAD
         Decision::Accept {
-            reply: self.rcpt_okay(),
+            reply: reply::okay_to().convert(),
             res: to,
         }
     }
@@ -378,7 +382,7 @@ where
             Err(e) => {
                 error!(error = ?anyhow::Error::new(e), "Internal server error while opening an enqueuer");
                 return Decision::Reject {
-                    reply: self.internal_server_error(),
+                    reply: reply::internal_server_error().convert(),
                 };
             }
         };
@@ -406,14 +410,14 @@ where
                             }
                         }
                         return Decision::Reject {
-                            reply: self.internal_server_error(),
+                            reply: reply::internal_server_error().convert(),
                         };
                     }
                 }
                 Err(e) => {
                     error!(error = ?e, "Internal server error while reading data from network");
                     return Decision::Reject {
-                        reply: self.internal_server_error(),
+                        reply: reply::internal_server_error().convert(),
                     };
                 }
             }
@@ -424,7 +428,7 @@ where
             // an error somewhere
             error!("Stream stopped returning any bytes without actually finishing");
             Decision::Reject {
-                reply: self.internal_server_error(),
+                reply: reply::internal_server_error().convert(),
             }
         } else {
             // Stream is finished, let's complete it then commit the file to the queue and
@@ -451,19 +455,15 @@ where
             if let Err(e) = enqueuer.commit(destinations).await {
                 error!(error = ?e, "Internal server error while committing mail");
                 Decision::Reject {
-                    reply: self.internal_server_error(),
+                    reply: reply::internal_server_error().convert(),
                 }
             } else {
                 Decision::Accept {
-                    reply: self.mail_accepted(),
+                    reply: reply::okay_mail().convert(),
                     res: (),
                 }
             }
         }
-    }
-
-    fn hostname(&self, _conn_meta: &smtp_server::ConnectionMetadata<Vec<u8>>) -> Cow<'static, str> {
-        "localhost".into()
     }
 }
 

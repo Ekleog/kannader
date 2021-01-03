@@ -1,20 +1,22 @@
-use std::{borrow::Cow, io};
+use std::io;
 
 use smtp_message::{Email, Hostname, Reply};
+
+pub mod reply;
 
 // TODO: add sanity checks that Accept is a 2xx reply, and Reject/Kill are not
 #[must_use]
 #[derive(Debug)]
 pub enum Decision<T> {
     Accept {
-        reply: Reply<Cow<'static, str>>,
+        reply: Reply<String>,
         res: T,
     },
     Reject {
-        reply: Reply<Cow<'static, str>>,
+        reply: Reply<String>,
     },
     Kill {
-        reply: Option<Reply<Cow<'static, str>>>,
+        reply: Option<Reply<String>>,
         res: io::Result<()>,
     },
 }
@@ -25,15 +27,15 @@ pub enum Decision<T> {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum SerializableDecision<T> {
     Accept {
-        reply: Reply<Cow<'static, str>>,
+        reply: Reply<String>,
         res: T,
     },
     Reject {
-        reply: Reply<Cow<'static, str>>,
+        reply: Reply<String>,
     },
     Kill {
-        reply: Option<Reply<Cow<'static, str>>>,
-        res: Result<(), Cow<'static, str>>,
+        reply: Option<Reply<String>>,
+        res: Result<(), String>,
     },
 }
 

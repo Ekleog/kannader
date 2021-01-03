@@ -1,18 +1,17 @@
 #![cfg_attr(test, feature(negative_impls))]
 #![type_length_limit = "200000000"]
 
-use std::{borrow::Cow, cmp, io, ops::Range, pin::Pin, sync::Arc};
+use std::{cmp, io, ops::Range, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use smol::future::FutureExt;
 use smtp_message::{
-    next_crlf, nom, Command, Email, EnhancedReplyCode, EscapedDataReader, Hostname, MaybeUtf8,
-    NextCrLfState, Reply, ReplyCode,
+    next_crlf, nom, Command, Email, EscapedDataReader, Hostname, MaybeUtf8, NextCrLfState, Reply,
 };
 
-pub use smtp_server_types::{ConnectionMetadata, Decision, HelloInfo, MailMetadata};
+pub use smtp_server_types::{reply, ConnectionMetadata, Decision, HelloInfo, MailMetadata};
 
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
@@ -22,12 +21,24 @@ pub trait Config: Send + Sync {
     type ConnectionUserMeta: Send;
     type MailUserMeta: Send;
 
-    // TODO: this could have a default implementation if we were able to have a
-    // default type of () for MailUserMeta without requiring unstable
-    async fn new_mail(
+    fn hostname(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str;
+
+    #[allow(unused_variables)]
+    fn welcome_banner(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str {
+        "Service ready"
+    }
+
+    fn welcome_banner_reply(
         &self,
-        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Self::MailUserMeta;
+        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Reply<String> {
+        reply::welcome_banner(self.hostname(conn_meta), self.welcome_banner(conn_meta))
+    }
+
+    #[allow(unused_variables)]
+    fn hello_banner(&self, conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>) -> &str {
+        ""
+    }
 
     #[allow(unused_variables)]
     async fn filter_hello(
@@ -36,18 +47,19 @@ pub trait Config: Send + Sync {
         hostname: Hostname,
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<HelloInfo> {
-        // Set early for can_do_tls to be able to use it
-        // TODO: this should all be abstracted away to the configuration
+        // Set `conn_meta.hello` early so that can_do_tls can use it below
         conn_meta.hello = Some(HelloInfo {
             is_ehlo,
             hostname: hostname.clone(),
         });
         Decision::Accept {
-            reply: if is_ehlo {
-                self.ehlo_okay(&conn_meta)
-            } else {
-                self.helo_okay(&conn_meta)
-            },
+            reply: reply::okay_hello(
+                is_ehlo,
+                self.hostname(&conn_meta),
+                self.hello_banner(&conn_meta),
+                self.can_do_tls(&conn_meta),
+            )
+            .convert(),
             res: HelloInfo { is_ehlo, hostname },
         }
     }
@@ -75,6 +87,11 @@ pub trait Config: Send + Sync {
     where
         IO: 'static + Unpin + Send + AsyncRead + AsyncWrite;
 
+    async fn new_mail(
+        &self,
+        conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Self::MailUserMeta;
+
     async fn filter_from(
         &self,
         from: Option<Email>,
@@ -96,7 +113,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Accept {
-            reply: self.data_okay(),
+            reply: reply::okay_data().convert(),
             res: (),
         }
     }
@@ -124,7 +141,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Accept {
-            reply: self.rset_okay(),
+            reply: reply::okay_rset().convert(),
             res: (),
         }
     }
@@ -136,12 +153,12 @@ pub trait Config: Send + Sync {
     ) -> Decision<()> {
         if self.can_do_tls(conn_meta) {
             Decision::Accept {
-                reply: self.starttls_okay(),
+                reply: reply::okay_starttls().convert(),
                 res: (),
             }
         } else {
             Decision::Reject {
-                reply: self.command_not_supported(),
+                reply: reply::command_not_supported().convert(),
             }
         }
     }
@@ -153,7 +170,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Reject {
-            reply: self.command_unimplemented(),
+            reply: reply::command_unimplemented().convert(),
         }
     }
 
@@ -164,13 +181,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Accept {
-            reply: Reply {
-                code: ReplyCode::CANNOT_VRFY_BUT_PLEASE_TRY,
-                ecode: Some(EnhancedReplyCode::SUCCESS_DEST_VALID.into()),
-                text: vec![MaybeUtf8::Utf8(
-                    "Cannot VRFY user, but will accept message and attempt delivery".into(),
-                )],
-            },
+            reply: reply::ignore_vrfy().convert(),
             res: (),
         }
     }
@@ -182,13 +193,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Accept {
-            reply: Reply {
-                code: ReplyCode::HELP_MESSAGE,
-                ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
-                text: vec![MaybeUtf8::Utf8(
-                    "See https://tools.ietf.org/html/rfc5321".into(),
-                )],
-            },
+            reply: reply::ignore_help().convert(),
             res: (),
         }
     }
@@ -200,7 +205,7 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Accept {
-            reply: self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
+            reply: reply::okay_noop().convert(),
             res: (),
         }
     }
@@ -211,229 +216,53 @@ pub trait Config: Send + Sync {
         conn_meta: &mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> Decision<()> {
         Decision::Kill {
-            reply: Some(Reply {
-                code: ReplyCode::CLOSING_CHANNEL,
-                ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
-                text: vec![MaybeUtf8::Utf8("Bye".into())],
-            }),
+            reply: Some(reply::okay_quit().convert()),
             res: Ok(()),
         }
     }
 
-    fn hostname(
-        &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Cow<'static, str>;
-
-    // TODO: extract all the below functions that aren't used directly
-    // from interact to helper functions
-
-    fn banner(
-        &self,
-        _conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Cow<'static, str> {
-        "Service ready".into()
+    fn already_did_hello(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    fn welcome_banner(
-        &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::SERVICE_READY,
-            ecode: None,
-            text: vec![MaybeUtf8::Utf8(
-                self.hostname(conn_meta) + " " + self.banner(conn_meta),
-            )],
-        }
+    fn mail_before_hello(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    fn okay(&self, ecode: EnhancedReplyCode<Cow<'static, str>>) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::OKAY,
-            ecode: Some(ecode),
-            text: vec![MaybeUtf8::Utf8("Okay".into())],
-        }
+    fn already_in_mail(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    #[allow(unused_variables)]
-    fn hello_banner(
-        &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Cow<'static, str> {
-        "".into()
+    fn rcpt_before_mail(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    fn helo_okay(
-        &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Reply<Cow<'static, str>> {
-        let mut banner = self.hostname(conn_meta);
-        let additional_banner = self.hello_banner(conn_meta);
-        if additional_banner.len() > 0 {
-            banner += " ";
-            banner += additional_banner;
-        }
-        Reply {
-            code: ReplyCode::OKAY,
-            ecode: None,
-            text: vec![MaybeUtf8::Utf8(banner)],
-        }
+    fn data_before_rcpt(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    fn ehlo_okay(
-        &self,
-        conn_meta: &ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Reply<Cow<'static, str>> {
-        let mut banner = self.hostname(conn_meta);
-        let additional_banner = self.hello_banner(conn_meta);
-        if additional_banner.len() > 0 {
-            banner += " ";
-            banner += additional_banner;
-        }
-        let mut text = vec![
-            MaybeUtf8::Utf8(banner),
-            MaybeUtf8::Utf8("8BITMIME".into()),
-            MaybeUtf8::Utf8("ENHANCEDSTATUSCODES".into()),
-            MaybeUtf8::Utf8("PIPELINING".into()),
-            MaybeUtf8::Utf8("SMTPUTF8".into()),
-        ];
-        if self.can_do_tls(conn_meta) {
-            text.push(MaybeUtf8::Utf8("STARTTLS".into()));
-        }
-        Reply {
-            code: ReplyCode::OKAY,
-            ecode: None,
-            text,
-        }
+    fn data_before_mail(&self) -> Reply<&str> {
+        reply::bad_sequence()
     }
 
-    fn mail_okay(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
+    fn starttls_unsupported(&self) -> Reply<&str> {
+        reply::command_not_supported()
     }
 
-    fn rcpt_okay(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_DEST_VALID.into())
+    fn command_unrecognized(&self) -> Reply<&str> {
+        reply::command_unrecognized()
     }
 
-    fn data_okay(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::START_MAIL_INPUT,
-            ecode: None,
-            text: vec![MaybeUtf8::Utf8(
-                "Start mail input; end with <CRLF>.<CRLF>".into(),
-            )],
-        }
+    fn pipeline_forbidden_after_starttls(&self) -> Reply<&str> {
+        reply::pipeline_forbidden_after_starttls()
     }
 
-    fn mail_accepted(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
+    fn line_too_long(&self) -> Reply<&str> {
+        reply::line_too_long()
     }
 
-    fn rset_okay(&self) -> Reply<Cow<'static, str>> {
-        self.okay(EnhancedReplyCode::SUCCESS_UNDEFINED.into())
-    }
-
-    fn starttls_okay(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::SERVICE_READY,
-            ecode: Some(EnhancedReplyCode::SUCCESS_UNDEFINED.into()),
-            text: vec![MaybeUtf8::Utf8("Ready to start TLS".into())],
-        }
-    }
-
-    fn bad_sequence(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::BAD_SEQUENCE,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
-            text: vec![MaybeUtf8::Utf8("Bad sequence of commands".into())],
-        }
-    }
-
-    fn already_did_hello(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn mail_before_hello(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn already_in_mail(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn rcpt_before_mail(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn data_before_rcpt(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn data_before_mail(&self) -> Reply<Cow<'static, str>> {
-        self.bad_sequence()
-    }
-
-    fn starttls_unsupported(&self) -> Reply<Cow<'static, str>> {
-        self.command_not_supported()
-    }
-
-    fn pipeline_forbidden_after_starttls(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::BAD_SEQUENCE,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
-            text: vec![MaybeUtf8::Utf8(
-                "Pipelining after starttls is forbidden".into(),
-            )],
-        }
-    }
-
-    fn command_unimplemented(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::COMMAND_UNIMPLEMENTED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
-            text: vec![MaybeUtf8::Utf8("Command not implemented".into())],
-        }
-    }
-
-    fn command_unrecognized(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::COMMAND_UNRECOGNIZED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
-            text: vec![MaybeUtf8::Utf8("Command not recognized".into())],
-        }
-    }
-
-    fn command_not_supported(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::COMMAND_UNIMPLEMENTED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_INVALID_COMMAND.into()),
-            text: vec![MaybeUtf8::Utf8("Command not supported".into())],
-        }
-    }
-
-    fn line_too_long(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::COMMAND_UNRECOGNIZED,
-            ecode: Some(EnhancedReplyCode::PERMANENT_UNDEFINED.into()),
-            text: vec![MaybeUtf8::Utf8("Line too long".into())],
-        }
-    }
-
-    fn internal_server_error(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::LOCAL_ERROR,
-            ecode: Some(EnhancedReplyCode::TRANSIENT_UNDEFINED.into()),
-            text: vec![MaybeUtf8::Utf8("Internal server error".into())],
-        }
-    }
-
-    fn handle_mail_did_not_call_complete(&self) -> Reply<Cow<'static, str>> {
-        Reply {
-            code: ReplyCode::LOCAL_ERROR,
-            ecode: Some(EnhancedReplyCode::TRANSIENT_SYSTEM_INCORRECTLY_CONFIGURED.into()),
-            text: vec![MaybeUtf8::Utf8("System incorrectly configured".into())],
-        }
+    fn handle_mail_did_not_call_complete(&self) -> Reply<&str> {
+        reply::handle_mail_did_not_call_complete()
     }
 
     fn reply_write_timeout(&self) -> chrono::Duration {
@@ -594,7 +423,7 @@ where
         };
     }
 
-    send_reply!(io, cfg.welcome_banner(&conn_meta)).await?;
+    send_reply!(io, cfg.welcome_banner_reply(&conn_meta)).await?;
 
     loop {
         if unhandled.is_empty() {
@@ -851,6 +680,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::{
         self, str,
         sync::{Arc, Mutex},
@@ -859,6 +689,8 @@ mod tests {
     use async_trait::async_trait;
     use duplexify::Duplex;
     use futures::executor;
+
+    use smtp_message::ReplyCode;
 
     /// Used as `println!("{:?}", show_bytes(b))`
     pub fn show_bytes(b: &[u8]) -> String {
@@ -880,7 +712,7 @@ mod tests {
         type ConnectionUserMeta = ();
         type MailUserMeta = ();
 
-        fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> Cow<'static, str> {
+        fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> &str {
             "test.example.org".into()
         }
 
@@ -927,7 +759,7 @@ mod tests {
                 }
             } else {
                 Decision::Accept {
-                    reply: self.mail_okay(),
+                    reply: reply::okay_from().convert(),
                     res: addr,
                 }
             }
@@ -949,7 +781,7 @@ mod tests {
                 }
             } else {
                 Decision::Accept {
-                    reply: self.rcpt_okay(),
+                    reply: reply::okay_to().convert(),
                     res: email,
                 }
             }
@@ -971,7 +803,7 @@ mod tests {
                 // But it allows us to test more code in
                 // interrupted_data.
                 return Decision::Accept {
-                    reply: self.mail_accepted(),
+                    reply: reply::okay_mail().convert(),
                     res: (),
                 };
             }
@@ -998,7 +830,7 @@ mod tests {
                     .expect("failed to load mutex")
                     .push((meta.from, meta.to, mail_text));
                 Decision::Accept {
-                    reply: self.mail_accepted(),
+                    reply: reply::okay_mail().convert(),
                     res: (),
                 }
             }
