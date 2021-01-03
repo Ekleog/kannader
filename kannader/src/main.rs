@@ -25,9 +25,9 @@ use smtp_queue_fs::FsStorage;
 use smtp_server::{reply, Decision};
 
 const NUM_THREADS: usize = 4;
-const QUEUE_DIR: &str = "/tmp/yuubind/queue";
-const CERT_FILE: &str = "/tmp/yuubind/cert.pem";
-const KEY_FILE: &str = "/tmp/yuubind/key.pem";
+const QUEUE_DIR: &str = "/tmp/kannader/queue";
+const CERT_FILE: &str = "/tmp/kannader/cert.pem";
+const KEY_FILE: &str = "/tmp/kannader/key.pem";
 
 const DATABUF_SIZE: usize = 16 * 1024;
 
@@ -52,7 +52,7 @@ impl rustls::ServerCertVerifier for NoCertVerifier {
 }
 
 mod server_config {
-    yuubind_config_types::server_config_implement_host!();
+    kannader_config_types::server_config_implement_host!();
 }
 
 struct WasmConfig {
@@ -469,7 +469,7 @@ where
 
 #[derive(structopt::StructOpt)]
 #[structopt(
-    name = "yuubind",
+    name = "kannader",
     about = "A highly configurable SMTP server written in Rust."
 )]
 struct Opt {
@@ -478,7 +478,7 @@ struct Opt {
         short,
         long,
         parse(from_os_str),
-        default_value = "/etc/yuubind/config.wasm"
+        default_value = "/etc/kannader/config.wasm"
     )]
     // TODO: have wasm configuration blobs pre-provided in /usr/lib or similar
     config: PathBuf,
@@ -490,7 +490,7 @@ fn main() -> anyhow::Result<()> {
 
     // Setup logging
     tracing_subscriber::fmt::init();
-    info!("Yuubind starting up");
+    info!("Kannader starting up");
 
     // Load the configuration and run WasmConfig::new once to make sure errors are
     // caught early on

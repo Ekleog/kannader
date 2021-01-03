@@ -1,9 +1,9 @@
+use kannader_config::server;
 use smtp_message::{Email, EnhancedReplyCode, MaybeUtf8, Reply, ReplyCode};
-use yuubind_config::server;
 
-yuubind_config::allocator_implement_guest!();
+kannader_config::allocator_implement_guest!();
 
-yuubind_config::server_config_implement_guest!(mod server_config, ServerConfig);
+kannader_config::server_config_implement_guest!(mod server_config, ServerConfig);
 
 struct ServerConfig;
 

@@ -215,8 +215,9 @@ $vis mod $mod_name {
     use $crate::$guest_impler as implement_guest;
 
     extern "C" {
-        // These functions are defined in yuubind-config, which depends on this crate so
-        // we can't depend on it or it'll end up as an infinite loop.
+        // These functions are defined in kannader-config, which
+        // depends on this crate so we can't depend on it or it'll end
+        // up as an infinite loop.
         pub fn allocate(size: usize) -> usize;
         pub fn deallocate(ptr: usize, size: usize);
     }

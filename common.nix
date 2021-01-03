@@ -19,7 +19,7 @@ rec {
     overlays = [
       rustOverlay
       (self: super: {
-        yuubind = import ./. {};
+        kannader = import ./. {};
       })
     ];
   };

@@ -3,7 +3,7 @@
 with import ./common.nix;
 
 naersk.buildPackage {
-  pname = "yuubind";
+  pname = "kannader";
   version = "dev";
 
   src = pkgs.lib.sourceFilesBySuffices ./. [".rs" ".toml" ".lock" ".capnp"];

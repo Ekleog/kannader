@@ -1,5 +1,5 @@
 [package]
-name = "yuubind"
+name = "kannader"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
 license = "MIT"
@@ -35,4 +35,4 @@ smtp-queue-fs = { path = "../smtp-queue-fs" }
 smtp-message = { path = "../smtp-message" }
 smtp-server = { path = "../smtp-server" }
 smtp-server-types = { path = "../smtp-server-types" }
-yuubind-config-types = { path = "../yuubind-config-types" }
+kannader-config-types = { path = "../kannader-config-types" }

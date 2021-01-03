@@ -1072,7 +1072,7 @@ mod tests {
 
     fn setup<F: AsRef<Path>>(fixture: F) -> (TempDir, Arc<PathBuf>) {
         // Create temporary directory
-        let dir = TempDir::new("yuubind-test").expect("creating tempdir");
+        let dir = TempDir::new("smtp-queue-fs-test").expect("creating tempdir");
         println!("Directory is at {}", dir.path().display());
 
         // Copy the fixture in place, removing the .empty files

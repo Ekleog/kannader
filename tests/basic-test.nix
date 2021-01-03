@@ -13,8 +13,8 @@ with import ../common.nix;
     };
 
     # 192.168.1.2
-    srv2_yuubind = { pkgs, ... }: {
-      imports = [ ./yuubind.nix ];
+    srv2_kannader = { pkgs, ... }: {
+      imports = [ ./kannader.nix ];
 
       # TODO: also test ipv6
       services.unbound = {
@@ -43,8 +43,8 @@ with import ../common.nix;
     start_all()
 
     srv1_py_smtplib.wait_for_unit("network-online.target")
-    srv2_yuubind.wait_for_unit("unbound")
-    srv2_yuubind.wait_for_open_port(2525)
+    srv2_kannader.wait_for_unit("unbound")
+    srv2_kannader.wait_for_open_port(2525)
     srv3_opensmtpd.wait_for_open_port(25)
 
     srv1_py_smtplib.succeed(
@@ -66,7 +66,7 @@ with import ../common.nix;
     )
 
     # TODO: replace this with waits on the proper commands that list the queues
-    srv2_yuubind.succeed("sleep 10")
+    srv2_kannader.succeed("sleep 10")
 
     srv3_opensmtpd.succeed("check-test-mail 'alice@local' 'bob@[192.168.1.3]' 'cookies'")
     srv3_opensmtpd.succeed(

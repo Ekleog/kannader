@@ -1,7 +1,7 @@
 with import ./common.nix;
 
 pkgs.stdenv.mkDerivation {
-  name = "yuubind";
+  name = "kannader";
   buildInputs = (
     (with pkgs; [
       cacert

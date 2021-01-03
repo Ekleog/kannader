@@ -1355,6 +1355,75 @@ dependencies = [
 ]
 
 [[package]]
+name = "kannader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-std-resolver",
+ "async-tls",
+ "async-trait",
+ "bincode",
+ "chrono",
+ "duplexify",
+ "easy-parallel",
+ "futures",
+ "kannader-config-types",
+ "rustls",
+ "scoped-tls",
+ "serde",
+ "smol",
+ "smtp-client",
+ "smtp-message",
+ "smtp-queue",
+ "smtp-queue-fs",
+ "smtp-server",
+ "smtp-server-types",
+ "structopt",
+ "tracing",
+ "tracing-subscriber",
+ "trust-dns-resolver",
+ "wasmtime",
+ "webpki",
+]
+
+[[package]]
+name = "kannader-config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kannader-config-types",
+ "static_assertions",
+]
+
+[[package]]
+name = "kannader-config-example"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kannader-config",
+ "smtp-message",
+ "smtp-server-types",
+]
+
+[[package]]
+name = "kannader-config-types"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "serde",
+ "smtp-message",
+ "smtp-server-types",
+]
+
+[[package]]
+name = "kannader-rpc"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+]
+
+[[package]]
 name = "kernel32-sys"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3271,75 +3340,6 @@ name = "wyz"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85e60b0d1b5f99db2556934e21937020776a5d31520bf169e851ac44e6420214"
-
-[[package]]
-name = "yuubind"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-std-resolver",
- "async-tls",
- "async-trait",
- "bincode",
- "chrono",
- "duplexify",
- "easy-parallel",
- "futures",
- "rustls",
- "scoped-tls",
- "serde",
- "smol",
- "smtp-client",
- "smtp-message",
- "smtp-queue",
- "smtp-queue-fs",
- "smtp-server",
- "smtp-server-types",
- "structopt",
- "tracing",
- "tracing-subscriber",
- "trust-dns-resolver",
- "wasmtime",
- "webpki",
- "yuubind-config-types",
-]
-
-[[package]]
-name = "yuubind-config"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "static_assertions",
- "yuubind-config-types",
-]
-
-[[package]]
-name = "yuubind-config-example"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "smtp-message",
- "smtp-server-types",
- "yuubind-config",
-]
-
-[[package]]
-name = "yuubind-config-types"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "serde",
- "smtp-message",
- "smtp-server-types",
-]
-
-[[package]]
-name = "yuubind-rpc"
-version = "0.1.0"
-dependencies = [
- "capnp",
- "capnpc",
-]
 
 [[package]]
 name = "zstd"

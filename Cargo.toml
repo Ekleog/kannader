@@ -3,11 +3,11 @@ members = [ "smtp-message", "smtp-message/fuzz",
             "smtp-client",
             "smtp-server-types", "smtp-server", "smtp-server/fuzz",
             "smtp-queue", "smtp-queue-fs",
-            "yuubind-rpc",
-            "yuubind",
-            "yuubind-config-types",
-            "yuubind-config",
-            "yuubind-config-example",
+            "kannader-rpc",
+            "kannader",
+            "kannader-config-types",
+            "kannader-config",
+            "kannader-config-example",
             "benches" ]
 
 [profile.release]

@@ -1,24 +1,24 @@
 { pkgs, ... }:
 
 let
-  # TODO: should have pkgs.yuubind instead of this import, after
+  # TODO: should have pkgs.kannader instead of this import, after
   # having figured out how to make sure pkgs is the overlayed pkgs
-  yuubind = import ../default.nix {};
+  kannader = import ../default.nix {};
 in
 {
   networking.firewall.allowedTCPPorts = [ 2525 ];
 
-  systemd.services.yuubind = {
+  systemd.services.kannader = {
     wantedBy = ["multi-user.target"];
     after = ["network.target"];
     script = ''
-      RUST_LOG="debug,cranelift=info" ${yuubind}/bin/yuubind -c ${yuubind}/lib/yuubind_config_example.wasm
+      RUST_LOG="debug,cranelift=info" ${kannader}/bin/kannader -c ${kannader}/lib/kannader_config_example.wasm
     '';
     preStart = ''
       #!/bin/sh
       set -ex
 
-      mkdir /tmp/yuubind
+      mkdir /tmp/kannader
 
       cp ${pkgs.writeText "cert.pem" ''
         -----BEGIN CERTIFICATE-----
@@ -48,7 +48,7 @@ in
         xOIxv/Ye5gFk1knuM7OzpUFBrXUHdVVxflCUqNAhFPbcXwjgEQ+A+S5B0vI6Ohue
         ZnR/wuiou6Y+Yzh8XfqL/3H18mGDdjyMXI1B6l4Judk000UVyr46cnI7mw==
         -----END CERTIFICATE-----
-      ''} /tmp/yuubind/cert.pem
+      ''} /tmp/kannader/cert.pem
 
       cp ${pkgs.writeText "key.pem" ''
         -----BEGIN PRIVATE KEY-----
@@ -103,7 +103,7 @@ in
         ex8ejCcS7qpHeULYspXbm5ZcwE4glKlQbJDTKaJ9mjiMdvuNFUZnv1BdMQ3Tb8zf
         Gvfq54FbDuB10XP8JdLrsy9Z6GEsmoE=
         -----END PRIVATE KEY-----
-      ''} /tmp/yuubind/key.pem
+      ''} /tmp/kannader/key.pem
     '';
   };
 }

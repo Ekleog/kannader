@@ -1,11 +1,11 @@
 [package]
-name = "yuubind-rpc"
+name = "kannader-rpc"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
 license = "MIT"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
-description = "RPC definitions for yuubind"
+description = "RPC definitions for kannader"
 edition = "2018"
 build = "build.rs"
 

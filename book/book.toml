@@ -3,8 +3,8 @@ authors = ["Léo Gaspard"]
 language = "en"
 multilingual = false
 src = "src"
-title = "yuubind"
+title = "kannader"
 
 [output.html]
 preferred-dark-theme = "ayu"
-git-repository-url = "https://github.com/Ekleog/yuubind"
+git-repository-url = "https://github.com/Ekleog/kannader"

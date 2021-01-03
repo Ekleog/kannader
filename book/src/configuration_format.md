@@ -1,6 +1,6 @@
 # Configuration Format
 
-Yuubind's distinctive feature is its configuration format. The
+Kannader's distinctive feature is its configuration format. The
 objective is to have the configuration be as flexible and fast as
 could be, yet be easily usable for users with simple needs.
 
@@ -12,20 +12,20 @@ expose its flexibility in an easy-to-use format.
 
 ## Flexibility
 
-The first and foremost property we need for yuubind's configuration
-format is flexibility. It is flexibility that will allow yuubind to be
-usable in most contexts, and it is the one that will be built on to
+The first and foremost property we need for kannader's configuration
+format is flexibility. It is flexibility that will allow kannader to
+be usable in most contexts, and it is the one that will be built on to
 provide easy-to-use configuration formats.
 
 As a consequence, it is the one on which no compromise is possible.
 
-For maximal flexibility, yuubind is designed as a set of
+For maximal flexibility, kannader is designed as a set of
 libraries. However, libraries are not what a system administrator
 wants to have to manage. As a consequence, a more configuration-y
 configuration format is required.
 
 This configuration format consists, basically, in hooks to the
-behavior of yuubind. Every place a hook could be used for doing
+behavior of kannader. Every place a hook could be used for doing
 something reasonably useful, a hook should be available.
 
 ## Performance
@@ -36,15 +36,15 @@ performant. Would that not be the case, the whole server would be
 slowed down.
 
 Performant hooks are usually written in Lua. This is what was
-considered in the first design of yuubind's configuration format.
+considered in the first design of kannader's configuration format.
 
 However, Lua has some big issues: the only good implementations that
 exist are all written in C, and running such code unsandboxed would go
-against yuubind's safety motto. It would be surprising if not a single
-security flaw was present in Lua[^security]. Another major issue of
-Lua is its being exotic. While other programs, like rspamd or nginx,
-already use or allow Lua scripting, system administrators usually are
-not fluent in Lua.
+against kannader's safety motto. It would be surprising if not a
+single security flaw was present in Lua[^security]. Another major
+issue of Lua is its being exotic. While other programs, like rspamd or
+nginx, already use or allow Lua scripting, system administrators
+usually are not fluent in Lua.
 
 This led to searching for another option. Thus arose the idea of
 sandboxing a Lua VM: it is possible to run any kind of interpreter
@@ -62,30 +62,30 @@ extremely fast, yet allows for near-perfect configurability.
 
 The one thing that wasm gets really, really wrong, among our
 requirements, is ease of use. Yet, it is maybe one of our most
-important objectives with yuubind's configuration format: to provide a
-configurable, *yet easy* configuration format.
+important objectives with kannader's configuration format: to provide
+a configurable, *yet easy* configuration format.
 
 This can thankfully be worked around, by using “wrappers.” These take
 the configurability of the wasm hooks, and turn it into an easy-to-use
 format.
 
 These “wrappers” are, in fact, only pre-compiled wasm blobs that are
-provided alongside yuubind. They provide configuration formats that
+provided alongside kannader. They provide configuration formats that
 vary in ease-of-use and configurability, allowing to adjust the knob
 between the two.
 
-Yuubind, being passed a wasm configuration blob at startup (as well as
-a list of which local and remote resources should be made available to
-the sandbox), can thus simply provide pre-built wasm configuration
+Kannader, being passed a wasm configuration blob at startup (as well
+as a list of which local and remote resources should be made available
+to the sandbox), can thus simply provide pre-built wasm configuration
 blobs that then parse and enforce a specific configuration format.
 
 ## Configuration blob examples
 
 An example of what such configuration blobs could do would be to read
 a format that mimicks OpenSMTPD's configuration format, and then
-translates it into the appropriate yuubind hooks, for easy migration.
+translates it into the appropriate kannader hooks, for easy migration.
 This takes a “regular” previously-existing SMTP server's configuration
-file, and turns it into a yuubind configuration.
+file, and turns it into a kannader configuration.
 
 But more interesting things can be done with this scheme. For
 instance, it is possible to have the wasm configuration blob read a
@@ -100,15 +100,15 @@ probably be more familiar to the sysadmin, yet usable for most
 non-maximal-performance use cases.
 
 But it is possible to do more than just have configuration blobs that
-read a generic configuration file and converts it into yuubind hooks.
+read a generic configuration file and converts it into kannader hooks.
 It is also possible to have the choice of the configuration blob
 itself *be* part of the configuration. For instance, a configuration
 blob could handle the “local server with local users only” use case,
 that would setup authentication for all sending that's not directed
 towards local users (using callbacks provided by eg. MicroPython code
-for things like knowing whether a user is local), antispam and antivirus
-if configured to do so, and maybe even automatically validate the
-`From:` header if configured to.
+for things like knowing whether a user is local), antispam and
+antivirus if configured to do so, and maybe even automatically
+validate the `From:` header if configured to.
 
 This is a case of encoding domain-specific knowledge in the
 configuration blob, in order to make it much easier to write. It
@@ -133,7 +133,7 @@ compile their own.
 
 [^python]: While it may appear surprising to suggest MicroPython
 insted of a regular CPython instance, this is based on the fact that
-yuubind needs to have one interpreter instance per message in flight,
+kannader needs to have one interpreter instance per message in flight,
 to make sure there is no interference between two messages. As such,
 the CPython resident memory size would probably be prohibitive for use
 cases that see a high number of emails flow through. Use cases that

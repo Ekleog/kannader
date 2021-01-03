@@ -2,9 +2,9 @@
 
 ## High-Level Overview
 
-Yuubind, as a library design, supports any storage mechanism that can
+Kannader, as a library design, supports any storage mechanism that can
 implement the
-[`Storage`](https://ekleog.github.io/yuubind/dev-doc/smtp_queue/trait.Storage.html)
+[`Storage`](https://ekleog.github.io/kannader/dev-doc/smtp_queue/trait.Storage.html)
 trait.
 
 The core idea of this trait is, that each function must either
@@ -22,8 +22,8 @@ The storage must provide basically three sets of primitives:
 
 This being said, we do not expect system administrators to write their
 own storage systems, unless they have very particular needs. As a
-consequence, an implementation is provided with yuubind, and bundled
-in yuubind the executable, that works with a local filesystem queue
+consequence, an implementation is provided with kannader, and bundled
+in kannader the executable, that works with a local filesystem queue
 like most other SMTP servers do by default.
 
 ## Provided implementation: queueing with the local filesystem
@@ -50,8 +50,8 @@ point into `<queue>/data` as relative links.
    folder
  - Creating a symlink in the `<queue>/queue` folder is atomic
  - Once a write is flushed without error, it is guaranteed not to be
-   changed by something other than a yuubind instance (or another
-   system aware of yuubind's protocol and guarantees)
+   changed by something other than a kannader instance (or another
+   system aware of kannader's protocol and guarantees)
 
 ### `<queue>/data`
 
