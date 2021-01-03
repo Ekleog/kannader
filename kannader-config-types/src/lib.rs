@@ -91,7 +91,7 @@ macro_rules! implement_host {
             unsafe {
                 std::intrinsics::volatile_copy_nonoverlapping_memory(
                     memory.data_ptr().add(arg_ptr as usize),
-                    &arg_vec[0],
+                    arg_vec.as_ptr(),
                     arg_size as usize,
                 );
             }
@@ -261,7 +261,7 @@ pub fn build_host_side(
                 unsafe {
                     std::intrinsics::volatile_copy_nonoverlapping_memory(
                         memory.data_ptr().add(arg_ptr as usize),
-                        &arg_vec[0],
+                        arg_vec.as_ptr(),
                         arg_size as usize,
                     );
                 }
@@ -283,7 +283,7 @@ pub fn build_host_side(
                 let mut res_msg = vec![0; res_size];
                 unsafe {
                     std::intrinsics::volatile_copy_nonoverlapping_memory(
-                        &mut res_msg[0],
+                        res_msg.as_mut_ptr(),
                         memory.data_ptr().add(res_ptr),
                         res_size,
                     );
