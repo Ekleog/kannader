@@ -151,6 +151,7 @@ pub enum EnhancedReplyCodeSubject {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+// Note: S is here always ascii-only, as we know the regex it matches
 pub struct EnhancedReplyCode<S> {
     pub raw: S,
     pub class: EnhancedReplyCodeClass,
@@ -373,6 +374,20 @@ impl EnhancedReplyCode<&str> {
     }
 }
 
+impl<T> EnhancedReplyCode<T> {
+    pub fn convert<U>(self) -> EnhancedReplyCode<U>
+    where
+        U: From<T>,
+    {
+        EnhancedReplyCode {
+            raw: self.raw.into(),
+            class: self.class,
+            raw_subject: self.raw_subject,
+            raw_detail: self.raw_detail,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReplyLine<S> {
@@ -540,6 +555,19 @@ impl Reply<&str> {
             code: self.code,
             ecode: self.ecode.map(|c| c.to_owned()),
             text: self.text.into_iter().map(|l| l.to_owned()).collect(),
+        }
+    }
+}
+
+impl<U> Reply<U> {
+    pub fn convert<T>(self) -> Reply<T>
+    where
+        T: From<U>,
+    {
+        Reply {
+            code: self.code,
+            ecode: self.ecode.map(|e| e.convert()),
+            text: self.text.into_iter().map(|t| t.convert()).collect(),
         }
     }
 }

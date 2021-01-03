@@ -197,6 +197,18 @@ where
     }
 }
 
+impl<T> MaybeUtf8<T> {
+    pub fn convert<U>(self) -> MaybeUtf8<U>
+    where
+        U: From<T>,
+    {
+        match self {
+            MaybeUtf8::Ascii(s) => MaybeUtf8::Ascii(s.into()),
+            MaybeUtf8::Utf8(s) => MaybeUtf8::Utf8(s.into()),
+        }
+    }
+}
+
 // TODO: Ideally the ipv6 and ipv4 variants would be parsed in the single regex
 // pass. However, that's hard to do, so let's just not do it for now and keep it
 // as an optimization. So for now, it's just as well to return the parsed IPs,
