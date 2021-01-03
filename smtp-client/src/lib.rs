@@ -346,7 +346,7 @@ where
 
 pub struct Client<C, P, Cfg>
 where
-    C: trust_dns_resolver::proto::DnsHandle,
+    C: trust_dns_resolver::proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>,
     Cfg: Config,
 {
@@ -356,7 +356,7 @@ where
 
 impl<C, P, Cfg> Client<C, P, Cfg>
 where
-    C: trust_dns_resolver::proto::DnsHandle,
+    C: trust_dns_resolver::proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>,
     Cfg: Config,
 {

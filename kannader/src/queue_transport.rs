@@ -40,12 +40,12 @@ fn transport_error_client_to_queue(
 
 pub struct QueueTransport<C, P>(smtp_client::Client<C, P, ClientConfig>)
 where
-    C: trust_dns_resolver::proto::DnsHandle,
+    C: trust_dns_resolver::proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>;
 
 impl<C, P> QueueTransport<C, P>
 where
-    C: trust_dns_resolver::proto::DnsHandle,
+    C: trust_dns_resolver::proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>,
 {
     pub fn new(client: smtp_client::Client<C, P, ClientConfig>) -> QueueTransport<C, P> {
@@ -56,7 +56,7 @@ where
 #[async_trait]
 impl<C, P> smtp_queue::Transport<Meta> for QueueTransport<C, P>
 where
-    C: trust_dns_resolver::proto::DnsHandle,
+    C: trust_dns_resolver::proto::DnsHandle<Error = trust_dns_resolver::error::ResolveError>,
     P: trust_dns_resolver::ConnectionProvider<Conn = C>,
 {
     type Destination = smtp_client::Destination;
