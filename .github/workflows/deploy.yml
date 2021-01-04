@@ -39,4 +39,4 @@ jobs:
           chmod 0600 deploy_key
           ssh-add deploy_key
           
-          git push -f git@github.com:Ekleog/yuubind master:gh-pages
+          git push -f git@github.com:Ekleog/kannader master:gh-pages
