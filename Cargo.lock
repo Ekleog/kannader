@@ -2221,9 +2221,9 @@ dependencies = [
 
 [[package]]
 name = "rustyknife"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e835594f7d5f13c42affa9757a526a7ad4791e2dd09265678564903c6bda1083"
+checksum = "03c8a8e4530f2f72db71cd33e0d9eb7d04db6d2a2552a6dd28f6f5b8335b0dae"
 dependencies = [
  "base64 0.13.0",
  "encoding",

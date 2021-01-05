@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 criterion = "0.3.2"
-rustyknife = "0.2.8"
+rustyknife = "0.2.11"
 
 smtp-message = { path = "../smtp-message" }
 
