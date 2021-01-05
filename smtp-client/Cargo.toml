@@ -14,7 +14,7 @@ bitflags = "1.2.1"
 chrono = "0.4.19"
 duplexify = "1.2.2"
 futures = { version = "0.3.8", features = ["write-all-vectored"] }
-rand = "0.8.0"
+rand = "0.8.1"
 smol = "1.2.5"
 thiserror = "1.0.22"
 trust-dns-resolver = { version = "0.20.0", default-features = false }
