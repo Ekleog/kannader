@@ -42,6 +42,10 @@ macro_rules! implement_host {
         // TODO: take struct name as argument instead of forcing the caller to put in a
         // mod (and same below)
         // TODO: factor code out with the below similar code to serialize the argument
+        // TODO: make sure we deallocate the buffers in case any error happens (note
+        // however that currently wasm supports only panic=abort which generates a trap,
+        // so handling panics in wasm properly must be left for later when this is fixed
+        // upstream)
         pub fn setup(
             path: &Path,
             instance: &wasmtime::Instance,

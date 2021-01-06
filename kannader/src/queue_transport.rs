@@ -6,6 +6,7 @@ use smtp_message::Hostname;
 
 use crate::{ClientConfig, Meta};
 
+// TODO: are there things that are interesting to configure in here?
 fn transport_error_client_to_queue(
     err: smtp_client::TransportError,
     text: &'static str,
