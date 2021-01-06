@@ -266,9 +266,9 @@ dependencies = [
 
 [[package]]
 name = "auto_enums"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d1c3e6bb781d73900cad9293275f3a134b86e62a2c12458a88c73897e4d188a"
+checksum = "fe0dfe45d75158751e195799f47ea02e81f570aa24bc5ef999cdd9e888c4b5c3"
 dependencies = [
  "auto_enums_core",
  "auto_enums_derive",
@@ -276,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "auto_enums_core"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d087fceae408b94a67fdf0431027705f940cd8fa034966d5a9606b5b8bbad93f"
+checksum = "da47c46001293a2c4b744d731958be22cff408a2ab76e2279328f9713b1267b4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -287,9 +287,9 @@ dependencies = [
 
 [[package]]
 name = "auto_enums_derive"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a616eb7597fd9d0bb352dac760eb101f1b610fd6df552dd25f508afc498b2c5"
+checksum = "41aed1da83ecdc799503b7cb94da1b45a34d72b49caf40a61d9cf5b88ec07cfd"
 dependencies = [
  "autocfg",
  "derive_utils",
