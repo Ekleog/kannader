@@ -3,15 +3,15 @@ use std::{path::Path, rc::Rc};
 use anyhow::{anyhow, Context};
 
 pub mod setup {
-    kannader_config_types::implement_host!();
+    kannader_config_macros::implement_host!();
 }
 
 pub mod server_config {
-    kannader_config_types::server_config_implement_host_client!();
+    kannader_config_macros::server_config_implement_host_client!(WasmFuncs);
 }
 
 pub struct WasmConfig {
-    pub server_config: server_config::HostSide,
+    pub server_config: server_config::WasmFuncs,
 }
 
 impl WasmConfig {
@@ -46,7 +46,7 @@ impl WasmConfig {
         let deallocate = Rc::new(get_func!(get2, "deallocate"));
 
         let res = WasmConfig {
-            server_config: server_config::build_host_side(&instance, allocate.clone(), deallocate)
+            server_config: server_config::WasmFuncs::build(&instance, allocate.clone(), deallocate)
                 .context("Getting server configuration")?,
         };
 

@@ -1359,7 +1359,7 @@ dependencies = [
  "duplexify",
  "easy-parallel",
  "futures",
- "kannader-config-types",
+ "kannader-config-macros",
  "rustls",
  "scoped-tls",
  "serde",
@@ -1382,7 +1382,7 @@ dependencies = [
 name = "kannader-config"
 version = "0.1.0"
 dependencies = [
- "kannader-config-types",
+ "kannader-config-macros",
  "smtp-message",
  "smtp-server-types",
  "static_assertions",
@@ -1399,12 +1399,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kannader-config-types"
+name = "kannader-config-macros"
 version = "0.1.0"
 dependencies = [
- "serde",
- "smtp-message",
- "smtp-server-types",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2586,9 +2586,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.57"
+version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4211ce9909eb971f111059df92c45640aad50a619cf55cd76476be803c4c68e6"
+checksum = "cc60a3d73ea6594cd712d830cc1f0390fd71542d8c8cd24e70cc54cdfd5e05d5"
 dependencies = [
  "proc-macro2",
  "quote",

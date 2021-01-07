@@ -16,6 +16,6 @@ test = false
 [dependencies]
 static_assertions = "1.1.0"
 
-kannader-config-types = { path = "../kannader-config-types" }
+kannader-config-macros = { path = "../kannader-config-macros" }
 smtp-message = { path = "../smtp-message" }
 smtp-server-types = { path = "../smtp-server-types" }

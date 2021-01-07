@@ -35,4 +35,4 @@ smtp-queue-fs = { path = "../smtp-queue-fs" }
 smtp-message = { path = "../smtp-message" }
 smtp-server = { path = "../smtp-server" }
 smtp-server-types = { path = "../smtp-server-types" }
-kannader-config-types = { path = "../kannader-config-types" }
+kannader-config-macros = { path = "../kannader-config-macros" }

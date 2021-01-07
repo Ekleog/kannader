@@ -5,7 +5,7 @@ members = [ "smtp-message", "smtp-message/fuzz",
             "smtp-queue", "smtp-queue-fs",
             "kannader-rpc",
             "kannader",
-            "kannader-config-types",
+            "kannader-config-macros",
             "kannader-config",
             "kannader-config-example",
             "benches" ]
