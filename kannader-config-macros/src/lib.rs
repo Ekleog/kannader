@@ -355,6 +355,21 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 None
             }
         });
+        let failed_to_find_export = format!("Failed to find function export ‘{}’", ffi_name);
+        let checking_type = format!("Checking the type of ‘{}’", ffi_name);
+        let figuring_out_size_to_allocate_for_arg_buf = format!(
+            "Figuring out size to allocate for argument buffer for ‘{}’",
+            ffi_name
+        );
+        let allocating_arg_buf = format!("Allocating argument buffer for ‘{}’", ffi_name);
+        let serializing_arg_buf = format!("Serializing argument buffer for ‘{}’", ffi_name);
+        let running_wasm_func = format!("Running wasm function ‘{}’", ffi_name);
+        let returned_alloc_outside_of_memory = format!(
+            "Wasm function ‘{}’ returned allocation outside of its memory",
+            ffi_name,
+        );
+        let deallocating_ret_buf = format!("Deallocating return buffer for function ‘{}’", ffi_name);
+        let deserializing_ret_msg = format!("Deserializing return message of ‘{}’", ffi_name);
         quote! {
             let #fn_name = {
                 let memory = memory.clone();
@@ -363,9 +378,9 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
 
                 let wasm_fun = instance
                     .get_func(#ffi_name_str)
-                    .ok_or_else(|| anyhow!("Failed to find function export ‘{}’", #ffi_name_str))?
+                    .ok_or_else(|| anyhow::Error::msg(#failed_to_find_export))?
                     .get2()
-                    .with_context(|| format!("Checking the type of ‘{}’", #ffi_name_str))?;
+                    .context(#checking_type)?;
 
                 fn force_type<F: Fn(u32, u32) -> Result<u64, wasmtime::Trap>>(_: &F) {}
                 force_type(&wasm_fun);
@@ -375,12 +390,8 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                     let arg = ( #(#encode_args),* );
 
                     // Compute the size of the argument
-                    let arg_size: u64 = bincode::serialized_size(&arg).with_context(|| {
-                        format!(
-                            "Figuring out size to allocate for argument buffer for ‘{}’",
-                            #ffi_name_str
-                        )
-                    })?;
+                    let arg_size: u64 = bincode::serialized_size(&arg)
+                        .context(#figuring_out_size_to_allocate_for_arg_buf)?;
                     debug_assert!(
                         arg_size <= u32::MAX as u64,
                         "Message size above u32::MAX, something is really wrong"
@@ -388,8 +399,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                     let arg_size = arg_size as u32;
 
                     // Allocate argument buffer
-                    let arg_ptr = allocate(arg_size)
-                        .with_context(|| format!("Allocating argument buffer for ‘{}’", #ffi_name_str))?;
+                    let arg_ptr = allocate(arg_size).context(#allocating_arg_buf)?;
                     ensure!(
                         (arg_ptr as usize).saturating_add(arg_size as usize) < memory.data_size(),
                         "Wasm allocator returned allocation outside of its memory"
@@ -398,8 +408,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                     // Serialize to argument buffer
                     // TODO: implement io::Write for a VolatileWriter that directly
                     // volatile-copies the message bytes to wasm memory
-                    let arg_vec = bincode::serialize(&arg)
-                        .with_context(|| format!("Serializing argument buffer for ‘{}’", #ffi_name_str))?;
+                    let arg_vec = bincode::serialize(&arg).context(#serializing_arg_buf)?;
                     debug_assert_eq!(
                         arg_size as usize,
                         arg_vec.len(),
@@ -416,14 +425,12 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                     }
 
                     // Call the function
-                    let res_u64 = wasm_fun(arg_ptr, arg_size)
-                        .with_context(|| format!("Running wasm function ‘{}’", #ffi_name_str))?;
+                    let res_u64 = wasm_fun(arg_ptr, arg_size).context(#running_wasm_func)?;
                     let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
                     let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
                     ensure!(
                         res_ptr.saturating_add(res_size) < memory.data_size(),
-                        "Wasm function ‘{}’ returned allocation outside of its memory",
-                        #ffi_name_str,
+                        #returned_alloc_outside_of_memory
                     );
 
                     // Recover the return slice
@@ -439,13 +446,12 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                     }
 
                     // Deallocate the return slice
-                    deallocate(res_ptr as u32, res_size as u32)
-                        .with_context(|| format!("Deallocating return buffer for function ‘{}’", #ffi_name_str))?;
+                    deallocate(res_ptr as u32, res_size as u32).context(#deallocating_ret_buf)?;
 
                     // Read the result
                     let res;
                     (res, #(#result_assignment),*) = bincode::deserialize(&res_msg)
-                        .with_context(|| format!("Deserializing return message of ‘{}’", #ffi_name_str))?;
+                        .context(#deserializing_ret_msg)?;
                     Ok(res)
                 })
             };
