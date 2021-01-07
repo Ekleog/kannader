@@ -69,4 +69,4 @@ impl kannader_config::ServerConfig for ServerConfig {
     }
 }
 
-kannader_config::server_config_implement_guest!(ServerConfig);
+kannader_config::server_config_implement_guest_server!(ServerConfig);

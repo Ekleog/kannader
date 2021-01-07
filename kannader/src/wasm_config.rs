@@ -7,7 +7,7 @@ pub mod setup {
 }
 
 pub mod server_config {
-    kannader_config_types::server_config_implement_host!();
+    kannader_config_types::server_config_implement_host_client!();
 }
 
 pub struct WasmConfig {

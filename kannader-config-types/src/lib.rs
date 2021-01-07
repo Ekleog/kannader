@@ -93,6 +93,9 @@ macro_rules! implement_host {
                 arg_vec.len()
             );
             unsafe {
+                // TODO: these volatile copies are not actually
+                // required, wasm threads will not happen without some
+                // special thing being enabled on the memory.
                 std::intrinsics::volatile_copy_nonoverlapping_memory(
                     memory.data_ptr().add(arg_ptr as usize),
                     arg_vec.as_ptr(),
@@ -153,7 +156,7 @@ macro_rules! implement_guest {
 
         #[allow(unused)]
         fn DID_YOU_CALL_implement_guest_MACRO() {
-            DID_YOU_CALL_server_config_implement_guest_MACRO();
+            DID_YOU_CALL_server_config_implement_guest_server_MACRO();
         }
     };
 }
@@ -163,9 +166,9 @@ macro_rules! define_communicator {
         communicator
             $trait_name:ident
             $cfg_name:ident : Config
-            $host_impler:ident
-            $guest_trait_impler:ident
-            $guest_impler:ident
+            $host_client_impler:ident
+            $trait_impler:ident
+            $guest_server_impler:ident
             $did_you_call_fn_name:ident
         {
             $(
@@ -176,7 +179,7 @@ macro_rules! define_communicator {
         }
     ) => {
         #[macro_export]
-        macro_rules! $host_impler {
+        macro_rules! $host_client_impler {
             (@mut_ref () $type:ty) => { $type };
             (@mut_ref (&mut) $type:ty) => { &mut $type };
 
@@ -187,7 +190,7 @@ macro_rules! define_communicator {
             (@if_mut (&mut) $e:expr) => { $e };
 
             () => {
-use $crate::$host_impler as implement_host;
+use $crate::$host_client_impler as implement_host;
 
 use std::rc::Rc;
 
@@ -313,7 +316,7 @@ pub fn build_host_side(
 
         #[doc(hidden)]
         #[macro_export]
-        macro_rules! $guest_trait_impler {
+        macro_rules! $trait_impler {
             (@mut_ref_ty () $type:ty) => { $type };
             (@mut_ref_ty (&mut) $type:ty) => { &mut $type };
 
@@ -325,7 +328,7 @@ pub trait $trait_name {
         #[allow(unused_variables)]
         fn $fn(
             $cfg_name: &Self::Cfg,
-            $( $arg: $crate::$guest_trait_impler!(@mut_ref_ty $mut $ty) ),*
+            $( $arg: $crate::$trait_impler!(@mut_ref_ty $mut $ty) ),*
         ) -> $ret $terminator
     )+
 }
@@ -334,7 +337,7 @@ pub trait $trait_name {
 
 
         #[macro_export]
-        macro_rules! $guest_impler {
+        macro_rules! $guest_server_impler {
             (@mut_ref_expr () $e:expr) => { $e };
             (@mut_ref_expr (&mut) $e:expr) => { &mut $e };
 
@@ -350,7 +353,7 @@ $(
     // anyway, probably not `.unwrap()` / `assert!`...) (and above in the file too)
     #[no_mangle]
     pub unsafe fn $fn_name(arg_ptr: usize, arg_size: usize) -> u64 {
-        use $crate::$guest_impler as implement_guest;
+        use $crate::$guest_server_impler as implement_guest;
 
         // Deserialize from the argument slice
         let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
@@ -400,10 +403,10 @@ define_communicator! {
     communicator
         ServerConfig
         cfg: Config
-        server_config_implement_host
-        server_config_implement_guest_trait
-        server_config_implement_guest
-        DID_YOU_CALL_server_config_implement_guest_MACRO
+        server_config_implement_host_client
+        server_config_implement_trait
+        server_config_implement_guest_server
+        DID_YOU_CALL_server_config_implement_guest_server_MACRO
     {
         server_config_welcome_banner_reply => fn welcome_banner_reply(
             &self,
