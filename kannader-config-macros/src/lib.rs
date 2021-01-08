@@ -200,31 +200,24 @@ pub fn server_config_implement_host_client(input: TokenStream) -> TokenStream {
 }
 
 fn make_trait(c: Communicator) -> TokenStream {
-    let Communicator {
-        trait_name, funcs, ..
-    } = c;
-    let funcs = funcs.into_iter().map(
-        |Function {
-             fn_name,
-             args,
-             ret,
-             terminator,
-             ..
-         }| {
-            let args = args.into_iter().map(|Argument { name, is_mut, ty }| {
-                if is_mut {
-                    quote!(#name: &mut #ty)
-                } else {
-                    quote!(#name: #ty)
-                }
-            });
-            quote! {
-                #[allow(unused_variables)]
-                fn #fn_name(cfg: &Self::Cfg, #(#args),*) -> #ret
-                    #terminator
+    let trait_name = c.trait_name;
+    let funcs = c.funcs.into_iter().map(|f| {
+        let fn_name = f.fn_name;
+        let ret = f.ret;
+        let terminator = f.terminator;
+        let args = f.args.into_iter().map(|Argument { name, is_mut, ty }| {
+            if is_mut {
+                quote!(#name: &mut #ty)
+            } else {
+                quote!(#name: #ty)
             }
-        },
-    );
+        });
+        quote! {
+            #[allow(unused_variables)]
+            fn #fn_name(cfg: &Self::Cfg, #(#args),*) -> #ret
+                #terminator
+        }
+    });
     let res = quote! {
         pub trait #trait_name {
             type Cfg: Config;
@@ -321,55 +314,52 @@ fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
 }
 
 fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
-    let Communicator { funcs, .. } = c;
-    let func_defs = funcs.iter().map(
-        |Function {
-             fn_name, args, ret, ..
-         }| {
-            let args = args.into_iter().map(|Argument { is_mut, ty, .. }| {
-                if *is_mut {
-                    quote!(&mut #ty)
-                } else {
-                    quote!(#ty)
-                }
-            });
-            quote! {
-                pub #fn_name: Box<dyn Fn(#(#args),*) -> anyhow::Result<#ret>>,
+    let func_defs = c.funcs.iter().map(|f| {
+        let fn_name = &f.fn_name;
+        let ret = &f.ret;
+        let args = f.args.iter().map(|a| {
+            let ty = &a.ty;
+            if a.is_mut {
+                quote!(&mut #ty)
+            } else {
+                quote!(#ty)
             }
-        },
-    );
-    let func_gets = funcs.iter().map(|Function { ffi_name, fn_name, args, .. }| {
-        let ffi_name_str = format!("{}", ffi_name);
-        let host_args = args.iter().map(|Argument { name, is_mut, ty }| {
+        });
+        quote! {
+            pub #fn_name: Box<dyn Fn(#(#args),*) -> anyhow::Result<#ret>>,
+        }
+    });
+    let func_gets = c.funcs.iter().map(|f| {
+        let fn_name = &f.fn_name;
+        let ffi_name_str = format!("{}", f.ffi_name);
+        let host_args = f.args.iter().map(|Argument { name, is_mut, ty }| {
             if *is_mut {
                 quote!(#name: &mut #ty)
             } else {
                 quote!(#name: #ty)
             }
         });
-        let encode_args = args.iter().map(|Argument { name, .. }| quote!(&#name));
-        let result_assignment = args.iter().filter_map(|Argument { name, is_mut, .. }| {
-            if *is_mut {
-                Some(quote!(*#name))
-            } else {
-                None
-            }
+        let encode_args = f.args.iter().map(|Argument { name, .. }| quote!(&#name));
+        let result_assignment = f.args.iter().filter_map(|a| {
+            let name = &a.name;
+            if a.is_mut { Some(quote!(*#name)) } else { None }
         });
-        let failed_to_find_export = format!("Failed to find function export ‘{}’", ffi_name);
-        let checking_type = format!("Checking the type of ‘{}’", ffi_name);
+        let failed_to_find_export = format!("Failed to find function export ‘{}’", f.ffi_name);
+        let checking_type = format!("Checking the type of ‘{}’", f.ffi_name);
         let figuring_out_size_to_allocate_for_arg_buf = format!(
             "Figuring out size to allocate for argument buffer for ‘{}’",
-            ffi_name
+            f.ffi_name
         );
-        let allocating_arg_buf = format!("Allocating argument buffer for ‘{}’", ffi_name);
-        let serializing_arg_buf = format!("Serializing argument buffer for ‘{}’", ffi_name);
-        let running_wasm_func = format!("Running wasm function ‘{}’", ffi_name);
+        let allocating_arg_buf = format!("Allocating argument buffer for ‘{}’", f.ffi_name);
+        let serializing_arg_buf = format!("Serializing argument buffer for ‘{}’", f.ffi_name);
+        let running_wasm_func = format!("Running wasm function ‘{}’", f.ffi_name);
         let returned_alloc_outside_of_memory = format!(
             "Wasm function ‘{}’ returned allocation outside of its memory",
-            ffi_name,
+            f.ffi_name,
         );
-        let deallocating_ret_buf = format!("Deallocating return buffer for function ‘{}’", ffi_name);
-        let deserializing_ret_msg = format!("Deserializing return message of ‘{}’", ffi_name);
+        let deallocating_ret_buf =
+            format!("Deallocating return buffer for function ‘{}’", f.ffi_name);
+        let deserializing_ret_msg = format!("Deserializing return message of ‘{}’", f.ffi_name);
         quote! {
             let #fn_name = {
                 let memory = memory.clone();
@@ -457,7 +447,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
             };
         }
     });
-    let func_names = funcs.iter().map(|f| &f.fn_name);
+    let func_names = c.funcs.iter().map(|f| &f.fn_name);
     let res = quote! {
         pub struct #struct_name {
             #(#func_defs)*
