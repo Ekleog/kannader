@@ -1,12 +1,13 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
-use kannader_config::{reply, server};
+use kannader_config::{reply, server, tracing};
 use smtp_message::{Email, Hostname, Reply};
 
 struct Config;
 
 impl kannader_config::Config for Config {
     fn setup(_path: PathBuf) -> Config {
+        let _ = tracing::info(HashMap::new(), "Setting up config".into());
         Config
     }
 }

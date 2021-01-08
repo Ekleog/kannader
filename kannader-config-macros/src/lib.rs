@@ -178,25 +178,22 @@ struct Argument {
     ty: proc_macro2::TokenStream,
 }
 
-#[proc_macro]
-pub fn server_config_implement_trait(_input: TokenStream) -> TokenStream {
-    make_trait(SERVER_CONFIG())
+enum TraitType {
+    OnGuest,
+    OnHost,
 }
 
-#[proc_macro]
-pub fn server_config_implement_guest_server(input: TokenStream) -> TokenStream {
-    let impl_name = syn::parse_macro_input!(input as Ident);
-    make_guest_server(impl_name, SERVER_CONFIG())
-}
-
-#[proc_macro]
-pub fn server_config_implement_host_client(input: TokenStream) -> TokenStream {
-    let struct_name = syn::parse_macro_input!(input as Ident);
-    make_host_client(struct_name, SERVER_CONFIG())
-}
-
-fn make_trait(c: Communicator) -> TokenStream {
+fn make_trait(trait_type: TraitType, c: Communicator) -> TokenStream {
     let trait_name = c.trait_name;
+    let cfg_type_def = match trait_type {
+        #[rustfmt::skip] // https://github.com/rust-lang/rustfmt/issues/4631
+        TraitType::OnGuest => quote!(type Cfg: Config;),
+        TraitType::OnHost => quote!(),
+    };
+    let first_param = match trait_type {
+        TraitType::OnGuest => quote!(cfg: &Self::Cfg),
+        TraitType::OnHost => quote!(self: Rc<Self>),
+    };
     let funcs = c.funcs.into_iter().map(|f| {
         let fn_name = f.fn_name;
         let ret = f.ret;
@@ -210,13 +207,13 @@ fn make_trait(c: Communicator) -> TokenStream {
         });
         quote! {
             #[allow(unused_variables)]
-            fn #fn_name(cfg: &Self::Cfg, #(#args),*) -> #ret
+            fn #fn_name(#first_param, #(#args),*) -> #ret
                 #terminator
         }
     });
     let res = quote! {
         pub trait #trait_name {
-            type Cfg: Config;
+            #cfg_type_def
 
             #(#funcs)*
         }
@@ -250,8 +247,8 @@ fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
             },
             |size| {
                 quote! {{
-                    let ptr: usize = allocate(#size);
-                    let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, #size);
+                    let ptr: usize = allocate(#size as usize);
+                    let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, #size as usize);
                     (ptr, slice)
                 }}
             },
@@ -361,6 +358,128 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
     res.into()
 }
 
+fn make_guest_client(module_name: Ident, c: Communicator) -> TokenStream {
+    let link_name = format!("{}", c.link_name);
+    let func_defs = c.funcs.iter().map(|f| {
+        let ffi_name = &f.ffi_name;
+        quote! {
+            pub fn #ffi_name(ptr: u32, size: u32) -> u64;
+        }
+    });
+    let func_impls = c.funcs.iter().map(|f| {
+        let ffi_name = &f.ffi_name;
+        let fn_name = &f.fn_name;
+        let args = f.args.iter().map(|a| {
+            let name = &a.name;
+            let ty = &a.ty;
+            if a.is_mut {
+                quote!(#name: &mut #ty)
+            } else {
+                quote!(#name: #ty)
+            }
+        });
+        let ret = &f.ret;
+        let fn_body = call_ffi_fn(
+            f,
+            quote!(std::ptr::null_mut::<u8>()),
+            quote!(usize::MAX),
+            |s| quote!(Ok::<_, !>(unsafe { allocate(#s) })),
+            |p, s| quote!(Ok::<_, !>(unsafe { private::#ffi_name(#p, #s) })),
+            |p, s| quote!(Ok::<_, !>(unsafe { deallocate(#p, #s) })),
+        );
+        quote! {
+            pub fn #fn_name(#(#args),*) -> anyhow::Result<#ret> {
+                #fn_body
+            }
+        }
+    });
+    let res = quote! {
+        pub mod #module_name {
+            mod private {
+                #[link(wasm_import_module = #link_name)]
+                extern "C" {
+                    #(#func_defs)*
+                }
+            }
+
+            extern "C" {
+                fn allocate(size: u32) -> u32;
+                fn deallocate(ptr: u32, size: u32);
+            }
+
+            #(#func_impls)*
+        }
+    };
+    res.into()
+}
+
+fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
+    let link_name = format!("{}", c.link_name);
+    let trait_name = c.trait_name;
+    let linker_add = c.funcs.iter().map(|f| {
+        let ffi_name = format!("{}", f.ffi_name);
+        let fn_name = &f.fn_name;
+        let unable_to_find_memory =
+            format!("Unable to find ‘memory’ export in ‘{}’ callback", ffi_name);
+        let input_slice_oob = format!("Input slice for ‘{}’ callback is out of bounds", ffi_name);
+        // TODO: handle errors properly (ie. without panicking hopefully)
+        // The below `.borrow().unwrap()` are OK, as the `RefCell`s
+        // are unfilled only between adding this function to the
+        // linker and actually getting out the allocate function
+        let fn_body = run_ffi_fn(
+            &f,
+            quote!(unsafe { &memory.data_unchecked()[p as usize..(p + s) as usize] }),
+            quote!((deallocate.borrow().as_ref().unwrap())(p, s).unwrap()),
+            |args| quote!(<Self as #trait_name>::#fn_name(this.clone(), #args)),
+            |size| {
+                quote! {{
+                    let ptr: u32 = (allocate.borrow().as_ref().unwrap())(#size).unwrap();
+                    let slice = unsafe {
+                        &mut memory.data_unchecked_mut()[ptr as usize..(ptr + #size) as usize]
+                    };
+                    (ptr, slice)
+                }}
+            },
+        );
+        quote! {{
+            let allocate = allocate.clone();
+            let deallocate = deallocate.clone();
+            let this = self.clone();
+
+            let the_fn = move |c: wasmtime::Caller, p: u32, s: u32| {
+                let memory = c.get_export("memory")
+                    .and_then(|m| m.into_memory())
+                    .expect(#unable_to_find_memory);
+
+                assert!((p as usize).saturating_add(s as usize) <= memory.data_size(), #input_slice_oob);
+
+                #fn_body
+            };
+
+            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(l.store(), the_fn))?;
+        }}
+    });
+    let res = quote! {
+        impl #impl_name {
+            pub fn add_to_linker<Alloc, Dealloc>(
+                self: Rc<Self>,
+                allocate: Rc<RefCell<Option<Alloc>>>,
+                deallocate: Rc<RefCell<Option<Dealloc>>>,
+                l: &mut wasmtime::Linker,
+            ) -> anyhow::Result<()>
+            where
+                Alloc: 'static + Fn(u32) -> Result<u32, wasmtime::Trap>,
+                Dealloc: 'static + Fn(u32, u32) -> Result<(), wasmtime::Trap>,
+            {
+                #(#linker_add)*
+
+                Ok(())
+            }
+        }
+    };
+    res.into()
+}
+
 fn run_ffi_fn<F, Alloc>(
     f: &Function,
     make_arg_slice: proc_macro2::TokenStream,
@@ -386,11 +505,10 @@ where
             quote!(#name)
         }
     });
-    let result = f.args.iter().filter_map(
-        |Argument { name, is_mut, .. }| {
-            if *is_mut { Some(quote!(#name)) } else { None }
-        },
-    );
+    let result = f.args.iter().filter_map(|a| {
+        let name = &a.name;
+        if a.is_mut { Some(quote!(#name)) } else { None }
+    });
     let do_the_thing = do_the_thing(quote!(#(#arguments),*));
     let do_alloc = do_alloc(&Ident::new("ret_size", Span::call_site()));
     quote! {
@@ -408,10 +526,10 @@ where
         // Allocate return buffer
         let ret_size: u64 = bincode::serialized_size(&res).unwrap();
         debug_assert!(
-            ret_size <= usize::MAX as u64,
-            "Message size above usize::MAX, something is really wrong"
+            ret_size <= u32::MAX as u64,
+            "Message size above u32::MAX, something is really wrong"
         );
-        let ret_size: usize = ret_size as usize;
+        let ret_size: u32 = ret_size as u32;
         let (ret_ptr, ret_slice) = #do_alloc;
 
         // Serialize the result to the return buffer
@@ -460,6 +578,8 @@ where
     });
     let deallocate_res = deallocate(quote!(res_ptr as u32), quote!(res_size as u32));
     quote! {
+        use anyhow::Context;
+
         // Get the to-be-encoded argument
         let arg = ( #(#encode_args),* );
 
@@ -474,7 +594,7 @@ where
 
         // Allocate argument buffer
         let arg_ptr = #allocate_arg_size.context(#allocating_arg_buf)?;
-        ensure!(
+        anyhow::ensure!(
             (arg_ptr as usize).saturating_add(arg_size as usize) <= #memory_size,
             "Wasm allocator returned allocation outside of its memory"
         );
@@ -503,7 +623,7 @@ where
         let res_u64 = #call_the_fn.context(#running_wasm_func)?;
         let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
         let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
-        ensure!(
+        anyhow::ensure!(
             res_ptr.saturating_add(res_size) <= #memory_size,
             #returned_alloc_outside_of_memory
         );
@@ -814,3 +934,71 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
         }
     }
 };
+
+static TRACING_CONFIG: fn() -> Communicator = communicator! {
+    communicator TracingConfig tracing guest_client {
+        tracing_trace => fn trace(
+            &self,
+            meta: () std::collections::HashMap<String, String>,
+            msg: () String,
+        ) -> (());
+
+        tracing_debug => fn debug(
+            &self,
+            meta: () std::collections::HashMap<String, String>,
+            msg: () String,
+        ) -> (());
+
+        tracing_info => fn info(
+            &self,
+            meta: () std::collections::HashMap<String, String>,
+            msg: () String,
+        ) -> (());
+
+        tracing_warn => fn warn(
+            &self,
+            meta: () std::collections::HashMap<String, String>,
+            msg: () String,
+        ) -> (());
+
+        tracing_error => fn error(
+            &self,
+            meta: () std::collections::HashMap<String, String>,
+            msg: () String,
+        ) -> (());
+    }
+};
+
+#[proc_macro]
+pub fn server_config_implement_trait(_input: TokenStream) -> TokenStream {
+    make_trait(TraitType::OnGuest, SERVER_CONFIG())
+}
+
+#[proc_macro]
+pub fn server_config_implement_guest_server(input: TokenStream) -> TokenStream {
+    let impl_name = syn::parse_macro_input!(input as Ident);
+    make_guest_server(impl_name, SERVER_CONFIG())
+}
+
+#[proc_macro]
+pub fn server_config_implement_host_client(input: TokenStream) -> TokenStream {
+    let struct_name = syn::parse_macro_input!(input as Ident);
+    make_host_client(struct_name, SERVER_CONFIG())
+}
+
+#[proc_macro]
+pub fn tracing_implement_trait(_input: TokenStream) -> TokenStream {
+    make_trait(TraitType::OnHost, TRACING_CONFIG())
+}
+
+#[proc_macro]
+pub fn tracing_implement_guest_client(input: TokenStream) -> TokenStream {
+    let module_name = syn::parse_macro_input!(input as Ident);
+    make_guest_client(module_name, TRACING_CONFIG())
+}
+
+#[proc_macro]
+pub fn tracing_implement_host_server(input: TokenStream) -> TokenStream {
+    let impl_name = syn::parse_macro_input!(input as Ident);
+    make_host_server(impl_name, TRACING_CONFIG())
+}

@@ -1,3 +1,5 @@
+#![feature(core_intrinsics, destructuring_assignment, never_type)]
+
 use std::{mem, path::PathBuf};
 
 use static_assertions::const_assert_eq;
@@ -22,3 +24,4 @@ pub trait Config {
 }
 
 kannader_config_macros::server_config_implement_trait!();
+kannader_config_macros::tracing_implement_guest_client!(tracing);
