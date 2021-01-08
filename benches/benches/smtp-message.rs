@@ -65,6 +65,19 @@ pub fn parse_email(c: &mut Criterion) {
                 })
             },
         );
+        g.bench_with_input(
+            BenchmarkId::new("smtp-message-then-alloc", n),
+            tests[i],
+            |b, tests| {
+                b.iter(|| {
+                    for t in tests {
+                        black_box(
+                            Email::<&str>::parse_until(b">", b"@>")(t).map(|e| e.1.into_owned()),
+                        );
+                    }
+                })
+            },
+        );
 
         let unbracketed_tests = tests[i]
             .iter()
