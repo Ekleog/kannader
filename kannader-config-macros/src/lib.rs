@@ -59,7 +59,7 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 
         // TODO: handle errors properly here too (see the TODO down the file)
         #[no_mangle]
-        pub unsafe extern "C" fn setup(ptr: usize, size: usize) {
+        pub unsafe extern "C" fn setup(ptr: usize, size: usize) -> u64 {
             // Recover the argument
             let arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
             let path: std::path::PathBuf = bincode::deserialize(arg_slice).unwrap();
@@ -71,7 +71,11 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
             KANNADER_CFG.with(|cfg| {
                 assert!(cfg.borrow().is_none());
                 *cfg.borrow_mut() = Some(<#cfg as kannader_config::Config>::setup(path));
-            })
+            });
+
+            // Return 0 (ptr = 0, size = 0)
+            // TODO: this will make more sense when merging with guest impl
+            0
         }
 
         #[allow(unused)]
@@ -84,6 +88,33 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn implement_host(_input: TokenStream) -> TokenStream {
+    let setup_fn = Function {
+        ffi_name: Ident::new("setup", Span::call_site()),
+        fn_name: Ident::new("setup", Span::call_site()),
+        args: vec![Argument {
+            name: Ident::new("path", Span::call_site()),
+            is_mut: false,
+            ty: quote!(std::path::PathBuf),
+        }],
+        ret: quote!(()),
+        terminator: quote!(;),
+    };
+    let fn_body = call_ffi_fn(
+        &setup_fn,
+        quote!(memory.data_ptr()),
+        quote!(memory.data_size()),
+        |s| quote!(allocate(#s)),
+        |p, s| quote!(wasm_fun(#p, #s)),
+        |_, s| {
+            quote! {{
+                if #s == 0 {
+                    Ok(())
+                } else {
+                    Err(anyhow::Error::msg("‘setup’ tried to return a non-empty result"))
+                }
+            }}
+        },
+    );
     let res = quote! {
         use std::{path::Path, rc::Rc};
 
@@ -113,50 +144,10 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
                 .get2()
                 .with_context(|| format!("Checking the type of ‘setup’"))?;
 
-            fn force_type<F: Fn(u32, u32) -> Result<(), wasmtime::Trap>>(_: &F) {}
+            fn force_type<F: Fn(u32, u32) -> Result<u64, wasmtime::Trap>>(_: &F) {}
             force_type(&wasm_fun);
 
-            // Compute size of function
-            let arg_size: u64 = bincode::serialized_size(path)
-                .context("Figuring out size to allocate for argument buffer for ‘setup’")?;
-            debug_assert!(
-                arg_size <= u32::MAX as u64,
-                "Message size above u32::MAX, something is really wrong"
-            );
-            let arg_size = arg_size as u32;
-
-            // Allocate argument buffer
-            let arg_ptr = allocate(arg_size).context("Allocating argument buffer for ‘setup’")?;
-            ensure!(
-                (arg_ptr as usize).saturating_add(arg_size as usize) < memory.data_size(),
-                "Wasm allocator returned allocation outside of its memory"
-            );
-
-            // Serialize to argument buffer
-            let arg_vec =
-                bincode::serialize(path).context("Serializing argument buffer for ‘setup’")?;
-            debug_assert_eq!(
-                arg_size as usize,
-                arg_vec.len(),
-                "bincode-computed size is {} but actual size is {}",
-                arg_size,
-                arg_vec.len()
-            );
-            unsafe {
-                // TODO: these volatile copies are not actually
-                // required, wasm threads will not happen without some
-                // special thing being enabled on the memory.
-                std::intrinsics::volatile_copy_nonoverlapping_memory(
-                    memory.data_ptr().add(arg_ptr as usize),
-                    arg_vec.as_ptr(),
-                    arg_size as usize,
-                );
-            }
-
-            // Call the function
-            let () = wasm_fun(arg_ptr, arg_size).context("Running wasm function ‘setup’")?;
-
-            Ok(())
+            #fn_body
         }
     };
     res.into()
