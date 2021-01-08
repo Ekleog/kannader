@@ -335,27 +335,16 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 quote!(#name: #ty)
             }
         });
-        let encode_args = f.args.iter().map(|Argument { name, .. }| quote!(&#name));
-        let result_assignment = f.args.iter().filter_map(|a| {
-            let name = &a.name;
-            if a.is_mut { Some(quote!(*#name)) } else { None }
-        });
         let failed_to_find_export = format!("Failed to find function export ‘{}’", f.ffi_name);
         let checking_type = format!("Checking the type of ‘{}’", f.ffi_name);
-        let figuring_out_size_to_allocate_for_arg_buf = format!(
-            "Figuring out size to allocate for argument buffer for ‘{}’",
-            f.ffi_name
+        let fn_body = call_ffi_fn(
+            f,
+            quote!(memory.data_ptr()),
+            quote!(memory.data_size()),
+            |s| quote!(allocate(#s)),
+            |p, s| quote!(wasm_fun(#p, #s)),
+            |p, s| quote!(deallocate(#p, #s)),
         );
-        let allocating_arg_buf = format!("Allocating argument buffer for ‘{}’", f.ffi_name);
-        let serializing_arg_buf = format!("Serializing argument buffer for ‘{}’", f.ffi_name);
-        let running_wasm_func = format!("Running wasm function ‘{}’", f.ffi_name);
-        let returned_alloc_outside_of_memory = format!(
-            "Wasm function ‘{}’ returned allocation outside of its memory",
-            f.ffi_name,
-        );
-        let deallocating_ret_buf =
-            format!("Deallocating return buffer for function ‘{}’", f.ffi_name);
-        let deserializing_ret_msg = format!("Deserializing return message of ‘{}’", f.ffi_name);
         quote! {
             let #fn_name = {
                 let memory = memory.clone();
@@ -372,73 +361,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 force_type(&wasm_fun);
 
                 Box::new(move |#(#host_args),*| {
-                    // Get the to-be-encoded argument
-                    let arg = ( #(#encode_args),* );
-
-                    // Compute the size of the argument
-                    let arg_size: u64 = bincode::serialized_size(&arg)
-                        .context(#figuring_out_size_to_allocate_for_arg_buf)?;
-                    debug_assert!(
-                        arg_size <= u32::MAX as u64,
-                        "Message size above u32::MAX, something is really wrong"
-                    );
-                    let arg_size = arg_size as u32;
-
-                    // Allocate argument buffer
-                    let arg_ptr = allocate(arg_size).context(#allocating_arg_buf)?;
-                    ensure!(
-                        (arg_ptr as usize).saturating_add(arg_size as usize) < memory.data_size(),
-                        "Wasm allocator returned allocation outside of its memory"
-                    );
-
-                    // Serialize to argument buffer
-                    // TODO: implement io::Write for a VolatileWriter that directly
-                    // volatile-copies the message bytes to wasm memory
-                    let arg_vec = bincode::serialize(&arg).context(#serializing_arg_buf)?;
-                    debug_assert_eq!(
-                        arg_size as usize,
-                        arg_vec.len(),
-                        "bincode-computed size is {} but actual size is {}",
-                        arg_size,
-                        arg_vec.len()
-                    );
-                    unsafe {
-                        std::intrinsics::volatile_copy_nonoverlapping_memory(
-                            memory.data_ptr().add(arg_ptr as usize),
-                            arg_vec.as_ptr(),
-                            arg_size as usize,
-                        );
-                    }
-
-                    // Call the function
-                    let res_u64 = wasm_fun(arg_ptr, arg_size).context(#running_wasm_func)?;
-                    let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
-                    let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
-                    ensure!(
-                        res_ptr.saturating_add(res_size) < memory.data_size(),
-                        #returned_alloc_outside_of_memory
-                    );
-
-                    // Recover the return slice
-                    // TODO: implement io::Read for a VolatileReader that directly volatile-copies
-                    // the message bytes from wasm memory
-                    let mut res_msg = vec![0; res_size];
-                    unsafe {
-                        std::intrinsics::volatile_copy_nonoverlapping_memory(
-                            res_msg.as_mut_ptr(),
-                            memory.data_ptr().add(res_ptr),
-                            res_size,
-                        );
-                    }
-
-                    // Deallocate the return slice
-                    deallocate(res_ptr as u32, res_size as u32).context(#deallocating_ret_buf)?;
-
-                    // Read the result
-                    let res;
-                    (res, #(#result_assignment),*) = bincode::deserialize(&res_msg)
-                        .context(#deserializing_ret_msg)?;
-                    Ok(res)
+                    #fn_body
                 })
             };
         }
@@ -468,6 +391,116 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
         }
     };
     res.into()
+}
+
+fn call_ffi_fn<Alloc, F, Dealloc>(
+    f: &Function,
+    memory_base_ptr: proc_macro2::TokenStream,
+    memory_size: proc_macro2::TokenStream,
+    allocate: Alloc,
+    call_the_fn: F,
+    deallocate: Dealloc,
+) -> proc_macro2::TokenStream
+where
+    Alloc: Fn(&Ident) -> proc_macro2::TokenStream,
+    F: Fn(&Ident, &Ident) -> proc_macro2::TokenStream,
+    Dealloc: Fn(proc_macro2::TokenStream, proc_macro2::TokenStream) -> proc_macro2::TokenStream,
+{
+    let arg_size_id = Ident::new("arg_size", Span::call_site());
+    let arg_ptr_id = Ident::new("arg_ptr", Span::call_site());
+
+    let encode_args = f.args.iter().map(|Argument { name, .. }| quote!(&#name));
+    let figuring_out_size_to_allocate_for_arg_buf = format!(
+        "Figuring out size to allocate for argument buffer for ‘{}’",
+        f.ffi_name
+    );
+    let allocate_arg_size = allocate(&arg_size_id);
+    let allocating_arg_buf = format!("Allocating argument buffer for ‘{}’", f.ffi_name);
+    let serializing_arg_buf = format!("Serializing argument buffer for ‘{}’", f.ffi_name);
+    let call_the_fn = call_the_fn(&arg_ptr_id, &arg_size_id);
+    let running_wasm_func = format!("Running wasm function ‘{}’", f.ffi_name);
+    let returned_alloc_outside_of_memory = format!(
+        "Wasm function ‘{}’ returned allocation outside of its memory",
+        f.ffi_name,
+    );
+    let deallocating_ret_buf = format!("Deallocating return buffer for function ‘{}’", f.ffi_name);
+    let deserializing_ret_msg = format!("Deserializing return message of ‘{}’", f.ffi_name);
+    let result_assignment = f.args.iter().filter_map(|a| {
+        let name = &a.name;
+        if a.is_mut { Some(quote!(*#name)) } else { None }
+    });
+    let deallocate_res = deallocate(quote!(res_ptr as u32), quote!(res_size as u32));
+    quote! {
+        // Get the to-be-encoded argument
+        let arg = ( #(#encode_args),* );
+
+        // Compute the size of the argument
+        let arg_size: u64 = bincode::serialized_size(&arg)
+            .context(#figuring_out_size_to_allocate_for_arg_buf)?;
+        debug_assert!(
+            arg_size <= u32::MAX as u64,
+            "Message size above u32::MAX, something is really wrong"
+        );
+        let arg_size = arg_size as u32;
+
+        // Allocate argument buffer
+        let arg_ptr = #allocate_arg_size.context(#allocating_arg_buf)?;
+        ensure!(
+            (arg_ptr as usize).saturating_add(arg_size as usize) <= #memory_size,
+            "Wasm allocator returned allocation outside of its memory"
+        );
+
+        // Serialize to argument buffer
+        let arg_vec = bincode::serialize(&arg).context(#serializing_arg_buf)?;
+        debug_assert_eq!(
+            arg_size as usize,
+            arg_vec.len(),
+            "bincode-computed size is {} but actual size is {}",
+            arg_size,
+            arg_vec.len()
+        );
+        // TODO: the volatiles here are actually useless, wasm threads
+        // are not a thing and will not be a thing with regular
+        // memories
+        unsafe {
+            std::intrinsics::volatile_copy_nonoverlapping_memory(
+                #memory_base_ptr.add(arg_ptr as usize),
+                arg_vec.as_ptr(),
+                arg_size as usize,
+            );
+        }
+
+        // Call the function
+        let res_u64 = #call_the_fn.context(#running_wasm_func)?;
+        let res_ptr = (res_u64 & 0xFFFF_FFFF) as usize;
+        let res_size = ((res_u64 >> 32) & 0xFFFF_FFFF) as usize;
+        ensure!(
+            res_ptr.saturating_add(res_size) <= #memory_size,
+            #returned_alloc_outside_of_memory
+        );
+
+        // Recover the return slice
+        // TODO: the volatiles here are actually useless, wasm threads
+        // are not a thing and will not be a thing with regular
+        // memories
+        let mut res_msg = vec![0; res_size];
+        unsafe {
+            std::intrinsics::volatile_copy_nonoverlapping_memory(
+                res_msg.as_mut_ptr(),
+                #memory_base_ptr.add(res_ptr),
+                res_size,
+            );
+        }
+
+        // Deallocate the return slice
+        #deallocate_res.context(#deallocating_ret_buf)?;
+
+        // Read the result
+        let res;
+        (res, #(#result_assignment),*) = bincode::deserialize(&res_msg)
+            .context(#deserializing_ret_msg)?;
+        Ok(res)
+    }
 }
 
 macro_rules! communicator {
