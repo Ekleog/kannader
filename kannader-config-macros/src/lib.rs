@@ -31,6 +31,58 @@ use proc_macro2::{Ident, Span};
 use quote::quote;
 
 #[proc_macro]
+pub fn implement_guest(input: TokenStream) -> TokenStream {
+    let cfg = syn::parse_macro_input!(input as Ident);
+    let res = quote! {
+        #[no_mangle]
+        pub unsafe extern "C" fn allocate(size: usize) -> usize {
+            // TODO: handle alloc error (ie. null return) properly (trap?)
+            unsafe {
+                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 8)) as usize
+            }
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn deallocate(ptr: usize, size: usize) {
+            unsafe {
+                std::alloc::dealloc(
+                    ptr as *mut u8,
+                    std::alloc::Layout::from_size_align_unchecked(size, 8),
+                )
+            }
+        }
+
+        std::thread_local! {
+            static KANNADER_CFG: std::cell::RefCell<Option<#cfg>> =
+                std::cell::RefCell::new(None);
+        }
+
+        // TODO: handle errors properly here too (see the TODO down the file)
+        #[no_mangle]
+        pub unsafe extern "C" fn setup(ptr: usize, size: usize) {
+            // Recover the argument
+            let arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
+            let path: std::path::PathBuf = bincode::deserialize(arg_slice).unwrap();
+
+            // Deallocate the memory block
+            deallocate(ptr, size);
+
+            // Run the code
+            KANNADER_CFG.with(|cfg| {
+                assert!(cfg.borrow().is_none());
+                *cfg.borrow_mut() = Some(<#cfg as kannader_config::Config>::setup(path));
+            })
+        }
+
+        #[allow(unused)]
+        fn DID_YOU_CALL_implement_guest_MACRO() {
+            DID_YOU_CALL_server_config_implement_guest_server_MACRO();
+        }
+    };
+    res.into()
+}
+
+#[proc_macro]
 pub fn implement_host(_input: TokenStream) -> TokenStream {
     let res = quote! {
         use std::{path::Path, rc::Rc};
@@ -110,58 +162,6 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
     res.into()
 }
 
-#[proc_macro]
-pub fn implement_guest(input: TokenStream) -> TokenStream {
-    let cfg = syn::parse_macro_input!(input as Ident);
-    let res = quote! {
-        #[no_mangle]
-        pub unsafe extern "C" fn allocate(size: usize) -> usize {
-            // TODO: handle alloc error (ie. null return) properly (trap?)
-            unsafe {
-                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(size, 8)) as usize
-            }
-        }
-
-        #[no_mangle]
-        pub unsafe extern "C" fn deallocate(ptr: usize, size: usize) {
-            unsafe {
-                std::alloc::dealloc(
-                    ptr as *mut u8,
-                    std::alloc::Layout::from_size_align_unchecked(size, 8),
-                )
-            }
-        }
-
-        std::thread_local! {
-            static KANNADER_CFG: std::cell::RefCell<Option<#cfg>> =
-                std::cell::RefCell::new(None);
-        }
-
-        // TODO: handle errors properly here too (see the TODO down the file)
-        #[no_mangle]
-        pub unsafe extern "C" fn setup(ptr: usize, size: usize) {
-            // Recover the argument
-            let arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
-            let path: std::path::PathBuf = bincode::deserialize(arg_slice).unwrap();
-
-            // Deallocate the memory block
-            deallocate(ptr, size);
-
-            // Run the code
-            KANNADER_CFG.with(|cfg| {
-                assert!(cfg.borrow().is_none());
-                *cfg.borrow_mut() = Some(<#cfg as kannader_config::Config>::setup(path));
-            })
-        }
-
-        #[allow(unused)]
-        fn DID_YOU_CALL_implement_guest_MACRO() {
-            DID_YOU_CALL_server_config_implement_guest_server_MACRO();
-        }
-    };
-    res.into()
-}
-
 struct Communicator {
     trait_name: Ident,
     did_you_call_fn_name: Ident,
@@ -188,15 +188,15 @@ pub fn server_config_implement_trait(_input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn server_config_implement_host_client(input: TokenStream) -> TokenStream {
-    let struct_name = syn::parse_macro_input!(input as Ident);
-    make_host_client(struct_name, SERVER_CONFIG())
-}
-
-#[proc_macro]
 pub fn server_config_implement_guest_server(input: TokenStream) -> TokenStream {
     let impl_name = syn::parse_macro_input!(input as Ident);
     make_guest_server(impl_name, SERVER_CONFIG())
+}
+
+#[proc_macro]
+pub fn server_config_implement_host_client(input: TokenStream) -> TokenStream {
+    let struct_name = syn::parse_macro_input!(input as Ident);
+    make_host_client(struct_name, SERVER_CONFIG())
 }
 
 fn make_trait(c: Communicator) -> TokenStream {
