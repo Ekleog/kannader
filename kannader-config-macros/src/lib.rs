@@ -164,7 +164,8 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
 
 struct Communicator {
     trait_name: Ident,
-    did_you_call_fn_name: Ident,
+    link_name: Ident,
+    guest_type: Ident,
     funcs: Vec<Function>,
 }
 
@@ -229,79 +230,74 @@ fn make_trait(c: Communicator) -> TokenStream {
 }
 
 fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
-    let Communicator {
-        trait_name,
-        did_you_call_fn_name,
-        funcs,
-        ..
-    } = c;
-    let funcs = funcs.into_iter().map(
-        |Function {
-             ffi_name,
-             fn_name,
-             args,
-             ..
-         }| {
-            let deserialize_pat = args.iter().map(|Argument { name, is_mut, .. }| {
-                if *is_mut {
-                    quote!(mut #name)
-                } else {
-                    quote!(#name)
-                }
-            });
-            let arguments = args.iter().map(|Argument { name, is_mut, .. }| {
-                if *is_mut {
-                    quote!(&mut #name)
-                } else {
-                    quote!(#name)
-                }
-            });
-            let result = args.iter().filter_map(
-                |Argument { name, is_mut, .. }| {
-                    if *is_mut { Some(quote!(#name)) } else { None }
-                },
-            );
-            quote! {
-                // TODO: handle errors properly (but what does “properly”
-                // exactly mean here? anyway, probably not `.unwrap()` /
-                // `assert!`...) (and above in the file too)
-                #[no_mangle]
-                pub unsafe fn #ffi_name(arg_ptr: usize, arg_size: usize) -> u64 {
-                    // Deserialize from the argument slice
-                    let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
-                    let ( #(#deserialize_pat),* ) = bincode::deserialize(arg_slice).unwrap();
-
-                    // Deallocate the argument slice
-                    deallocate(arg_ptr, arg_size);
-
-                    // Call the callback
-                    let res = KANNADER_CFG.with(|cfg| {
-                        <#impl_name as kannader_config::#trait_name>::#fn_name(
-                            cfg.borrow().as_ref().unwrap(),
-                            #(#arguments),*
-                        )
-                    });
-                    let res = (res, #(#result),*);
-
-                    // Allocate return buffer
-                    let ret_size: u64 = bincode::serialized_size(&res).unwrap();
-                    debug_assert!(
-                        ret_size <= usize::MAX as u64,
-                        "Message size above usize::MAX, something is really wrong"
-                    );
-                    let ret_size: usize = ret_size as usize;
-                    let ret_ptr: usize = allocate(ret_size);
-                    let ret_slice = std::slice::from_raw_parts_mut(ret_ptr as *mut u8, ret_size);
-
-                    // Serialize the result to the return buffer
-                    bincode::serialize_into(ret_slice, &res).unwrap();
-
-                    // We know that usize is u32 thanks to the above const_assert
-                    ((ret_size as u64) << 32) | (ret_ptr as u64)
-                }
-            }
-        },
+    let trait_name = c.trait_name;
+    let did_you_call_fn_name = quote::format_ident!(
+        "DID_YOU_CALL_{}_implement_{}_MACRO",
+        c.link_name,
+        c.guest_type
     );
+    let funcs = c.funcs.iter().map(|f| {
+        let ffi_name = &f.ffi_name;
+        let fn_name = &f.fn_name;
+        let deserialize_pat = f.args.iter().map(|Argument { name, is_mut, .. }| {
+            if *is_mut {
+                quote!(mut #name)
+            } else {
+                quote!(#name)
+            }
+        });
+        let arguments = f.args.iter().map(|Argument { name, is_mut, .. }| {
+            if *is_mut {
+                quote!(&mut #name)
+            } else {
+                quote!(#name)
+            }
+        });
+        let result = f.args.iter().filter_map(
+            |Argument { name, is_mut, .. }| {
+                if *is_mut { Some(quote!(#name)) } else { None }
+            },
+        );
+        quote! {
+            // TODO: handle errors properly (but what does “properly”
+            // exactly mean here? anyway, probably not `.unwrap()` /
+            // `assert!`...) (and above in the file too)
+            #[no_mangle]
+            pub unsafe fn #ffi_name(arg_ptr: usize, arg_size: usize) -> u64 {
+                // Deserialize from the argument slice
+                let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
+                let ( #(#deserialize_pat),* ) = bincode::deserialize(arg_slice).unwrap();
+
+                // Deallocate the argument slice
+                deallocate(arg_ptr, arg_size);
+
+                // Call the callback
+                let res = KANNADER_CFG.with(|cfg| {
+                    <#impl_name as kannader_config::#trait_name>::#fn_name(
+                        cfg.borrow().as_ref().unwrap(),
+                        #(#arguments),*
+                    )
+                });
+                let res = (res, #(#result),*);
+
+                // Allocate return buffer
+                let ret_size: u64 = bincode::serialized_size(&res).unwrap();
+                debug_assert!(
+                    ret_size <= usize::MAX as u64,
+                    "Message size above usize::MAX, something is really wrong"
+                );
+                let ret_size: usize = ret_size as usize;
+                let ret_ptr: usize = allocate(ret_size);
+                let ret_slice = std::slice::from_raw_parts_mut(ret_ptr as *mut u8, ret_size);
+
+                // Serialize the result to the return buffer
+                bincode::serialize_into(ret_slice, &res).unwrap();
+
+                // We know that usize is u32 thanks to the above const_assert
+                ((ret_size as u64) << 32) | (ret_ptr as u64)
+            }
+        }
+    });
     let res = quote! {
         #(#funcs)*
 
@@ -479,19 +475,18 @@ macro_rules! communicator {
     (@is_mut (&mut)) => { true };
 
     (
-        communicator $trait_name:ident
-            $did_you_call_fn_name:ident
-        {
+        communicator $trait_name:ident $link_name:ident $guest_type:ident {
             $(
                 $ffi_name:ident => fn
-                    $fn_name:ident(&self, $($arg:ident : $mut:tt $ty:ty,)*) -> ($ret:ty)
+                    $fn_name:ident(&self, $($arg:ident : $mut:tt $ty:ty),* $(,)*) -> ($ret:ty)
                         $terminator:tt
             )+
         }
     ) => {
         || Communicator {
             trait_name: Ident::new(stringify!($trait_name), Span::call_site()),
-            did_you_call_fn_name: Ident::new(stringify!($did_you_call_fn_name), Span::call_site()),
+            link_name: Ident::new(stringify!($link_name), Span::call_site()),
+            guest_type: Ident::new(stringify!($guest_type), Span::call_site()),
             funcs: vec![$(
                 Function {
                     ffi_name: Ident::new(stringify!($ffi_name), Span::call_site()),
@@ -512,9 +507,7 @@ macro_rules! communicator {
 }
 
 static SERVER_CONFIG: fn() -> Communicator = communicator! {
-    communicator ServerConfig
-        DID_YOU_CALL_server_config_implement_guest_server_MACRO
-    {
+    communicator ServerConfig server_config guest_server {
         server_config_welcome_banner_reply => fn welcome_banner_reply(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
