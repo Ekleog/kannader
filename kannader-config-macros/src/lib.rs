@@ -30,9 +30,40 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::quote;
 
+const SETUP_FN: fn() -> Function = || Function {
+    ffi_name: Ident::new("setup", Span::call_site()),
+    fn_name: Ident::new("setup", Span::call_site()),
+    args: vec![Argument {
+        name: Ident::new("path", Span::call_site()),
+        is_mut: false,
+        ty: quote!(std::path::PathBuf),
+    }],
+    ret: quote!(()),
+    terminator: quote!(;),
+};
+
 #[proc_macro]
 pub fn implement_guest(input: TokenStream) -> TokenStream {
     let cfg = syn::parse_macro_input!(input as Ident);
+    let ffi_body = run_ffi_fn(
+        &SETUP_FN(),
+        quote!(std::slice::from_raw_parts(ptr as *const u8, size)),
+        quote!(deallocate(ptr, size)),
+        |args| {
+            quote! {
+                KANNADER_CFG.with(|cfg| {
+                    assert!(cfg.borrow().is_none());
+                    *cfg.borrow_mut() = Some(<#cfg as kannader_config::Config>::setup(#args));
+                })
+            }
+        },
+        |size| {
+            quote! {{
+                assert!(#size == 0, "‘setup’ tried to return a non-empty result");
+                (0, (&mut []) as &mut [u8])
+            }}
+        },
+    );
     let res = quote! {
         #[no_mangle]
         pub unsafe extern "C" fn allocate(size: usize) -> usize {
@@ -57,25 +88,9 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
                 std::cell::RefCell::new(None);
         }
 
-        // TODO: handle errors properly here too (see the TODO down the file)
         #[no_mangle]
         pub unsafe extern "C" fn setup(ptr: usize, size: usize) -> u64 {
-            // Recover the argument
-            let arg_slice = std::slice::from_raw_parts(ptr as *const u8, size);
-            let path: std::path::PathBuf = bincode::deserialize(arg_slice).unwrap();
-
-            // Deallocate the memory block
-            deallocate(ptr, size);
-
-            // Run the code
-            KANNADER_CFG.with(|cfg| {
-                assert!(cfg.borrow().is_none());
-                *cfg.borrow_mut() = Some(<#cfg as kannader_config::Config>::setup(path));
-            });
-
-            // Return 0 (ptr = 0, size = 0)
-            // TODO: this will make more sense when merging with guest impl
-            0
+            #ffi_body
         }
 
         #[allow(unused)]
@@ -88,19 +103,8 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn implement_host(_input: TokenStream) -> TokenStream {
-    let setup_fn = Function {
-        ffi_name: Ident::new("setup", Span::call_site()),
-        fn_name: Ident::new("setup", Span::call_site()),
-        args: vec![Argument {
-            name: Ident::new("path", Span::call_site()),
-            is_mut: false,
-            ty: quote!(std::path::PathBuf),
-        }],
-        ret: quote!(()),
-        terminator: quote!(;),
-    };
     let fn_body = call_ffi_fn(
-        &setup_fn,
+        &SETUP_FN(),
         quote!(memory.data_ptr()),
         quote!(memory.data_size()),
         |s| quote!(allocate(#s)),
@@ -227,26 +231,29 @@ fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
         c.link_name,
         c.guest_type
     );
-    let funcs = c.funcs.iter().map(|f| {
+    let funcs = c.funcs.iter().map(|f| -> proc_macro2::TokenStream {
         let ffi_name = &f.ffi_name;
         let fn_name = &f.fn_name;
-        let deserialize_pat = f.args.iter().map(|Argument { name, is_mut, .. }| {
-            if *is_mut {
-                quote!(mut #name)
-            } else {
-                quote!(#name)
-            }
-        });
-        let arguments = f.args.iter().map(|Argument { name, is_mut, .. }| {
-            if *is_mut {
-                quote!(&mut #name)
-            } else {
-                quote!(#name)
-            }
-        });
-        let result = f.args.iter().filter_map(
-            |Argument { name, is_mut, .. }| {
-                if *is_mut { Some(quote!(#name)) } else { None }
+        let ffi_body = run_ffi_fn(
+            &f,
+            quote!(std::slice::from_raw_parts(arg_ptr as *const u8, arg_size)),
+            quote!(deallocate(arg_ptr, arg_size)),
+            |args| {
+                quote! {
+                    KANNADER_CFG.with(|cfg| {
+                        <#impl_name as kannader_config::#trait_name>::#fn_name(
+                            cfg.borrow().as_ref().unwrap(),
+                            #args
+                        )
+                    })
+                }
+            },
+            |size| {
+                quote! {{
+                    let ptr: usize = allocate(#size);
+                    let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, #size);
+                    (ptr, slice)
+                }}
             },
         );
         quote! {
@@ -254,38 +261,8 @@ fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
             // exactly mean here? anyway, probably not `.unwrap()` /
             // `assert!`...) (and above in the file too)
             #[no_mangle]
-            pub unsafe fn #ffi_name(arg_ptr: usize, arg_size: usize) -> u64 {
-                // Deserialize from the argument slice
-                let arg_slice = std::slice::from_raw_parts(arg_ptr as *const u8, arg_size);
-                let ( #(#deserialize_pat),* ) = bincode::deserialize(arg_slice).unwrap();
-
-                // Deallocate the argument slice
-                deallocate(arg_ptr, arg_size);
-
-                // Call the callback
-                let res = KANNADER_CFG.with(|cfg| {
-                    <#impl_name as kannader_config::#trait_name>::#fn_name(
-                        cfg.borrow().as_ref().unwrap(),
-                        #(#arguments),*
-                    )
-                });
-                let res = (res, #(#result),*);
-
-                // Allocate return buffer
-                let ret_size: u64 = bincode::serialized_size(&res).unwrap();
-                debug_assert!(
-                    ret_size <= usize::MAX as u64,
-                    "Message size above usize::MAX, something is really wrong"
-                );
-                let ret_size: usize = ret_size as usize;
-                let ret_ptr: usize = allocate(ret_size);
-                let ret_slice = std::slice::from_raw_parts_mut(ret_ptr as *mut u8, ret_size);
-
-                // Serialize the result to the return buffer
-                bincode::serialize_into(ret_slice, &res).unwrap();
-
-                // We know that usize is u32 thanks to the above const_assert
-                ((ret_size as u64) << 32) | (ret_ptr as u64)
+            pub unsafe extern "C" fn #ffi_name(arg_ptr: usize, arg_size: usize) -> u64 {
+                #ffi_body
             }
         }
     });
@@ -382,6 +359,67 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
         }
     };
     res.into()
+}
+
+fn run_ffi_fn<F, Alloc>(
+    f: &Function,
+    make_arg_slice: proc_macro2::TokenStream,
+    do_dealloc: proc_macro2::TokenStream,
+    do_the_thing: F,
+    do_alloc: Alloc,
+) -> proc_macro2::TokenStream
+where
+    F: Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream,
+    Alloc: Fn(&Ident) -> proc_macro2::TokenStream,
+{
+    let deserialize_pat = f.args.iter().map(|Argument { name, is_mut, .. }| {
+        if *is_mut {
+            quote!(mut #name)
+        } else {
+            quote!(#name)
+        }
+    });
+    let arguments = f.args.iter().map(|Argument { name, is_mut, .. }| {
+        if *is_mut {
+            quote!(&mut #name)
+        } else {
+            quote!(#name)
+        }
+    });
+    let result = f.args.iter().filter_map(
+        |Argument { name, is_mut, .. }| {
+            if *is_mut { Some(quote!(#name)) } else { None }
+        },
+    );
+    let do_the_thing = do_the_thing(quote!(#(#arguments),*));
+    let do_alloc = do_alloc(&Ident::new("ret_size", Span::call_site()));
+    quote! {
+        // TODO: handle errors properly too (see the TODO down the file)
+        // Deserialize from the argument slice
+        let ( #(#deserialize_pat),* ) = bincode::deserialize(#make_arg_slice).unwrap();
+
+        // Deallocate the argument slice
+        #do_dealloc;
+
+        // Call the callback
+        let res = #do_the_thing;
+        let res = (res, #(#result),*);
+
+        // Allocate return buffer
+        let ret_size: u64 = bincode::serialized_size(&res).unwrap();
+        debug_assert!(
+            ret_size <= usize::MAX as u64,
+            "Message size above usize::MAX, something is really wrong"
+        );
+        let ret_size: usize = ret_size as usize;
+        let (ret_ptr, ret_slice) = #do_alloc;
+
+        // Serialize the result to the return buffer
+        bincode::serialize_into(ret_slice, &res).unwrap();
+
+        // We know that usize is u32 thanks to the above const_assert
+        ((ret_size as u64) << 32) | (ret_ptr as u64)
+    }
 }
 
 fn call_ffi_fn<Alloc, F, Dealloc>(
