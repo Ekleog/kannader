@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use kannader_config::{reply, server};
+use kannader_config::{queue, reply, server};
 use smtp_message::{Email, Hostname, Reply};
 
 struct Config;
@@ -13,6 +13,20 @@ impl kannader_config::Config for Config {
 }
 
 kannader_config::implement_guest!(Config);
+
+struct QueueConfig;
+
+impl kannader_config::QueueConfig for QueueConfig {
+    type Cfg = Config;
+
+    fn next_interval(_cfg: &Config, _schedule: queue::ScheduleInfo) -> Option<std::time::Duration> {
+        // TODO: most definitely should try again
+        // TODO: add bounce support to both transport and here
+        None
+    }
+}
+
+kannader_config::queue_config_implement_guest_server!(QueueConfig);
 
 struct ServerConfig;
 

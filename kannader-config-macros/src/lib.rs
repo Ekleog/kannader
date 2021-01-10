@@ -95,6 +95,7 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 
         #[allow(unused)]
         fn DID_YOU_CALL_implement_guest_MACRO() {
+            DID_YOU_CALL_queue_config_implement_guest_server_MACRO();
             DID_YOU_CALL_server_config_implement_guest_server_MACRO();
         }
     };
@@ -688,6 +689,76 @@ macro_rules! communicator {
     };
 }
 
+static QUEUE_CONFIG: fn() -> Communicator = communicator! {
+    #[communicator(link = "queue_config", guest_is = "server")]
+    trait QueueConfig {
+        fn next_interval(
+            &self,
+            schedule: () smtp_queue_types::ScheduleInfo,
+        ) -> (Option<std::time::Duration>) ;
+
+        fn log_storage_error(
+            &self,
+            err: () serde_error::Error,
+            id: () Option<smtp_queue_types::QueueId>,
+        ) -> (()) {
+            kannader_config::error!(
+                { queue_id: ?id, err: ?anyhow::Error::new(err) },
+                "Storage error",
+            );
+        }
+
+        fn log_found_inflight(&self, inflight: () smtp_queue_types::QueueId) -> (()) {
+            // TODO: replace “for a while” with the return of
+            // ServerConfig::found_inflight_check_delay()
+            kannader_config::warn!(
+                { queue_id: ?inflight },
+                "Found inflight mail, waiting for a while before sending",
+            );
+        }
+
+        fn log_found_pending_cleanup(&self, pcm: () smtp_queue_types::QueueId) -> (()) {
+            warn!({ queue_id: ?pcm }, "Found mail pending cleanup");
+        }
+
+        fn log_queued_mail_vanished(&self, id: () smtp_queue_types::QueueId) -> (()) {
+            error!({ queue_id: ?id }, "Queued mail vanished");
+        }
+
+        fn log_inflight_mail_vanished(&self, id: () smtp_queue_types::QueueId) -> (()) {
+            error!({ queue_id: ?id }, "Inflight mail vanished");
+        }
+
+        fn log_pending_cleanup_mail_vanished(&self, id: () smtp_queue_types::QueueId) -> (()) {
+            error!({ queue_id: ?id }, "Mail that was pending cleanup vanished");
+        }
+
+        fn log_too_big_duration(
+            &self,
+            id: () smtp_queue_types::QueueId,
+            too_big: () std::time::Duration,
+            new: () std::time::Duration,
+        ) -> (()) {
+            error!(
+                { queue_id: ?id, too_big: ?too_big, reset_to: ?new },
+                "Ended up having too big a duration",
+            );
+        }
+
+        fn found_inflight_check_delay(&self) -> (std::time::Duration) {
+            std::time::Duration::from_secs(3600)
+        }
+
+        fn io_error_next_retry_delay(&self, d: () std::time::Duration) -> (std::time::Duration) {
+            if d < std::time::Duration::from_secs(30) {
+                std::time::Duration::from_secs(60)
+            } else {
+                d.mul_f64(2.0)
+            }
+        }
+    }
+};
+
 static SERVER_CONFIG: fn() -> Communicator = communicator! {
     #[communicator(link = "server_config", guest_is = "server")]
     trait ServerConfig {
@@ -966,6 +1037,23 @@ static TRACING_CONFIG: fn() -> Communicator = communicator! {
         ) -> (());
     }
 };
+
+#[proc_macro]
+pub fn queue_config_implement_trait(_input: TokenStream) -> TokenStream {
+    make_trait(TraitType::OnGuest, QUEUE_CONFIG())
+}
+
+#[proc_macro]
+pub fn queue_config_implement_guest_server(input: TokenStream) -> TokenStream {
+    let impl_name = syn::parse_macro_input!(input as Ident);
+    make_guest_server(impl_name, QUEUE_CONFIG())
+}
+
+#[proc_macro]
+pub fn queue_config_implement_host_client(input: TokenStream) -> TokenStream {
+    let struct_name = syn::parse_macro_input!(input as Ident);
+    make_host_client(struct_name, QUEUE_CONFIG())
+}
 
 #[proc_macro]
 pub fn server_config_implement_trait(_input: TokenStream) -> TokenStream {

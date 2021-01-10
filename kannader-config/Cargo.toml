@@ -16,8 +16,10 @@ test = false
 [dependencies]
 anyhow = "1.0.37"
 bincode = "1.3.1"
+serde-error = "0.1.0"
 static_assertions = "1.1.0"
 
 kannader-config-macros = { path = "../kannader-config-macros" }
 smtp-message = { path = "../smtp-message" }
+smtp-queue-types = { path = "../smtp-queue-types" }
 smtp-server-types = { path = "../smtp-server-types" }
