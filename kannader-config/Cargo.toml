@@ -8,7 +8,7 @@ keywords = ["smtp", "server", "asynchronous", "email"]
 description = "Configuration system for kannader"
 edition = "2018"
 
-target = "wasm32-unknown-unknown"
+target = "wasm32-wasi"
 
 [lib]
 test = false

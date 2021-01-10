@@ -10,7 +10,7 @@ edition = "2018"
 
 publish = false
 
-target = "wasm32-unknown-unknown"
+target = "wasm32-wasi"
 
 [lib]
 crate-type = ["cdylib"]

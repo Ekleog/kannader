@@ -34,7 +34,7 @@ rec {
   };
   rustNightlyChannel = rustNightlyChannelRaw // {
     rust = rustNightlyChannelRaw.rust.override {
-      targets = ["wasm32-unknown-unknown"];
+      targets = ["wasm32-wasi"];
     };
     # TODO: remove override when https://github.com/rust-lang/cargo/pull/9030
     # lands
