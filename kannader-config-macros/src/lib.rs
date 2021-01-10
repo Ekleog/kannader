@@ -657,7 +657,8 @@ macro_rules! communicator {
     (@is_mut (&mut)) => { true };
 
     (
-        communicator $trait_name:ident $link_name:ident $guest_type:ident {
+        #[communicator(link = $link_name:tt , guest_is = $guest_type:tt)]
+        trait $trait_name:ident {
             $(
                 fn $fn_name:ident(&self $(,)* $($arg:ident : $mut:tt $ty:ty),* $(,)*) -> ($ret:ty)
                     $terminator:tt
@@ -666,11 +667,11 @@ macro_rules! communicator {
     ) => {
         || Communicator {
             trait_name: Ident::new(stringify!($trait_name), Span::call_site()),
-            link_name: Ident::new(stringify!($link_name), Span::call_site()),
-            guest_type: Ident::new(stringify!($guest_type), Span::call_site()),
+            link_name: Ident::new($link_name, Span::call_site()),
+            guest_type: quote::format_ident!("guest_{}", $guest_type),
             funcs: vec![$(
                 Function {
-                    ffi_name: quote::format_ident!("{}_{}", stringify!($link_name), stringify!($fn_name)),
+                    ffi_name: quote::format_ident!("{}_{}", $link_name, stringify!($fn_name)),
                     fn_name: Ident::new(stringify!($fn_name), Span::call_site()),
                     ret: quote!($ret),
                     args: vec![$(
@@ -688,7 +689,8 @@ macro_rules! communicator {
 }
 
 static SERVER_CONFIG: fn() -> Communicator = communicator! {
-    communicator ServerConfig server_config guest_server {
+    #[communicator(link = "server_config", guest_is = "server")]
+    trait ServerConfig {
         fn welcome_banner_reply(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -931,7 +933,8 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
 };
 
 static TRACING_CONFIG: fn() -> Communicator = communicator! {
-    communicator TracingConfig tracing guest_client {
+    #[communicator(link = "tracing", guest_is = "client")]
+    trait TracingConfig {
         fn trace(
             &self,
             meta: () std::collections::HashMap<String, String>,
