@@ -14,6 +14,19 @@ impl kannader_config::Config for Config {
 
 kannader_config::implement_guest!(Config);
 
+struct ClientConfig;
+
+impl kannader_config::ClientConfig for ClientConfig {
+    type Cfg = Config;
+
+    fn ehlo_hostname(_cfg: &Config) -> Hostname {
+        // TODO: this should not be re-parsed on each attempt
+        Hostname::parse(b"localhost").unwrap().1
+    }
+}
+
+kannader_config::client_config_implement_guest_server!(ClientConfig);
+
 struct QueueConfig;
 
 impl kannader_config::QueueConfig for QueueConfig {

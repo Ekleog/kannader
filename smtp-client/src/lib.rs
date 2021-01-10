@@ -44,7 +44,7 @@ impl fmt::Display for Destination {
 
 #[async_trait]
 pub trait Config {
-    fn ehlo_hostname(&self) -> Hostname<&str>;
+    fn ehlo_hostname(&self) -> Hostname<String>;
 
     fn can_do_tls(&self) -> bool {
         true
@@ -593,7 +593,7 @@ where
         send_command(
             &mut sender.io,
             Command::Ehlo {
-                hostname: self.cfg.ehlo_hostname(),
+                hostname: self.cfg.ehlo_hostname().to_ref(),
             },
             self.cfg.command_write_timeout(),
         )

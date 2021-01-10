@@ -13,7 +13,8 @@ const_assert_eq!(mem::size_of::<usize>(), mem::size_of::<u32>());
 
 // Reexport implementation macros
 pub use kannader_config_macros::{
-    implement_guest, queue_config_implement_guest_server, server_config_implement_guest_server,
+    client_config_implement_guest_server, implement_guest, queue_config_implement_guest_server,
+    server_config_implement_guest_server,
 };
 
 // Reexport useful types
@@ -32,6 +33,7 @@ pub trait Config {
     fn setup(path: PathBuf) -> Self;
 }
 
+kannader_config_macros::client_config_implement_trait!();
 kannader_config_macros::queue_config_implement_trait!();
 kannader_config_macros::server_config_implement_trait!();
 kannader_config_macros::tracing_implement_guest_client!(tracing_impl);

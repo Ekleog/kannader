@@ -20,6 +20,7 @@ serde-error = "0.1.0"
 static_assertions = "1.1.0"
 
 kannader-config-macros = { path = "../kannader-config-macros" }
+kannader-types = { path = "../kannader-types" }
 smtp-message = { path = "../smtp-message" }
 smtp-queue-types = { path = "../smtp-queue-types" }
 smtp-server-types = { path = "../smtp-server-types" }

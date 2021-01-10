@@ -6,6 +6,10 @@ pub mod setup {
     kannader_config_macros::implement_host!();
 }
 
+pub mod client_config {
+    kannader_config_macros::client_config_implement_host_client!(WasmFuncs);
+}
+
 pub mod queue_config {
     kannader_config_macros::queue_config_implement_host_client!(WasmFuncs);
 }
@@ -15,6 +19,7 @@ pub mod server_config {
 }
 
 pub struct WasmConfig {
+    pub client_config: client_config::WasmFuncs,
     pub queue_config: queue_config::WasmFuncs,
     pub server_config: server_config::WasmFuncs,
 }
@@ -67,6 +72,12 @@ impl WasmConfig {
         *early_dealloc.borrow_mut() = Some(get_func!(get2, "deallocate"));
 
         let res = WasmConfig {
+            client_config: client_config::WasmFuncs::build(
+                &instance,
+                allocate.clone(),
+                deallocate.clone(),
+            )
+            .context("Getting client configuration")?,
             queue_config: queue_config::WasmFuncs::build(
                 &instance,
                 allocate.clone(),

@@ -1,0 +1,12 @@
+[package]
+name = "kannader-types"
+version = "0.1.0"
+authors = ["Léo Gaspard <leo@gaspard.io>"]
+license = "MIT"
+categories = ["email", "network-programming"]
+keywords = ["smtp", "server", "asynchronous", "email"]
+description = "Serializable types for kannader's configuration system"
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0.118", features = ["derive"] }

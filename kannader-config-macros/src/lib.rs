@@ -95,6 +95,7 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 
         #[allow(unused)]
         fn DID_YOU_CALL_implement_guest_MACRO() {
+            DID_YOU_CALL_client_config_implement_guest_server_MACRO();
             DID_YOU_CALL_queue_config_implement_guest_server_MACRO();
             DID_YOU_CALL_server_config_implement_guest_server_MACRO();
         }
@@ -689,6 +690,70 @@ macro_rules! communicator {
     };
 }
 
+static CLIENT_CONFIG: fn() -> Communicator = communicator! {
+    #[communicator(link = "client_config", guest_is = "server")]
+    trait ClientConfig {
+        fn ehlo_hostname(&self) -> (smtp_message::Hostname) ;
+
+        fn can_do_tls(&self) -> (bool) {
+            true
+        }
+
+        fn must_do_tls(&self) -> (bool) {
+            false
+        }
+
+        fn tls_handler(&self) -> (kannader_types::TlsHandler) {
+            kannader_types::TlsHandler::Rustls
+        }
+
+        fn banner_read_timeout_in_millis(&self) -> (i64) {
+            // 5 minutes in ms
+            5 * 60 * 1000
+        }
+
+        fn command_write_timeout_in_millis(&self) -> (i64) {
+            // 5 minutes in ms
+            5 * 60 * 1000
+        }
+
+        fn ehlo_reply_timeout_in_millis(&self) -> (i64) {
+            // 5 minutes in ms
+            5 * 60 * 1000
+        }
+
+        fn starttls_reply_timeout_in_millis(&self) -> (i64) {
+            // 2 minutes in ms
+            2 * 60 * 1000
+        }
+
+        fn mail_reply_timeout_in_millis(&self) -> (i64) {
+            // 5 minutes in ms
+            5 * 60 * 1000
+        }
+
+        fn rcpt_reply_timeout_in_millis(&self) -> (i64) {
+            // 5 minutes in ms
+            5 * 60 * 1000
+        }
+
+        fn data_init_reply_timeout_in_millis(&self) -> (i64) {
+            // 2 minutes in ms
+            2 * 60 * 1000
+        }
+
+        fn data_block_write_timeout_in_millis(&self) -> (i64) {
+            // 3 minutes in ms
+            3 * 60 * 1000
+        }
+
+        fn data_end_reply_timeout_in_millis(&self) -> (i64) {
+            // 10 minutes in ms
+            10 * 60 * 1000
+        }
+    }
+};
+
 static QUEUE_CONFIG: fn() -> Communicator = communicator! {
     #[communicator(link = "queue_config", guest_is = "server")]
     trait QueueConfig {
@@ -989,13 +1054,13 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::handle_mail_did_not_call_complete().convert()
         }
 
-        fn reply_write_timeout_in_millis(&self) -> (u64)
+        fn reply_write_timeout_in_millis(&self) -> (i64)
         {
             // 5 minutes in milliseconds
             5 * 60 * 1000
         }
 
-        fn command_read_timeout_in_millis(&self) -> (u64)
+        fn command_read_timeout_in_millis(&self) -> (i64)
         {
             // 5 minutes in milliseconds
             5 * 60 * 1000
@@ -1037,6 +1102,23 @@ static TRACING_CONFIG: fn() -> Communicator = communicator! {
         ) -> (());
     }
 };
+
+#[proc_macro]
+pub fn client_config_implement_trait(_input: TokenStream) -> TokenStream {
+    make_trait(TraitType::OnGuest, CLIENT_CONFIG())
+}
+
+#[proc_macro]
+pub fn client_config_implement_guest_server(input: TokenStream) -> TokenStream {
+    let impl_name = syn::parse_macro_input!(input as Ident);
+    make_guest_server(impl_name, CLIENT_CONFIG())
+}
+
+#[proc_macro]
+pub fn client_config_implement_host_client(input: TokenStream) -> TokenStream {
+    let struct_name = syn::parse_macro_input!(input as Ident);
+    make_host_client(struct_name, CLIENT_CONFIG())
+}
 
 #[proc_macro]
 pub fn queue_config_implement_trait(_input: TokenStream) -> TokenStream {

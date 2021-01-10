@@ -349,28 +349,17 @@ where
 
     fn reply_write_timeout(&self) -> chrono::Duration {
         // Unfortunately, there is no good way to gracefully fail here
-        // TODO: report a bug to rustc, this type annotation should not be necessary
-        let ms: u64 = run_hook!(
+        chrono::Duration::milliseconds(run_hook!(
             reply_write_timeout_in_millis()
                 || panic!("Error while running the ‘reply_write_timeout’ hook")
-        );
-        assert!(
-            ms <= i64::MAX as u64,
-            "Configuration returned an overflowing timeout"
-        );
-        chrono::Duration::milliseconds(ms as i64)
+        ))
     }
 
     fn command_read_timeout(&self) -> chrono::Duration {
         // Unfortunately, there is no good way to gracefully fail here
-        let ms: u64 = run_hook!(
+        chrono::Duration::milliseconds(run_hook!(
             command_read_timeout_in_millis()
                 || panic!("Error while running the ‘command_read_timeout’ hook")
-        );
-        assert!(
-            ms <= i64::MAX as u64,
-            "Configuration returned an overflowing timeout"
-        );
-        chrono::Duration::milliseconds(ms as i64)
+        ))
     }
 }
