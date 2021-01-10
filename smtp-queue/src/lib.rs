@@ -9,7 +9,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::{io, join, pin_mut, AsyncRead, AsyncWrite, Stream, StreamExt, TryFutureExt};
 use smtp_message::Email;
 
@@ -53,28 +53,7 @@ pub struct MailMetadata<U> {
     pub metadata: U,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ScheduleInfo {
-    pub at: DateTime<Utc>,
-    pub last_attempt: Option<DateTime<Utc>>,
-}
-
-impl ScheduleInfo {
-    pub fn last_interval(&self) -> Result<Option<Duration>, time::OutOfRangeError> {
-        self.last_attempt
-            .map(|last| (last - self.at).to_std())
-            .transpose()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct QueueId(pub Arc<String>);
-
-impl QueueId {
-    pub fn new<S: ToString>(s: S) -> QueueId {
-        QueueId(Arc::new(s.to_string()))
-    }
-}
+pub use smtp_queue_types::{QueueId, ScheduleInfo};
 
 #[async_trait]
 pub trait Config<U, StorageError>: 'static + Send + Sync {

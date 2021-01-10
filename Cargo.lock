@@ -2471,7 +2471,7 @@ dependencies = [
  "serde",
  "smol",
  "smtp-message",
- "time",
+ "smtp-queue-types",
 ]
 
 [[package]]
@@ -2490,6 +2490,15 @@ dependencies = [
  "thiserror",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "smtp-queue-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "time",
 ]
 
 [[package]]
