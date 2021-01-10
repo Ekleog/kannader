@@ -659,9 +659,8 @@ macro_rules! communicator {
     (
         communicator $trait_name:ident $link_name:ident $guest_type:ident {
             $(
-                $ffi_name:ident => fn
-                    $fn_name:ident(&self, $($arg:ident : $mut:tt $ty:ty),* $(,)*) -> ($ret:ty)
-                        $terminator:tt
+                fn $fn_name:ident(&self $(,)* $($arg:ident : $mut:tt $ty:ty),* $(,)*) -> ($ret:ty)
+                    $terminator:tt
             )+
         }
     ) => {
@@ -671,7 +670,7 @@ macro_rules! communicator {
             guest_type: Ident::new(stringify!($guest_type), Span::call_site()),
             funcs: vec![$(
                 Function {
-                    ffi_name: Ident::new(stringify!($ffi_name), Span::call_site()),
+                    ffi_name: quote::format_ident!("{}_{}", stringify!($link_name), stringify!($fn_name)),
                     fn_name: Ident::new(stringify!($fn_name), Span::call_site()),
                     ret: quote!($ret),
                     args: vec![$(
@@ -690,19 +689,19 @@ macro_rules! communicator {
 
 static SERVER_CONFIG: fn() -> Communicator = communicator! {
     communicator ServerConfig server_config guest_server {
-        server_config_welcome_banner_reply => fn welcome_banner_reply(
+        fn welcome_banner_reply(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply) ;
 
-        server_config_filter_hello => fn filter_hello(
+        fn filter_hello(
             &self,
             is_ehlo: () bool,
             hostname: () smtp_message::Hostname,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<smtp_server_types::HelloInfo>) ;
 
-        server_config_can_do_tls => fn can_do_tls(
+        fn can_do_tls(
             &self,
             conn_meta: () smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (bool)
@@ -711,26 +710,26 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
                 conn_meta.hello.as_ref().map(|h| h.is_ehlo).unwrap_or(false)
         }
 
-        server_config_new_mail => fn new_mail(
+        fn new_mail(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (Vec<u8>) ;
 
-        server_config_filter_from => fn filter_from(
+        fn filter_from(
             &self,
             from: () Option<smtp_message::Email>,
             meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<Option<smtp_message::Email>>) ;
 
-        server_config_filter_to => fn filter_to(
+        fn filter_to(
             &self,
             to: () smtp_message::Email,
             meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<smtp_message::Email>) ;
 
-        server_config_filter_data => fn filter_data(
+        fn filter_data(
             &self,
             meta: (&mut) smtp_server_types::MailMetadata<Vec<u8>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -742,7 +741,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_rset => fn handle_rset(
+        fn handle_rset(
             &self,
             meta: (&mut) Option<smtp_server_types::MailMetadata<Vec<u8>>>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -754,7 +753,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_starttls => fn handle_starttls(
+        fn handle_starttls(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<()>)
@@ -771,7 +770,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_expn => fn handle_expn(
+        fn handle_expn(
             &self,
             name: () smtp_message::MaybeUtf8<String>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -782,7 +781,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_vrfy => fn handle_vrfy(
+        fn handle_vrfy(
             &self,
             name: () smtp_message::MaybeUtf8<String>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -794,7 +793,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_help => fn handle_help(
+        fn handle_help(
             &self,
             subject: () smtp_message::MaybeUtf8<String>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -806,7 +805,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_noop => fn handle_noop(
+        fn handle_noop(
             &self,
             string: () smtp_message::MaybeUtf8<String>,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
@@ -818,7 +817,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_handle_quit => fn handle_quit(
+        fn handle_quit(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<()>)
@@ -829,7 +828,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             }
         }
 
-        server_config_already_did_hello => fn already_did_hello(
+        fn already_did_hello(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -837,7 +836,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_mail_before_hello => fn mail_before_hello(
+        fn mail_before_hello(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -845,7 +844,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_already_in_mail => fn already_in_mail(
+        fn already_in_mail(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -853,7 +852,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_rcpt_before_mail => fn rcpt_before_mail(
+        fn rcpt_before_mail(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -861,7 +860,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_data_before_rcpt => fn data_before_rcpt(
+        fn data_before_rcpt(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -869,7 +868,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_data_before_mail => fn data_before_mail(
+        fn data_before_mail(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -877,7 +876,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::bad_sequence().convert()
         }
 
-        server_config_starttls_unsupported => fn starttls_unsupported(
+        fn starttls_unsupported(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -885,7 +884,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::command_not_supported().convert()
         }
 
-        server_config_command_unrecognized => fn command_unrecognized(
+        fn command_unrecognized(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -893,7 +892,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::command_unrecognized().convert()
         }
 
-        server_config_pipeline_forbidden_after_starttls => fn pipeline_forbidden_after_starttls(
+        fn pipeline_forbidden_after_starttls(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -901,7 +900,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::pipeline_forbidden_after_starttls().convert()
         }
 
-        server_config_line_too_long => fn line_too_long(
+        fn line_too_long(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -909,7 +908,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::line_too_long().convert()
         }
 
-        server_config_handle_mail_did_not_call_complete => fn handle_mail_did_not_call_complete(
+        fn handle_mail_did_not_call_complete(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_message::Reply)
@@ -917,17 +916,13 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
             smtp_server_types::reply::handle_mail_did_not_call_complete().convert()
         }
 
-        server_config_reply_write_timeout_in_millis => fn reply_write_timeout_in_millis(
-            &self,
-        ) -> (u64)
+        fn reply_write_timeout_in_millis(&self) -> (u64)
         {
             // 5 minutes in milliseconds
             5 * 60 * 1000
         }
 
-        server_config_command_read_timeout_in_millis => fn command_read_timeout_in_millis(
-            &self,
-        ) -> (u64)
+        fn command_read_timeout_in_millis(&self) -> (u64)
         {
             // 5 minutes in milliseconds
             5 * 60 * 1000
@@ -937,31 +932,31 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
 
 static TRACING_CONFIG: fn() -> Communicator = communicator! {
     communicator TracingConfig tracing guest_client {
-        tracing_trace => fn trace(
+        fn trace(
             &self,
             meta: () std::collections::HashMap<String, String>,
             msg: () String,
         ) -> (());
 
-        tracing_debug => fn debug(
+        fn debug(
             &self,
             meta: () std::collections::HashMap<String, String>,
             msg: () String,
         ) -> (());
 
-        tracing_info => fn info(
+        fn info(
             &self,
             meta: () std::collections::HashMap<String, String>,
             msg: () String,
         ) -> (());
 
-        tracing_warn => fn warn(
+        fn warn(
             &self,
             meta: () std::collections::HashMap<String, String>,
             msg: () String,
         ) -> (());
 
-        tracing_error => fn error(
+        fn error(
             &self,
             meta: () std::collections::HashMap<String, String>,
             msg: () String,
