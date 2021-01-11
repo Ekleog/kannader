@@ -17,7 +17,7 @@ jobs:
       - run: nix-shell --pure --run 'cargo clippy --all --all-features -- -D warnings'
       # cargo-udeps doesn't support package.target (yet)
       - run: nix-shell --pure --run 'cargo udeps -p kannader --all-targets'
-      - run: nix-shell --pure --run 'cargo udeps -p kannader-config-example --all-targets --target wasm32-unknown-unknown'
+      - run: nix-shell --pure --run 'cargo udeps -p kannader-config-example --all-targets --target wasm32-wasi'
 
   cargo-tests:
     name: Cargo Tests
