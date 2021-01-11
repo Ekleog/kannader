@@ -43,6 +43,15 @@ impl WasmConfig {
         let store = wasmtime::Store::new(engine);
         let mut linker = wasmtime::Linker::new(&store);
 
+        wasmtime_wasi::Wasi::new(
+            &store,
+            wasmtime_wasi::WasiCtxBuilder::new()
+                .build()
+                .context("Preparing WASI context")?,
+        )
+        .add_to_linker(&mut linker)
+        .context("Adding WASI exports to the linker")?;
+
         let tracing_serv = Rc::new(TracingServer);
         tracing_serv
             .add_to_linker(early_alloc.clone(), early_dealloc.clone(), &mut linker)
