@@ -175,7 +175,8 @@ where
         let mut enqueuer = match self.queue.enqueue().await {
             Ok(enqueuer) => enqueuer,
             Err(e) => {
-                error!(error = ?anyhow::Error::new(e), "Internal server error while opening an enqueuer");
+                let e = anyhow::Error::new(e);
+                error!(error = ?e, "Internal server error while opening an enqueuer");
                 return Decision::Reject {
                     reply: reply::internal_server_error().convert(),
                 };

@@ -12,7 +12,8 @@ fn transport_error_client_to_queue(
     text: &'static str,
 ) -> smtp_queue::TransportFailure {
     let severity = err.severity();
-    warn!(error = ?anyhow::Error::new(err), "{}", text);
+    let err = anyhow::Error::new(err);
+    warn!(error = ?err, "{}", text);
     match severity {
         smtp_client::TransportErrorSeverity::Local => smtp_queue::TransportFailure::Local,
         smtp_client::TransportErrorSeverity::NetworkTransient => {
