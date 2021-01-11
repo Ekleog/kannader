@@ -27,7 +27,7 @@ structopt = "0.3.21"
 tracing = "0.1.22"
 tracing-subscriber = "0.2.15"
 trust-dns-resolver = "0.20.0"
-wasmtime = "0.21.0"
+wasmtime = "0.22.0"
 wasmtime-wasi = "0.21.0"
 webpki = "0.21.4"
 
