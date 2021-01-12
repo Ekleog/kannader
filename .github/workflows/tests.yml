@@ -45,4 +45,6 @@ jobs:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
       - run: nix-build default.nix
-      - run: nix-build tests/basic-test.nix
+      # TODO: re-enable test after having figured out how to make the github run
+      # of it less wobbly (due to github not having kvm)
+      # - run: nix-build tests/basic-test.nix

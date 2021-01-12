@@ -76,6 +76,4 @@ with import ../common.nix;
         "check-test-mail 'alice@local' 'bob@mx.a.opensmtpd.local' 'cookies'"
     )
   '';
-}) {}).overrideAttrs (_: {
-  requiredSystemFeatures = ["nixos-test"]; # Remove kvm requirement
-})
+}) {})
