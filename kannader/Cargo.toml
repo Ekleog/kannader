@@ -27,8 +27,9 @@ structopt = "0.3.21"
 tracing = "0.1.22"
 tracing-subscriber = "0.2.15"
 trust-dns-resolver = "0.20.0"
-wasmtime = "0.22.0"
-wasmtime-wasi = "0.22.0"
+# TODO: go back to the normal version once the new wasi api is out
+wasmtime = { version = "0.22.0", git = "https://github.com/Ekleog/wasmtime", rev = "f3156114c4fd126f0ca35e77bc81991056085885" }
+wasmtime-wasi = { version = "0.22.0", package = "wasi-c2-wasmtime", git = "https://github.com/Ekleog/wasmtime", rev = "f3156114c4fd126f0ca35e77bc81991056085885" }
 webpki = "0.21.4"
 
 kannader-config-macros = { path = "../kannader-config-macros" }

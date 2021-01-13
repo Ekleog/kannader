@@ -45,7 +45,7 @@ impl WasmConfig {
 
         wasmtime_wasi::Wasi::new(
             &store,
-            wasmtime_wasi::WasiCtxBuilder::new()
+            wasmtime_wasi::WasiCtx::builder()
                 .build()
                 .context("Preparing WASI context")?,
         )
