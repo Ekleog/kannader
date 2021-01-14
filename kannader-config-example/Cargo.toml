@@ -12,6 +12,10 @@ publish = false
 
 target = "wasm32-wasi"
 
+[[bin]]
+name = "kannader-config-example"
+test = false
+
 [dependencies]
 bincode = "1.3.1"
 
