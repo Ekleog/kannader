@@ -172,7 +172,7 @@ impl<U> FsStorage<U> {
                     Err(e) => return Err($open_err(e)),
                 }
             }};
-        };
+        }
 
         let main_dir = maybe_create_and_open_generic!(
             path,
@@ -192,7 +192,7 @@ impl<U> FsStorage<U> {
                     |e| Error::CreatingSubFolder(path.clone(), $sub_path, e),
                 )
             };
-        };
+        }
 
         let data = maybe_create_and_open!(DATA_DIR);
         let queue = maybe_create_and_open!(QUEUE_DIR);
