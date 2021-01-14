@@ -10,5 +10,5 @@ edition = "2018"
 
 [dependencies]
 chrono = { version = "0.4.11", features = ["serde"] }
-serde = { version = "1.0.118", features = ["derive", "rc"] }
+serde = { version = "1.0.119", features = ["derive", "rc"] }
 time = "0.1.44"
