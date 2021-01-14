@@ -44,7 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
-      - run: nix-build default.nix
+      # TODO: naersk currently badly supports git dependencies.
+      # Re-enable this build once it's fixed
+      # - run: nix-build default.nix
       # TODO: re-enable test after having figured out how to make the github run
       # of it less wobbly (due to github not having kvm)
       # - run: nix-build tests/basic-test.nix
