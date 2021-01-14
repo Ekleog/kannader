@@ -1,7 +1,6 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
 use anyhow::{anyhow, Context};
-use wasmtime_wasi::WasiDir;
 
 pub mod setup {
     kannader_config_macros::implement_host!();
@@ -49,7 +48,11 @@ impl WasmConfig {
             wasmtime_wasi::WasiCtx::builder()
                 // TODO: this is bad! replace with something that only
                 // adds the necessary stuff
-                .preopened_dir(Box::new(AsyncDir::new(".")?), ".")
+                // TODO: this should be async files, but let's keep
+                // that for the day async wasi is implemented upstream
+                .preopened_dir(Box::new(unsafe {
+                    cap_std::fs::Dir::from_std_file(std::fs::File::open(".")?)
+                }), ".")
                 .context("Adding async dir")?
                 .build()
                 .context("Preparing WASI context")?,
@@ -107,138 +110,6 @@ impl WasmConfig {
         setup::setup(cfg, &linker, allocate).context("Running the setup hook")?;
 
         Ok(res)
-    }
-}
-
-struct AsyncDir(Box<dyn WasiDir>);
-
-impl AsyncDir {
-    pub fn new(path: impl AsRef<Path>) -> anyhow::Result<AsyncDir> {
-        unsafe {
-            Ok(AsyncDir(Box::new(cap_std::fs::Dir::from_std_file(
-                std::fs::File::open(path.as_ref())
-                    .with_context(|| format!("Opening ‘{}’", path.as_ref().display()))?,
-            ))))
-        }
-    }
-}
-
-// TODO: make all these impls defer to unblock
-impl WasiDir for AsyncDir {
-    fn as_any(&self) -> &dyn std::any::Any {
-        tracing::warn!("Operating");
-        self
-    }
-
-    fn open_file(
-        &self,
-        symlink_follow: bool,
-        path: &str,
-        oflags: wasmtime_wasi::OFlags,
-        caps: wasmtime_wasi::FileCaps,
-        fdflags: wasmtime_wasi::FdFlags,
-    ) -> Result<Box<dyn wasmtime_wasi::WasiFile>, wasmtime_wasi::Error> {
-        tracing::warn!("Opening file ‘{}’", path);
-        // TODO: make this be an AsyncFile
-        self.0
-            .open_file(symlink_follow, path, oflags, caps, fdflags)
-    }
-
-    fn open_dir(
-        &self,
-        symlink_follow: bool,
-        path: &str,
-    ) -> Result<Box<dyn WasiDir>, wasmtime_wasi::Error> {
-        tracing::warn!("Opening dir ‘{}’", path);
-        self.0
-            .open_dir(symlink_follow, path)
-            .map(|d| Box::new(AsyncDir(d)) as _)
-    }
-
-    fn create_dir(&self, path: &str) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.create_dir(path)
-    }
-
-    fn readdir(
-        &self,
-        cursor: wasmtime_wasi::ReaddirCursor,
-    ) -> Result<
-        Box<
-            dyn Iterator<
-                Item = Result<(wasmtime_wasi::ReaddirEntity, String), wasmtime_wasi::Error>,
-            >,
-        >,
-        wasmtime_wasi::Error,
-    > {
-        tracing::warn!("Operating");
-        // TODO: make async
-        self.0.readdir(cursor)
-    }
-
-    fn symlink(&self, old_path: &str, new_path: &str) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.symlink(old_path, new_path)
-    }
-
-    fn remove_dir(&self, path: &str) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.remove_dir(path)
-    }
-
-    fn unlink_file(&self, path: &str) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.unlink_file(path)
-    }
-
-    fn read_link(&self, path: &str) -> Result<std::path::PathBuf, wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.read_link(path)
-    }
-
-    fn get_filestat(&self) -> Result<wasmtime_wasi::Filestat, wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.get_filestat()
-    }
-
-    fn get_path_filestat(
-        &self,
-        path: &str,
-    ) -> Result<wasmtime_wasi::Filestat, wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.get_path_filestat(path)
-    }
-
-    fn rename(
-        &self,
-        path: &str,
-        dest_dir: &dyn WasiDir,
-        dest_path: &str,
-    ) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.rename(path, dest_dir, dest_path)
-    }
-
-    fn hard_link(
-        &self,
-        path: &str,
-        symlink_follow: bool,
-        target_dir: &dyn WasiDir,
-        target_path: &str,
-    ) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0
-            .hard_link(path, symlink_follow, target_dir, target_path)
-    }
-
-    fn set_times(
-        &self,
-        path: &str,
-        atime: Option<wasmtime_wasi::SystemTimeSpec>,
-        mtime: Option<wasmtime_wasi::SystemTimeSpec>,
-    ) -> Result<(), wasmtime_wasi::Error> {
-        tracing::warn!("Operating");
-        self.0.set_times(path, atime, mtime)
     }
 }
 
