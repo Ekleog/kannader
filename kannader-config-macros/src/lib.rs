@@ -65,6 +65,8 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
         },
     );
     let res = quote! {
+        pub fn main() {}
+
         #[no_mangle]
         pub unsafe extern "C" fn allocate(size: usize) -> usize {
             // TODO: handle alloc error (ie. null return) properly (trap?)

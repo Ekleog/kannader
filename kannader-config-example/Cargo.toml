@@ -12,10 +12,6 @@ publish = false
 
 target = "wasm32-wasi"
 
-[lib]
-crate-type = ["cdylib"]
-test = false
-
 [dependencies]
 bincode = "1.3.1"
 

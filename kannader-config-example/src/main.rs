@@ -6,8 +6,17 @@ use smtp_message::{Email, Hostname, Reply};
 struct Config;
 
 impl kannader_config::Config for Config {
-    fn setup(_path: PathBuf) -> Config {
-        kannader_config::info!("Setting up config");
+    fn setup(path: PathBuf) -> Config {
+        kannader_config::info!("Reading config file…");
+        let contents = std::fs::read_to_string(path);
+        match contents {
+            Err(c) => {
+                kannader_config::error!("Error: {:?}", c);
+            }
+            Ok(s) => {
+                kannader_config::info!("Read config file! ‘{}’", s);
+            }
+        }
         Config
     }
 }

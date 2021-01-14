@@ -578,7 +578,7 @@ checksum = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
 [[package]]
 name = "cranelift-bforest"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-entity",
 ]
@@ -586,7 +586,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "byteorder",
  "cranelift-bforest",
@@ -605,7 +605,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-meta"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-codegen-shared",
  "cranelift-entity",
@@ -614,12 +614,12 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-shared"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 
 [[package]]
 name = "cranelift-entity"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "serde",
 ]
@@ -627,7 +627,7 @@ dependencies = [
 [[package]]
 name = "cranelift-frontend"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-codegen",
  "log",
@@ -638,7 +638,7 @@ dependencies = [
 [[package]]
 name = "cranelift-native"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-codegen",
  "raw-cpuid",
@@ -648,7 +648,7 @@ dependencies = [
 [[package]]
 name = "cranelift-wasm"
 version = "0.69.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -1400,6 +1400,7 @@ dependencies = [
  "async-tls",
  "async-trait",
  "bincode",
+ "cap-std",
  "chrono",
  "duplexify",
  "easy-parallel",
@@ -3054,7 +3055,7 @@ checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
 [[package]]
 name = "wasi-c2"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "bitflags",
@@ -3074,7 +3075,7 @@ dependencies = [
 [[package]]
 name = "wasi-c2-wasmtime"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "wasi-c2",
@@ -3158,7 +3159,7 @@ checksum = "89a30c99437829ede826802bfcf28500cf58df00e66cb9114df98813bc145ff1"
 [[package]]
 name = "wasmtime"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -3186,7 +3187,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-cache"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "base64",
@@ -3206,7 +3207,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-cranelift"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -3218,7 +3219,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-debug"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "gimli",
@@ -3233,7 +3234,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-environ"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.0",
@@ -3252,7 +3253,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-jit"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "addr2line",
  "anyhow",
@@ -3284,7 +3285,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-obj"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "more-asserts",
@@ -3297,7 +3298,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-profiling"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.0",
@@ -3315,7 +3316,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-runtime"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "backtrace",
  "cc",
@@ -3336,7 +3337,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wiggle"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "wasmtime",
  "wasmtime-wiggle-macro",
@@ -3347,7 +3348,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wiggle-macro"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3430,7 +3431,7 @@ checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
 [[package]]
 name = "wiggle"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "bitflags",
  "thiserror",
@@ -3442,7 +3443,7 @@ dependencies = [
 [[package]]
 name = "wiggle-borrow"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "wiggle",
 ]
@@ -3450,7 +3451,7 @@ dependencies = [
 [[package]]
 name = "wiggle-generate"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "heck",
@@ -3464,7 +3465,7 @@ dependencies = [
 [[package]]
 name = "wiggle-macro"
 version = "0.22.0"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "quote",
  "syn",
@@ -3526,7 +3527,7 @@ dependencies = [
 [[package]]
 name = "witx"
 version = "0.8.8"
-source = "git+https://github.com/Ekleog/wasmtime?rev=f3156114c4fd126f0ca35e77bc81991056085885#f3156114c4fd126f0ca35e77bc81991056085885"
+source = "git+https://github.com/Ekleog/wasmtime?rev=932378eb7b499e0b23ad8a8e762cc8e905100d8a#932378eb7b499e0b23ad8a8e762cc8e905100d8a"
 dependencies = [
  "anyhow",
  "log",
