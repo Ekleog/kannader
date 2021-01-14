@@ -137,18 +137,22 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
         // upstream)
         pub fn setup(
             path: &Path,
-            instance: &wasmtime::Instance,
+            linker: &wasmtime::Linker,
             allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
         ) -> anyhow::Result<()> {
             // Recover memory instance
-            let memory = instance
-                .get_memory("memory")
-                .ok_or_else(|| anyhow!("Failed to find memory export ‘memory’"))?;
+            let memory = linker
+                .get_one_by_name("config", Some("memory"))
+                .context("Looking for an export for ‘memory’")?
+                .into_memory()
+                .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
 
             // Recover setup function
-            let wasm_fun = instance
-                .get_func("setup")
-                .ok_or_else(|| anyhow!("Failed to find function export ‘setup’"))?
+            let wasm_fun = linker
+                .get_one_by_name("config", Some("setup"))
+                .context("Looking for an export for ‘setup’")?
+                .into_func()
+                .ok_or_else(|| anyhow!("Export for ‘setup’ is not a function"))?
                 .get2()
                 .with_context(|| format!("Checking the type of ‘setup’"))?;
 
@@ -304,7 +308,8 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 quote!(#name: #ty)
             }
         });
-        let failed_to_find_export = format!("Failed to find function export ‘{}’", f.ffi_name);
+        let looking_for_export = format!("Looking for an export for ‘{}’", f.ffi_name);
+        let export_is_not_function = format!("Export for ‘{}’ is not a function", f.ffi_name);
         let checking_type = format!("Checking the type of ‘{}’", f.ffi_name);
         let fn_body = call_ffi_fn(
             f,
@@ -320,9 +325,11 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 let allocate = allocate.clone();
                 let deallocate = deallocate.clone();
 
-                let wasm_fun = instance
-                    .get_func(#ffi_name_str)
-                    .ok_or_else(|| anyhow::Error::msg(#failed_to_find_export))?
+                let wasm_fun = linker
+                    .get_one_by_name("config", Some(#ffi_name_str))
+                    .context(#looking_for_export)?
+                    .into_func()
+                    .ok_or_else(|| anyhow::Error::msg(#export_is_not_function))?
                     .get2()
                     .context(#checking_type)?;
 
@@ -343,15 +350,17 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
 
         impl #struct_name {
             pub fn build(
-                instance: &wasmtime::Instance,
+                linker: &wasmtime::Linker,
                 allocate: std::rc::Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
                 deallocate: std::rc::Rc<dyn Fn(u32, u32) -> Result<(), wasmtime::Trap>>,
             ) -> anyhow::Result<Self> {
                 use anyhow::{anyhow, ensure, Context};
 
-                let memory = instance
-                    .get_memory("memory")
-                    .ok_or_else(|| anyhow!("Failed to find memory export ‘memory’"))?;
+                let memory = linker
+                    .get_one_by_name("config", Some("memory"))
+                    .context("Looking for an export for ‘memory’")?
+                    .into_memory()
+                    .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
 
                 #(#func_gets)*
 

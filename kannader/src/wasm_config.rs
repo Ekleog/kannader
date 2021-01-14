@@ -62,23 +62,21 @@ impl WasmConfig {
             .add_to_linker(early_alloc.clone(), early_dealloc.clone(), &mut linker)
             .context("Adding ‘tracing’ module to the linker")?;
 
-        let instance = linker
-            .instantiate(&module)
+        linker
+            .module("config", &module)
             .context("Instantiating the wasm configuration blob")?;
 
         macro_rules! get_func {
             ($getter:ident, $function:expr) => {
-                instance
-                    .get_func($function)
-                    .ok_or_else(|| anyhow!("Failed to find function export ‘{}’", $function))?
+                linker
+                    .get_one_by_name("config", Some($function))
+                    .with_context(|| format!("Looking for an export for ‘{}’", $function))?
+                    .into_func()
+                    .ok_or_else(|| anyhow!("Export for ‘{}’ is not a function", $function))?
                     .$getter()
                     .with_context(|| format!("Checking the type of ‘{}’", $function))?
             };
         }
-
-        // TODO: remove once https://github.com/bytecodealliance/wasmtime/issues/2580 is fixed
-        let initialize = get_func!(get0, "_initialize");
-        initialize().context("Initializing the configuration module")?;
 
         // Parameter: size of the block to allocate
         // Return: address of the allocated block
@@ -91,22 +89,22 @@ impl WasmConfig {
 
         let res = WasmConfig {
             client_config: client_config::WasmFuncs::build(
-                &instance,
+                &linker,
                 allocate.clone(),
                 deallocate.clone(),
             )
             .context("Getting client configuration")?,
             queue_config: queue_config::WasmFuncs::build(
-                &instance,
+                &linker,
                 allocate.clone(),
                 deallocate.clone(),
             )
             .context("Getting queue configuration")?,
-            server_config: server_config::WasmFuncs::build(&instance, allocate.clone(), deallocate)
+            server_config: server_config::WasmFuncs::build(&linker, allocate.clone(), deallocate)
                 .context("Getting server configuration")?,
         };
 
-        setup::setup(cfg, &instance, allocate).context("Running the setup hook")?;
+        setup::setup(cfg, &linker, allocate).context("Running the setup hook")?;
 
         Ok(res)
     }
