@@ -10,7 +10,7 @@ edition = "2018"
 
 [dependencies]
 async-trait = "0.1.30"
-futures = "0.3.4"
+futures = "0.3.11"
 openat = "0.1.19"
 serde = "1.0.110"
 serde_json = "1.0.53"

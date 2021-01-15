@@ -11,7 +11,7 @@ cargo-fuzz = true
 [dependencies]
 async-trait = "0.1.30"
 duplexify = "1.1.0"
-futures = "0.3.4"
+futures = "0.3.11"
 futures-test = "0.3.5"
 libfuzzer-sys = "0.3.2"
 
