@@ -122,23 +122,43 @@ kannader_config_macros::tracing_implement_trait!();
 
 impl TracingConfig for TracingServer {
     fn trace(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
-        tracing::trace!(?meta, "{}", msg);
+        if meta.is_empty() {
+            tracing::trace!("{}", msg);
+        } else {
+            tracing::trace!(?meta, "{}", msg);
+        }
     }
 
     fn debug(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
-        tracing::debug!(?meta, "{}", msg);
+        if meta.is_empty() {
+            tracing::debug!("{}", msg);
+        } else {
+            tracing::debug!(?meta, "{}", msg);
+        }
     }
 
     fn info(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
-        tracing::info!(?meta, "{}", msg);
+        if meta.is_empty() {
+            tracing::info!("{}", msg);
+        } else {
+            tracing::info!(?meta, "{}", msg);
+        }
     }
 
     fn warn(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
-        tracing::warn!(?meta, "{}", msg);
+        if meta.is_empty() {
+            tracing::warn!("{}", msg);
+        } else {
+            tracing::warn!(?meta, "{}", msg);
+        }
     }
 
     fn error(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
-        tracing::error!(?meta, "{}", msg);
+        if meta.is_empty() {
+            tracing::error!("{}", msg);
+        } else {
+            tracing::error!(?meta, "{}", msg);
+        }
     }
 }
 
