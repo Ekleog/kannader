@@ -2,6 +2,7 @@
 name = "benches"
 version = "0.0.1"
 authors = []
+license = "AGPL-3.0-only"
 edition = "2018"
 publish = false
 

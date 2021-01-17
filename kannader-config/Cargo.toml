@@ -2,7 +2,7 @@
 name = "kannader-config"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
-license = "MIT"
+license = "AGPL-3.0-only"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
 description = "Configuration system for kannader"

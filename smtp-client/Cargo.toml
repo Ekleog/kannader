@@ -2,7 +2,7 @@
 name = "smtp-client"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "client", "asynchronous", "email"]
 description = "Asynchronous SMTP client library"

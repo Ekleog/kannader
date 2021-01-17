@@ -2,7 +2,7 @@
 name = "smtp-message"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 categories = ["email", "network-programming", "parser-implementations"]
 keywords = ["parser", "builder", "smtp", "email"]
 description = "Line-oriented parser and builder for SMTP protocol messages"
