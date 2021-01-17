@@ -13,8 +13,8 @@ use anyhow::Context;
 use easy_parallel::Parallel;
 use futures::StreamExt;
 use scoped_tls::scoped_thread_local;
-use smol::unblock;
-use tracing::info;
+use smol::{future::FutureExt, unblock};
+use tracing::{debug, info};
 
 use smtp_queue_fs::FsStorage;
 
@@ -103,6 +103,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
     // Start the executor
     let ex = &Arc::new(smol::Executor::new());
 
+    let (stop_signal, local_shutdown) = smol::channel::unbounded::<()>();
+
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
         .each(0..NUM_THREADS, |_| {
             let wasm_config = WasmConfig::new(&opt.dirs, &opt.config, &engine, &module)
@@ -111,6 +113,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                 smol::block_on(ex.run(async {
                     shutdown
                         .recv()
+                        .or(local_shutdown.recv())
                         .await
                         .context("Receiving shutdown notification")
                 }))
@@ -121,6 +124,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
             WASM_CONFIG.set(wasm_config, move || {
                 smol::block_on(async move {
                     // Prepare the clients
+                    debug!("Preparing the client configuration");
                     let mut tls_client_cfg =
                         rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
                     // TODO: see for configuring persistence, for more performance?
@@ -136,6 +140,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     );
 
                     // Spawn the queue
+                    debug!("Preparing the queue configuration");
                     let storage = (wasm_config.queue_config.storage_type)()
                         .context("Retrieving storage type")?;
                     let storage = match storage {
@@ -152,6 +157,9 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     .await;
 
                     // Spawn the server
+                    // TODO: introduce some tests that make sure that starting kannader with an
+                    // invalid config does result in a user-visible error
+                    debug!("Preparing the TLS configuration");
                     let cert_file = (wasm_config.server_config.tls_cert_file)()
                         .context("Getting the path to the TLS cert file")?;
                     let keys_file = (wasm_config.server_config.tls_key_file)()
@@ -197,6 +205,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     })
                     .await?;
                     let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
+
+                    debug!("Reopening the listener as async");
                     let server_cfg = Arc::new(ServerConfig::new(acceptor, queue));
                     let listener = smol::net::TcpListener::try_from(listener)
                         .context("Making listener async")?;
@@ -205,6 +215,9 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     info!("Server up, waiting for connections");
                     while let Some(stream) = incoming.next().await {
                         let stream = stream.context("Receiving a new incoming stream")?;
+                        // TODO: attach uuid metadata to stream for logging purposes (or in
+                        // smtp-server directly?)
+                        tracing::trace!("New incoming stream");
                         ex.spawn(smtp_server::interact(
                             stream,
                             smtp_server::IsAlreadyTls::No,
@@ -213,6 +226,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         ))
                         .detach();
                     }
+
+                    std::mem::drop(stop_signal);
 
                     Ok(())
                 })
