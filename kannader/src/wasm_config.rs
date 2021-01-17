@@ -45,15 +45,12 @@ impl WasmConfig {
 
         wasmtime_wasi::Wasi::new(
             &store,
-            wasmtime_wasi::WasiCtx::builder()
+            wasmtime_wasi::WasiCtxBuilder::new()
                 // TODO: this is bad! replace with something that only
                 // adds the necessary stuff
                 // TODO: this should be async files, but let's keep
                 // that for the day async wasi is implemented upstream
-                .preopened_dir(Box::new(unsafe {
-                    cap_std::fs::Dir::from_std_file(std::fs::File::open(".")?)
-                }), ".")
-                .context("Adding async dir")?
+                .preopened_dir(std::fs::File::open(".")?, ".")
                 .build()
                 .context("Preparing WASI context")?,
         )
