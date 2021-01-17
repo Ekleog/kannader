@@ -41,6 +41,10 @@ struct QueueConfig;
 impl kannader_config::QueueConfig for QueueConfig {
     type Cfg = Config;
 
+    fn storage_type(_cfg: &Config) -> kannader_types::QueueStorage {
+        kannader_types::QueueStorage::Fs("/tmp/kannader/queue".into())
+    }
+
     fn next_interval(_cfg: &Config, _schedule: queue::ScheduleInfo) -> Option<std::time::Duration> {
         // TODO: most definitely should try again
         // TODO: add bounce support to both transport and here

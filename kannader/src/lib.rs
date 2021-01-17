@@ -19,7 +19,6 @@ use tracing::info;
 use smtp_queue_fs::FsStorage;
 
 const NUM_THREADS: usize = 4;
-const QUEUE_DIR: &str = "/tmp/kannader/queue";
 const CERT_FILE: &str = "/tmp/kannader/cert.pem";
 const KEY_FILE: &str = "/tmp/kannader/key.pem";
 
@@ -131,9 +130,13 @@ pub fn run(opt: Opt) -> anyhow::Result<()> {
                     );
 
                     // Spawn the queue
-                    let storage = FsStorage::new(Arc::new(PathBuf::from(QUEUE_DIR)))
-                        .await
-                        .context("Opening the queue storage folder")?;
+                    let storage = (wasm_config.queue_config.storage_type)()
+                        .context("Retrieving storage type")?;
+                    let storage = match storage {
+                        kannader_types::QueueStorage::Fs(path) => FsStorage::new(Arc::new(path))
+                            .await
+                            .context("Opening the queue storage folder")?,
+                    };
                     let queue = smtp_queue::Queue::new(
                         ex.clone(),
                         QueueConfig::new(),

@@ -768,6 +768,8 @@ static CLIENT_CONFIG: fn() -> Communicator = communicator! {
 static QUEUE_CONFIG: fn() -> Communicator = communicator! {
     #[communicator(link = "queue_config", guest_is = "server")]
     trait QueueConfig {
+        fn storage_type(&self) -> (kannader_types::QueueStorage) ;
+
         fn next_interval(
             &self,
             schedule: () smtp_queue_types::ScheduleInfo,
