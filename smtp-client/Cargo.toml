@@ -10,13 +10,14 @@ edition = "2018"
 
 [dependencies]
 async-trait = "0.1.42"
-bitflags = "1.2.1"
+bitflags = "1.2"
 chrono = "0.4.19"
-duplexify = "1.2.2"
+duplexify = "1.2"
 futures = { version = "0.3.8", features = ["write-all-vectored"] }
 rand = "0.8.0"
-smol = "1.2.5"
-thiserror = "1.0.22"
+smol = "1.2"
+thiserror = "1.0"
+tracing = "0.1.22"
 trust-dns-resolver = { version = "0.20.0", default-features = false }
 
 smtp-message = { path = "../smtp-message" }

@@ -2437,6 +2437,7 @@ dependencies = [
  "smol",
  "smtp-message",
  "thiserror",
+ "tracing",
  "trust-dns-resolver",
 ]
 

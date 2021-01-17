@@ -9,6 +9,7 @@ use chrono::Utc;
 use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use rand::prelude::SliceRandom;
 use smol::net::TcpStream;
+use tracing::trace;
 use trust_dns_resolver::{
     error::{ResolveError, ResolveErrorKind},
     proto::error::ProtoError,
@@ -252,6 +253,10 @@ where
         }
     }
     loop {
+        trace!(
+            buf = String::from_utf8_lossy(&rdbuf[unhandled.clone()]).as_ref(),
+            "Trying to parse from buffer"
+        );
         match Reply::<&str>::parse(&rdbuf[unhandled.clone()]) {
             Err(nom::Err::Incomplete(n)) => {
                 // Don't have enough data to handle command, let's fetch more
@@ -329,6 +334,16 @@ async fn send_command<IO>(
 where
     IO: Unpin + Send + AsyncRead + AsyncWrite,
 {
+    trace!(
+        cmd = String::from_utf8_lossy(
+            // TODO: there _must_ be a better way to do that
+            &cmd.as_io_slices()
+                .flat_map(|s| s.to_vec().into_iter())
+                .collect::<Vec<_>>()
+        )
+        .as_ref(),
+        "Sending command"
+    );
     smol::future::or(
         async {
             io.write_all_vectored(&mut cmd.as_io_slices().collect::<Vec<_>>())
@@ -493,6 +508,8 @@ where
         ip: IpAddr,
         port: u16,
     ) -> Result<Sender<Cfg>, TransportError> {
+        // TODO: introduce a connection uuid to associate log messages together
+        trace!("Connecting to ip {}:{}", ip, port);
         // TODO: bind to specified outgoing IP address with net2 (first bind the builder
         // to the outgoing IP, then connect)
         let io = TcpStream::connect((ip, port))
