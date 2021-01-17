@@ -12,7 +12,7 @@ edition = "2018"
 async-trait = "0.1.30"
 chrono = "0.4.19"
 duplexify = "1.1.0"
-futures = { version = "0.3.8", features = ["write-all-vectored"] }
+futures = { version = "0.3.12", features = ["write-all-vectored"] }
 smol = "1.2.5"
 
 smtp-message = { path = "../smtp-message" }
