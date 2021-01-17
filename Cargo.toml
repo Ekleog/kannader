@@ -8,7 +8,7 @@ members = [ "smtp-message", "smtp-message/fuzz",
             "kannader",
             "kannader-config-macros",
             "kannader-config",
-            "kannader-config-example",
+            "kannader-config-forwarder",
             "benches" ]
 
 [profile.release]

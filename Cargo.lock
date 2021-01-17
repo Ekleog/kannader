@@ -1444,7 +1444,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kannader-config-example"
+name = "kannader-config-forwarder"
 version = "0.1.0"
 dependencies = [
  "anyhow",

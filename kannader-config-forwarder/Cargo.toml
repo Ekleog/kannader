@@ -1,19 +1,18 @@
 [package]
-name = "kannader-config-example"
+name = "kannader-config-forwarder"
 version = "0.1.0"
 authors = ["Léo Gaspard <leo@gaspard.io>"]
 license = "AGPL-3.0-only"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
-description = "Example configuration system for kannader"
+description = "Forwarder configuration blob for kannader"
 edition = "2018"
-
-publish = false
 
 target = "wasm32-wasi"
 
 [[bin]]
-name = "kannader-config-example"
+name = "forwarder"
+path = "src/main.rs"
 test = false
 
 [dependencies]
