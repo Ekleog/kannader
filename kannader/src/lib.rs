@@ -7,7 +7,7 @@
 // TODO: make everything configurable, and actually implement the wasm scheme
 // described in the docs
 
-use std::{io, path::PathBuf, sync::Arc};
+use std::{convert::TryFrom, io, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use easy_parallel::Parallel;
@@ -86,6 +86,10 @@ pub struct Opt {
 pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<()> {
     info!("Kannader starting up");
 
+    // TODO: get from listenfd (-> from Opt?)
+    let listener =
+        std::net::TcpListener::bind("0.0.0.0:2525").context("Binding on the listening port")?;
+
     // Load the configuration and run WasmConfig::new once to make sure errors are
     // caught early on. We can reuse this blob for the `.finish()` call.
     // TODO: limit the stack size, and make sure we always build with all
@@ -97,7 +101,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
         .context("Preparing the wasm configuration blob")?;
 
     // Start the executor
-    let ex = Arc::new(smol::Executor::new());
+    let ex = &Arc::new(smol::Executor::new());
 
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
         .each(0..NUM_THREADS, |_| {
@@ -112,9 +116,10 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                 }))
             })
         })
-        .finish(|| {
-            WASM_CONFIG.set(&wasm_config, || {
-                smol::block_on(async {
+        .finish(move || {
+            let wasm_config = &wasm_config;
+            WASM_CONFIG.set(wasm_config, move || {
+                smol::block_on(async move {
                     // Prepare the clients
                     let mut tls_client_cfg =
                         rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
@@ -193,9 +198,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     .await?;
                     let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
                     let server_cfg = Arc::new(ServerConfig::new(acceptor, queue));
-                    let listener = smol::net::TcpListener::bind("0.0.0.0:2525")
-                        .await
-                        .context("Binding on the listening port")?;
+                    let listener = smol::net::TcpListener::try_from(listener)
+                        .context("Making listener async")?;
                     let mut incoming = listener.incoming();
 
                     info!("Server up, waiting for connections");
