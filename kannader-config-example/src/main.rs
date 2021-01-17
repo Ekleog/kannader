@@ -42,11 +42,18 @@ where
 #[derive(Debug, serde::Deserialize)]
 struct Config {
     queue: QueueCfg,
+    server: ServerCfg,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct QueueCfg {
     path: PathBuf,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ServerCfg {
+    cert_path: PathBuf,
+    key_path: PathBuf,
 }
 
 impl kannader_config::Config for Config {
@@ -96,12 +103,12 @@ struct ServerConfig;
 impl kannader_config::ServerConfig for ServerConfig {
     type Cfg = Config;
 
-    fn tls_cert_file(_cfg: &Config) -> PathBuf {
-        "/tmp/kannader/cert.pem".into()
+    fn tls_cert_file(cfg: &Config) -> PathBuf {
+        cfg.server.cert_path.clone()
     }
 
-    fn tls_key_file(_cfg: &Config) -> PathBuf {
-        "/tmp/kannader/key.pem".into()
+    fn tls_key_file(cfg: &Config) -> PathBuf {
+        cfg.server.key_path.clone()
     }
 
     fn welcome_banner_reply(_cfg: &Config, _conn_meta: &mut server::ConnMeta) -> Reply {
