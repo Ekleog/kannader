@@ -83,7 +83,7 @@ pub struct Opt {
     pub dirs: Vec<(PathBuf, PathBuf)>,
 }
 
-pub fn run(opt: &Opt) -> anyhow::Result<()> {
+pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<()> {
     info!("Kannader starting up");
 
     // Load the configuration and run WasmConfig::new once to make sure errors are
@@ -98,10 +98,6 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
 
     // Start the executor
     let ex = Arc::new(smol::Executor::new());
-
-    // TODO: figure out a better shutdown story than brutally killing the server
-    // (ie. trigger signal not only when the socket fails)
-    let (signal, shutdown) = smol::channel::unbounded::<()>();
 
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
         .each(0..NUM_THREADS, |_| {
@@ -213,9 +209,6 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
                         ))
                         .detach();
                     }
-
-                    // Close all the things
-                    std::mem::drop(signal);
 
                     Ok(())
                 })
