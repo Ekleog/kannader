@@ -3,21 +3,58 @@ use std::path::PathBuf;
 use kannader_config::{queue, reply, server};
 use smtp_message::{Email, Hostname, Reply};
 
-struct Config;
+trait ResultExt<T, E> {
+    fn log_err<S>(self, s: impl FnOnce() -> S, f: impl FnOnce() -> T) -> T
+    where
+        S: std::fmt::Display;
+
+    fn log_trap<S>(self, s: impl FnOnce() -> S) -> T
+    where
+        S: std::fmt::Display;
+}
+
+impl<T, E> ResultExt<T, E> for Result<T, E>
+where
+    E: 'static + Send + Sync + std::error::Error,
+{
+    fn log_err<S>(self, s: impl FnOnce() -> S, f: impl FnOnce() -> T) -> T
+    where
+        S: std::fmt::Display,
+    {
+        match self {
+            Ok(r) => r,
+            Err(e) => {
+                kannader_config::error!("Error: {} {:?}", s(), anyhow::Error::new(e));
+                f()
+            }
+        }
+    }
+
+    fn log_trap<S>(self, s: impl FnOnce() -> S) -> T
+    where
+        S: std::fmt::Display,
+    {
+        // TODO: improve on this panic! ?
+        self.log_err(s, || panic!())
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct Config {
+    queue: QueueCfg,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct QueueCfg {
+    path: PathBuf,
+}
 
 impl kannader_config::Config for Config {
     fn setup(path: PathBuf) -> Config {
         kannader_config::info!("Reading config file…");
-        let contents = std::fs::read_to_string(path);
-        match contents {
-            Err(c) => {
-                kannader_config::error!("Error: {:?}", c);
-            }
-            Ok(s) => {
-                kannader_config::info!("Read config file! ‘{}’", s);
-            }
-        }
-        Config
+        let contents = std::fs::read_to_string(path.clone())
+            .log_trap(|| format!("Reading file ‘{}’:", path.display()));
+        toml::from_str(&contents).log_trap(|| format!("Parsing file ‘{}’ as toml:", path.display()))
     }
 }
 
@@ -41,8 +78,8 @@ struct QueueConfig;
 impl kannader_config::QueueConfig for QueueConfig {
     type Cfg = Config;
 
-    fn storage_type(_cfg: &Config) -> kannader_types::QueueStorage {
-        kannader_types::QueueStorage::Fs("/tmp/kannader/queue".into())
+    fn storage_type(cfg: &Config) -> kannader_types::QueueStorage {
+        kannader_types::QueueStorage::Fs(cfg.queue.path.clone())
     }
 
     fn next_interval(_cfg: &Config, _schedule: queue::ScheduleInfo) -> Option<std::time::Duration> {

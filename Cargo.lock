@@ -1447,11 +1447,14 @@ dependencies = [
 name = "kannader-config-example"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "kannader-config",
  "kannader-types",
+ "serde",
  "smtp-message",
  "smtp-server-types",
+ "toml",
 ]
 
 [[package]]
