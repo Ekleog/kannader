@@ -52,6 +52,12 @@ impl rustls::ServerCertVerifier for NoCertVerifier {
 
 scoped_thread_local!(static WASM_CONFIG: WasmConfig);
 
+fn parse_dirs(s: &str) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let d = s.split("::").collect::<Vec<_>>();
+    anyhow::ensure!(d.len() == 2, "invalid syntax");
+    Ok((d[0].into(), d[1].into()))
+}
+
 #[derive(structopt::StructOpt)]
 #[structopt(
     name = "kannader",
@@ -71,19 +77,23 @@ pub struct Opt {
     /// Path to the configuration of the wasm configuration blob
     #[structopt(short, long, parse(from_os_str), default_value = "")]
     pub config: PathBuf,
+
+    /// Directories to make available to the wasm configuration blob
+    #[structopt(short, long = "dir", value_name = "GUEST_DIR::HOST_DIR", parse(try_from_str = parse_dirs))]
+    pub dirs: Vec<(PathBuf, PathBuf)>,
 }
 
 pub fn run(opt: &Opt) -> anyhow::Result<()> {
     info!("Kannader starting up");
 
     // Load the configuration and run WasmConfig::new once to make sure errors are
-    // caught early on
+    // caught early on. We can reuse this blob for the `.finish()` call.
     // TODO: limit the stack size, and make sure we always build with all
     // optimizations
     let engine = wasmtime::Engine::default();
     let module = wasmtime::Module::from_file(&engine, &opt.wasm_blob)
         .context("Compiling the wasm configuration blob")?;
-    WasmConfig::new(&opt.config, &engine, &module)
+    let wasm_config = WasmConfig::new(&opt.dirs, &opt.config, &engine, &module)
         .context("Preparing the wasm configuration blob")?;
 
     // Start the executor
@@ -95,7 +105,7 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let (_, res): (_, anyhow::Result<()>) = Parallel::new()
         .each(0..NUM_THREADS, |_| {
-            let wasm_config = WasmConfig::new(&opt.config, &engine, &module)
+            let wasm_config = WasmConfig::new(&opt.dirs, &opt.config, &engine, &module)
                 .context("Preparing the wasm configuration blob")?;
             WASM_CONFIG.set(&wasm_config, || {
                 smol::block_on(ex.run(async {
@@ -107,8 +117,6 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
             })
         })
         .finish(|| {
-            let wasm_config = WasmConfig::new(&opt.config, &engine, &module)
-                .context("Preparing the wasm configuration blob")?;
             WASM_CONFIG.set(&wasm_config, || {
                 smol::block_on(async {
                     // Prepare the clients

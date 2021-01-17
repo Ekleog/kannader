@@ -1,4 +1,8 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use anyhow::{anyhow, Context};
 
@@ -30,6 +34,7 @@ impl WasmConfig {
     /// `cfg` is the path to the configuration of the wasm blob. `engine` and
     /// `module` are the pre-built wasm blob.
     pub fn new(
+        dirs: &Vec<(PathBuf, PathBuf)>,
         cfg: &Path,
         engine: &wasmtime::Engine,
         module: &wasmtime::Module,
@@ -43,19 +48,21 @@ impl WasmConfig {
         let store = wasmtime::Store::new(engine);
         let mut linker = wasmtime::Linker::new(&store);
 
-        wasmtime_wasi::Wasi::new(
-            &store,
-            wasmtime_wasi::WasiCtxBuilder::new()
-                // TODO: this is bad! replace with something that only
-                // adds the necessary stuff
-                // TODO: this should be async files, but let's keep
-                // that for the day async wasi is implemented upstream
-                .preopened_dir(std::fs::File::open(".")?, ".")
-                .build()
-                .context("Preparing WASI context")?,
-        )
-        .add_to_linker(&mut linker)
-        .context("Adding WASI exports to the linker")?;
+        let mut b = wasmtime_wasi::WasiCtxBuilder::new();
+        for (guest, host) in dirs {
+            // TODO: this is bad! replace with something that only
+            // adds the necessary stuff
+            // TODO: this should be async files, but let's keep
+            // that for the day async wasi is implemented upstream
+            b.preopened_dir(
+                std::fs::File::open(&host)
+                    .with_context(|| format!("Preopening ‘{}’ for the guest", host.display()))?,
+                guest,
+            );
+        }
+        wasmtime_wasi::Wasi::new(&store, b.build().context("Preparing WASI context")?)
+            .add_to_linker(&mut linker)
+            .context("Adding WASI exports to the linker")?;
 
         let tracing_serv = Rc::new(TracingServer);
         tracing_serv
