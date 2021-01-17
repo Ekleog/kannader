@@ -768,6 +768,9 @@ static CLIENT_CONFIG: fn() -> Communicator = communicator! {
 static QUEUE_CONFIG: fn() -> Communicator = communicator! {
     #[communicator(link = "queue_config", guest_is = "server")]
     trait QueueConfig {
+        // TODO: THIS HAS THE CONFUSED DEPUTY PROBLEM! Figure out how
+        // to pass the right thing here. For now it's probably not too
+        // bad, as it's just configuration anyway.
         fn storage_type(&self) -> (kannader_types::QueueStorage) ;
 
         fn next_interval(
@@ -840,6 +843,13 @@ static QUEUE_CONFIG: fn() -> Communicator = communicator! {
 static SERVER_CONFIG: fn() -> Communicator = communicator! {
     #[communicator(link = "server_config", guest_is = "server")]
     trait ServerConfig {
+        // TODO: THIS HAS THE CONFUSED DEPUTY PROBLEM! Figure out how
+        // to not have it. For now it's probably not too bad as it's
+        // only calling from config anyway.
+        // TODO: also support setting SNI
+        fn tls_cert_file(&self) -> (std::path::PathBuf) ;
+        fn tls_key_file(&self) -> (std::path::PathBuf) ;
+
         fn welcome_banner_reply(
             &self,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,

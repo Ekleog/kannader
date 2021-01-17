@@ -9,7 +9,7 @@
 
 use std::{io, path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use easy_parallel::Parallel;
 use futures::StreamExt;
 use scoped_tls::scoped_thread_local;
@@ -19,9 +19,6 @@ use tracing::info;
 use smtp_queue_fs::FsStorage;
 
 const NUM_THREADS: usize = 4;
-const CERT_FILE: &str = "/tmp/kannader/cert.pem";
-const KEY_FILE: &str = "/tmp/kannader/key.pem";
-
 const DATABUF_SIZE: usize = 16 * 1024;
 
 mod client_config;
@@ -146,7 +143,11 @@ pub fn run(opt: Opt) -> anyhow::Result<()> {
                     .await;
 
                     // Spawn the server
-                    let tls_server_cfg = unblock(|| {
+                    let cert_file = (wasm_config.server_config.tls_cert_file)()
+                        .context("Getting the path to the TLS cert file")?;
+                    let keys_file = (wasm_config.server_config.tls_key_file)()
+                        .context("Getting the path to the TLS key file")?;
+                    let tls_server_cfg = unblock(move || {
                         // Configure rustls
                         let mut tls_server_cfg = rustls::ServerConfig::with_ciphersuites(
                             rustls::NoClientAuth::new(),
@@ -156,18 +157,29 @@ pub fn run(opt: Opt) -> anyhow::Result<()> {
                         // TODO: support SNI
 
                         // Load the certificates and keys
-                        let cert = rustls::internal::pemfile::certs(&mut io::BufReader::new(
-                            std::fs::File::open(CERT_FILE)
-                                .context("Opening the certificate file")?,
+                        let cert = rustls_pemfile::certs(&mut io::BufReader::new(
+                            std::fs::File::open(&cert_file).with_context(|| {
+                                format!("Opening the certificate file ‘{}’", cert_file.display())
+                            })?,
                         ))
-                        .map_err(|()| anyhow!("Failed parsing the certificate file"))?;
-                        let keys =
-                            rustls::internal::pemfile::pkcs8_private_keys(&mut io::BufReader::new(
-                                std::fs::File::open(KEY_FILE).context("Opening the key file")?,
-                            ))
-                            .map_err(|()| anyhow!("Parsing the key file"))?;
+                        .with_context(|| {
+                            format!("Parsing the TLS certificate file ‘{}’", cert_file.display())
+                        })?
+                        .into_iter()
+                        .map(rustls::Certificate)
+                        .collect();
+
+                        let keys = rustls_pemfile::pkcs8_private_keys(&mut io::BufReader::new(
+                            std::fs::File::open(&keys_file).with_context(|| {
+                                format!("Opening the key file ‘{}’", keys_file.display())
+                            })?,
+                        ))
+                        .with_context(|| {
+                            format!("Parsing the key file ‘{}’", keys_file.display())
+                        })?;
                         anyhow::ensure!(keys.len() == 1, "Multiple keys found in the key file");
-                        let key = keys.into_iter().next().unwrap();
+                        let key = rustls::PrivateKey(keys.into_iter().next().unwrap());
+
                         tls_server_cfg
                             .set_single_cert(cert, key)
                             .context("Setting the key and certificate")?;

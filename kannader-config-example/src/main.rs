@@ -59,6 +59,14 @@ struct ServerConfig;
 impl kannader_config::ServerConfig for ServerConfig {
     type Cfg = Config;
 
+    fn tls_cert_file(_cfg: &Config) -> PathBuf {
+        "/tmp/kannader/cert.pem".into()
+    }
+
+    fn tls_key_file(_cfg: &Config) -> PathBuf {
+        "/tmp/kannader/key.pem".into()
+    }
+
     fn welcome_banner_reply(_cfg: &Config, _conn_meta: &mut server::ConnMeta) -> Reply {
         reply::welcome_banner("localhost", "Service ready")
     }
