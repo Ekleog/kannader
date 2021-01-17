@@ -66,14 +66,14 @@ pub struct Opt {
         default_value = "/etc/kannader/config.wasm"
     )]
     // TODO: have wasm configuration blobs pre-provided in /usr/lib or similar
-    wasm_blob: PathBuf,
+    pub wasm_blob: PathBuf,
 
     /// Path to the configuration of the wasm configuration blob
     #[structopt(short, long, parse(from_os_str), default_value = "")]
-    config: PathBuf,
+    pub config: PathBuf,
 }
 
-pub fn run(opt: Opt) -> anyhow::Result<()> {
+pub fn run(opt: &Opt) -> anyhow::Result<()> {
     info!("Kannader starting up");
 
     // Load the configuration and run WasmConfig::new once to make sure errors are
