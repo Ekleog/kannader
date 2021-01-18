@@ -184,7 +184,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         })?
                         .into_iter()
                         .map(rustls::Certificate)
-                        .collect();
+                        .collect::<Vec<_>>();
+                        debug!(num_certs = cert.len(), "Parsed certificates");
 
                         let keys = rustls_pemfile::pkcs8_private_keys(&mut io::BufReader::new(
                             std::fs::File::open(&keys_file).with_context(|| {
@@ -194,7 +195,12 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         .with_context(|| {
                             format!("Parsing the key file ‘{}’", keys_file.display())
                         })?;
-                        anyhow::ensure!(keys.len() == 1, "Multiple keys found in the key file");
+                        debug!(num_keys = keys.len(), "Parsed keys");
+                        anyhow::ensure!(
+                            keys.len() == 1,
+                            "Key file did not have just one key, but had {}",
+                            keys.len()
+                        );
                         let key = rustls::PrivateKey(keys.into_iter().next().unwrap());
 
                         tls_server_cfg
