@@ -9,7 +9,7 @@ members = [ "smtp-message", "smtp-message/fuzz",
             "kannader-config-macros",
             "kannader-config",
             "kannader-config-forwarder",
-            "benches" ]
+            "benches", "tests/integration" ]
 
 [profile.release]
 lto = true
