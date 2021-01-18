@@ -14,7 +14,8 @@ The storage must provide basically three sets of primitives:
  - For listing the emails that were left over from previous runs:
     - `list_queue`, `find_inflight` and `find_pending_cleanup`
  - For queuing emails and reading them from the storage:
-    - `enqueue` and `read_inflight`
+    - `enqueue` and `read_inflight`, that both operate on
+      already-SMTP-encoded mails
  - For handling state changes for each email:
     - `reschedule`
     - `send_start`, `send_done` and `send_cancel`
