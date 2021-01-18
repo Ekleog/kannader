@@ -17,8 +17,7 @@ use trust_dns_resolver::{
 };
 
 use smtp_message::{
-    nom, Command, Email, EnhancedReplyCodeSubject, EscapingDataWriter, Hostname, Parameters, Reply,
-    ReplyCodeKind,
+    nom, Command, Email, EnhancedReplyCodeSubject, Hostname, Parameters, Reply, ReplyCodeKind,
 };
 
 const SMTP_PORT: u16 = 25;
@@ -657,6 +656,10 @@ where
 {
     // TODO: Figure out a way to batch a single mail (with the same metadata) going
     // out to multiple recipients, so as to just use multiple RCPT TO
+    /// Note: `mail` must be a reader of the *already escaped and
+    /// CRLF-dot-CRLF-terminated* message! If this is not the format
+    /// you have, please looking into the `smtp-message` crate's
+    /// utilities.
     pub async fn send<Reader>(
         &mut self,
         from: Option<&Email>,
@@ -720,7 +723,6 @@ where
         {
             pin_mut!(mail);
             let cfg = self.cfg.clone();
-            let mut writer = EscapingDataWriter::new(&mut self.io);
             let mut databuf = [0; DATABUF_SIZE];
             loop {
                 match mail.read(&mut databuf).await {
@@ -732,7 +734,7 @@ where
                         // Got n bytes, try sending with a timeout
                         smol::future::or(
                             async {
-                                writer
+                                self.io
                                     .write_all(&databuf[..n])
                                     .await
                                     .map_err(TransportError::SendingData)
@@ -752,20 +754,6 @@ where
                     Err(e) => return Err(TransportError::ReadingMail(e)),
                 }
             }
-            // Send the closing dot
-            smol::future::or(
-                async { writer.finish().await.map_err(TransportError::SendingData) },
-                async {
-                    smol::Timer::after(
-                        cfg.data_block_write_timeout()
-                            .to_std()
-                            .unwrap_or(ZERO_DURATION),
-                    )
-                    .await;
-                    Err(TransportError::TimedOutSendingData)
-                },
-            )
-            .await?;
         }
 
         // Wait for a reply
