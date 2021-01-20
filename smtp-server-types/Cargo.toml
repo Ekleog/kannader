@@ -9,6 +9,6 @@ description = "Types required for configuring the smtp-server crate"
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.118", features = ["derive"] }
+serde = { version = "1.0.120", features = ["derive"] }
 
 smtp-message = { path = "../smtp-message", features = ["serde"] }
