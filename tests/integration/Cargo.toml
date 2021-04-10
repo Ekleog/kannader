@@ -17,7 +17,7 @@ async-std-resolver = "0.20.0"
 async-trait = "0.1.42"
 duplexify = "1.2"
 futures = "0.3.8"
-libtest-mimic = { version = "0.3.0", git = "https://github.com/Ekleog/libtest-mimic", rev = "2fdd3811dd1f64b1aca659b6897df2b703a357e5" }
+libtest-mimic = "0.3.0"
 netsim-embed = "0.1.1"
 netsim-embed-machine = "0.1.1"
 smol = "1.2"

@@ -1694,7 +1694,8 @@ dependencies = [
 [[package]]
 name = "libtest-mimic"
 version = "0.3.0"
-source = "git+https://github.com/Ekleog/libtest-mimic?rev=2fdd3811dd1f64b1aca659b6897df2b703a357e5#2fdd3811dd1f64b1aca659b6897df2b703a357e5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08a7b8ac1f53f7be8d895ce6f7f534e49581c85c499b47429634b2cb2995e2ae"
 dependencies = [
  "crossbeam-channel 0.4.4",
  "rayon",
