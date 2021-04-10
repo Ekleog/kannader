@@ -34,7 +34,7 @@ impl WasmConfig {
     /// `cfg` is the path to the configuration of the wasm blob. `engine` and
     /// `module` are the pre-built wasm blob.
     pub fn new(
-        dirs: &Vec<(PathBuf, PathBuf)>,
+        dirs: &[(PathBuf, PathBuf)],
         cfg: &Path,
         engine: &wasmtime::Engine,
         module: &wasmtime::Module,
