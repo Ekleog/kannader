@@ -551,7 +551,7 @@ where
                 Some(Some(x))
             }
         })
-        .filter_map(|x| x)
+        .flatten()
         .collect()
 }
 
