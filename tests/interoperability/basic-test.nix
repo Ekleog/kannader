@@ -1,4 +1,4 @@
-with import ../common.nix;
+with import ../../common.nix;
 
 (import (pkgs.path + "/nixos/tests/make-test-python.nix") (_: {
   name = "basic-test";

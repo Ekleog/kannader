@@ -3,7 +3,7 @@
 let
   # TODO: should have pkgs.kannader instead of this import, after
   # having figured out how to make sure pkgs is the overlayed pkgs
-  kannader = import ../default.nix {};
+  kannader = import ../../default.nix {};
 in
 {
   networking.firewall.allowedTCPPorts = [ 2525 ];
@@ -14,7 +14,7 @@ in
     script = ''
       RUST_LOG="debug,cranelift=info" RUST_BACKTRACE=1 \
         ${kannader}/bin/kannader \
-          -b ${kannader}/lib/kannader_config_example.wasm
+          -b ${kannader}/bin/forwarder
     '';
     preStart = ''
       #!/bin/sh
