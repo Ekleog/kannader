@@ -24,9 +24,9 @@ rec {
     ];
   };
   rustNightlyChannelRaw = pkgs.rustChannelOf {
-    date = "2021-01-13";
+    date = "2021-03-25";
     channel = "nightly";
-    sha256 = "05198jf5ljwy3cxcgsrzhm1l4m6qbci4a1n4yh7mr2ay8cka6wb0";
+    sha256 = "0pd74f1wc5mf8psrq3mr3xdzwynqil7wizaqq8s7kqfgxx4c4l7w";
   };
   naerskRaw = pkgs.callPackage naerskSrc {
     rustc = rustNightlyChannelRaw.rust;
