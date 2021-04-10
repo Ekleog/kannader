@@ -380,7 +380,7 @@ where
     /// comes first doesn't successfully connect. In particular, it means that
     /// performance could be degraded.
     pub fn new(resolver: AsyncResolver<C, P>, cfg: Arc<Cfg>) -> Client<C, P, Cfg> {
-        Client { cfg, resolver }
+        Client { resolver, cfg }
     }
 
     pub async fn get_destination(&self, host: &Hostname) -> Result<Destination, TransportError> {
