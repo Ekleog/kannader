@@ -1,3 +1,5 @@
+cargo-features = ["per-package-target"]
+
 [package]
 name = "kannader-config-forwarder"
 version = "0.1.0"
@@ -8,7 +10,7 @@ keywords = ["smtp", "server", "asynchronous", "email"]
 description = "Forwarder configuration blob for kannader"
 edition = "2018"
 
-target = "wasm32-wasi"
+forced-target = "wasm32-wasi"
 
 [[bin]]
 name = "forwarder"

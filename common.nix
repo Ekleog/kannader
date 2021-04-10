@@ -1,16 +1,15 @@
 rec {
   pkgsSrc = builtins.fetchTarball {
-    # The following is for nixos-unstable on 2020-12-13
-    url = "https://github.com/NixOS/nixpkgs/archive/e9158eca70ae59e73fae23be5d13d3fa0cfc78b4.tar.gz";
-    sha256 = "0cnmvnvin9ixzl98fmlm3g17l6w95gifqfb3rfxs55c0wj2ddy53";
+    # The following is for nixos-unstable on 2021-04-10
+    url = "https://github.com/NixOS/nixpkgs/archive/9e377a6ce42dccd9b624ae4ce8f978dc892ba0e2.tar.gz";
+    sha256 = "1r3ll77hyqn28d9i4cf3vqd9v48fmaa1j8ps8c4fm4f8gqf4kpl1";
   };
   naerskSrc = builtins.fetchTarball {
-    # TODO: go back to an upstream version once https://github.com/nmattia/naersk/pull/136 lands
-    url = "https://github.com/nmattia/naersk/archive/b1ebc5f1b4c3cbacb554d1d2d05d547a4951247d.tar.gz";
-    sha256 = "01z4kj5b9anf01bb99q21xcr8kpfxq3hhpc9gkrv9khni6qpdpmk";
+    url = "https://github.com/nmattia/naersk/archive/e0fe990b478a66178a58c69cf53daec0478ca6f9.tar.gz";
+    sha256 = "0qjyfmw5v7s6ynjns4a61vlyj9cghj7vbpgrp9147ngb1f8krz2c";
   };
   rustOverlaySrc = builtins.fetchTarball {
-    # The following is the latest version as of 2020-12-13
+    # The following is the latest version as of 2021-04-10
     url = "https://github.com/mozilla/nixpkgs-mozilla/archive/8c007b60731c07dd7a052cce508de3bb1ae849b4.tar.gz";
     sha256 = "1zybp62zz0h077zm2zmqs2wcg3whg6jqaah9hcl1gv4x8af4zhs6";
   };
@@ -42,11 +41,11 @@ rec {
       pname = "cargo";
       version = "dev";
       src = builtins.fetchTarball {
-        url = "https://github.com/rust-lang/cargo/archive/cae7be8a17d50d69ed80a9bc3bf3c5a052f2a568.tar.gz";
-        sha256 = "1bh5fjrr245wsj0ib7c7yqp83d7brxbygya9fxjgmvkqra3vlgbj";
+        url = "https://github.com/rust-lang/cargo/archive/f11237ac03d3d51b5320364fd9997e62abb50f62.tar.gz";
+        sha256 = "1bk5vimjxr68v6c72q8zgkbq79wbd5a95d9cbw2linrivv5n8vjp";
       };
       buildInputs = with pkgs; [ openssl pkg-config ];
-      copySources = ["crates"];
+      singleStep = true;
     };
   };
   #rustBetaChannel = pkgs.rustChannelOf {
