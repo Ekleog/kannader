@@ -23,29 +23,13 @@ rec {
     ];
   };
   rustNightlyChannelRaw = pkgs.rustChannelOf {
-    date = "2021-03-25";
+    date = "2021-05-07";
     channel = "nightly";
-    sha256 = "0pd74f1wc5mf8psrq3mr3xdzwynqil7wizaqq8s7kqfgxx4c4l7w";
-  };
-  naerskRaw = pkgs.callPackage naerskSrc {
-    rustc = rustNightlyChannelRaw.rust;
-    cargo = rustNightlyChannelRaw.cargo;
+    sha256 = "1l9aj3ig9yyxi5s41623wzvfinza656gnbrqay5ngl6yah5h0rs8";
   };
   rustNightlyChannel = rustNightlyChannelRaw // {
     rust = rustNightlyChannelRaw.rust.override {
       targets = ["wasm32-wasi"];
-    };
-    # TODO: remove override when https://github.com/rust-lang/cargo/pull/9030
-    # lands
-    cargo = naerskRaw.buildPackage {
-      pname = "cargo";
-      version = "dev";
-      src = builtins.fetchTarball {
-        url = "https://github.com/rust-lang/cargo/archive/f11237ac03d3d51b5320364fd9997e62abb50f62.tar.gz";
-        sha256 = "1bk5vimjxr68v6c72q8zgkbq79wbd5a95d9cbw2linrivv5n8vjp";
-      };
-      buildInputs = with pkgs; [ openssl pkg-config ];
-      singleStep = true;
     };
   };
   #rustBetaChannel = pkgs.rustChannelOf {
