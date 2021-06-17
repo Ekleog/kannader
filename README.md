@@ -9,10 +9,13 @@
 
 ### IRC
 
-Join `#kannader` on [Freenode](https://freenode.net/)
+Join `#kannader` on [libera.chat](https://libera.chat)
 
-- [online client](https://kiwiirc.com/nextclient/irc.freenode.net/#kannader),
-- `#freenode_#kannader:matrix.org` to join from [Matrix](https://matrix.org/).
+Here are a few ways to do this:
+- Join `#kannader:libera.chat` from [Matrix](https://matrix.org/), eg. using
+  [the online client](https://app.element.io/#/room/#kannader:libera.chat), or
+- [Use a temporary online
+  client](https://kiwiirc.com/nextclient/irc.libera.chat/#kannader).
 
 ## Licensing
 
