@@ -1,17 +1,18 @@
 rec {
   pkgsSrc = builtins.fetchTarball {
-    # The following is for nixos-unstable on 2021-04-10
-    url = "https://github.com/NixOS/nixpkgs/archive/9e377a6ce42dccd9b624ae4ce8f978dc892ba0e2.tar.gz";
-    sha256 = "1r3ll77hyqn28d9i4cf3vqd9v48fmaa1j8ps8c4fm4f8gqf4kpl1";
+    # The following is for nixos-unstable on 2022-03-15
+    url = "https://github.com/NixOS/nixpkgs/archive/73ad5f9e147c0d2a2061f1d4bd91e05078dc0b58.tar.gz";
+    sha256 = "01j7nhxbb2kjw38yk4hkjkkbmz50g3br7fgvad6b1cjpdvfsllds";
   };
   naerskSrc = builtins.fetchTarball {
-    url = "https://github.com/nmattia/naersk/archive/e0fe990b478a66178a58c69cf53daec0478ca6f9.tar.gz";
-    sha256 = "0qjyfmw5v7s6ynjns4a61vlyj9cghj7vbpgrp9147ngb1f8krz2c";
+    # The following is the latest version as of 2022-03-15
+    url = "https://github.com/nmattia/naersk/archive/2fc8ce9d3c025d59fee349c1f80be9785049d653.tar.gz";
+    sha256 = "0qjyfmw5v7s6ynjns4a61vlyj9cghj7vbpgrp9147ngb1f8krz3c";
   };
   rustOverlaySrc = builtins.fetchTarball {
-    # The following is the latest version as of 2021-04-10
-    url = "https://github.com/mozilla/nixpkgs-mozilla/archive/8c007b60731c07dd7a052cce508de3bb1ae849b4.tar.gz";
-    sha256 = "1zybp62zz0h077zm2zmqs2wcg3whg6jqaah9hcl1gv4x8af4zhs6";
+    # The following is the latest version as of 2022-03-15
+    url = "https://github.com/mozilla/nixpkgs-mozilla/archive/15b7a05f20aab51c4ffbefddb1b448e862dccb7d.tar.gz";
+    sha256 = "0admybxrjan9a04wq54c3zykpw81sc1z1nqclm74a7pgjdp7iqv1";
   };
   rustOverlay = import rustOverlaySrc;
   pkgs = import pkgsSrc {
@@ -23,9 +24,9 @@ rec {
     ];
   };
   rustNightlyChannelRaw = pkgs.rustChannelOf {
-    date = "2021-05-07";
+    date = "2022-03-15";
     channel = "nightly";
-    sha256 = "1l9aj3ig9yyxi5s41623wzvfinza656gnbrqay5ngl6yah5h0rs8";
+    sha256 = "0wgn87di2bz901iv2gspg935qgyzc3c2fg5jszckxl4q47jzvd8b";
   };
   rustNightlyChannel = rustNightlyChannelRaw // {
     rust = rustNightlyChannelRaw.rust.override {
