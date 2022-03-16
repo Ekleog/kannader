@@ -1,4 +1,4 @@
-#![feature(core_intrinsics, destructuring_assignment)]
+#![feature(core_intrinsics)]
 
 // TODO: split into multiple processes, with multiple uids (stretch goal: do not
 // require root and allow the user to directly call multiple executables and

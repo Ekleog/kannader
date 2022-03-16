@@ -429,7 +429,7 @@ where
             }
         }
 
-        let mut this = self.project();
+        let this = self.project();
 
         let initial_state = *this.state;
         for b in 0..bufs.len() {
@@ -442,7 +442,7 @@ where
                         let mut v = Vec::with_capacity(b + 1);
                         let mut writing = 0;
                         for buf in &bufs[0..b] {
-                            v.push(IoSlice::new(&buf));
+                            v.push(IoSlice::new(buf));
                             writing += buf.len();
                         }
                         v.push(IoSlice::new(&bufs[b][..=i]));
@@ -454,7 +454,7 @@ where
                                     Poll::Ready(Ok(s - 1))
                                 } else {
                                     *this.state = initial_state;
-                                    set_state_until(&mut this.state, bufs, s);
+                                    set_state_until(this.state, bufs, s);
                                     Poll::Ready(Ok(s))
                                 }
                             }
@@ -472,7 +472,7 @@ where
                     Poll::Ready(Ok(s))
                 } else {
                     *this.state = initial_state;
-                    set_state_until(&mut this.state, bufs, s);
+                    set_state_until(this.state, bufs, s);
                     Poll::Ready(Ok(s))
                 }
             }

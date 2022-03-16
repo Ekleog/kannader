@@ -334,12 +334,13 @@ where
     IO: Unpin + Send + AsyncRead + AsyncWrite,
 {
     trace!(
-        cmd = String::from_utf8_lossy(
-            // TODO: there _must_ be a better way to do that
-            &cmd.as_io_slices()
-                .flat_map(|s| s.to_vec().into_iter())
-                .collect::<Vec<_>>()
-        )
+        cmd = String::from_utf8_lossy(&{
+            let mut v = Vec::new();
+            for s in cmd.as_io_slices() {
+                v.extend_from_slice(&*s);
+            }
+            v
+        })
         .as_ref(),
         "Sending command"
     );
@@ -393,8 +394,8 @@ where
         match dest.host {
             Hostname::Ipv4 { ip, .. } => self.connect_to_ip(IpAddr::V4(ip), SMTP_PORT).await,
             Hostname::Ipv6 { ip, .. } => self.connect_to_ip(IpAddr::V6(ip), SMTP_PORT).await,
-            Hostname::AsciiDomain { ref raw } => self.connect_to_mx(&raw).await,
-            Hostname::Utf8Domain { ref punycode, .. } => self.connect_to_mx(&punycode).await,
+            Hostname::AsciiDomain { ref raw } => self.connect_to_mx(raw).await,
+            Hostname::Utf8Domain { ref punycode, .. } => self.connect_to_mx(punycode).await,
         }
     }
 

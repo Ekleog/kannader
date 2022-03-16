@@ -240,7 +240,7 @@ fn make_guest_server(impl_name: Ident, c: Communicator) -> TokenStream {
         let ffi_name = &f.ffi_name;
         let fn_name = &f.fn_name;
         let ffi_body = run_ffi_fn(
-            &f,
+            f,
             quote!(std::slice::from_raw_parts(arg_ptr as *const u8, arg_size)),
             quote!(deallocate(arg_ptr, arg_size)),
             |args| {
@@ -440,7 +440,7 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
         // are unfilled only between adding this function to the
         // linker and actually getting out the allocate function
         let fn_body = run_ffi_fn(
-            &f,
+            f,
             quote!(unsafe { &memory.data_unchecked()[p as usize..(p + s) as usize] }),
             quote!((deallocate.borrow().as_ref().unwrap())(p, s).unwrap()),
             |args| quote!(<Self as #trait_name>::#fn_name(this.clone(), #args)),

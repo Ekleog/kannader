@@ -1,4 +1,4 @@
-#![feature(core_intrinsics, destructuring_assignment, never_type)]
+#![feature(core_intrinsics, never_type)]
 
 use std::{mem, path::PathBuf};
 
@@ -95,9 +95,9 @@ macro_rules! log {
 #[macro_export]
 macro_rules! __log_format {
     (? $v:expr) => {
-        format!("{:?}", $v);
+        format!("{:?}", $v)
     };
     (% $v:expr) => {
-        format!("{}", $v);
+        format!("{}", $v)
     };
 }

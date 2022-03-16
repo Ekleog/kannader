@@ -64,9 +64,9 @@ pub trait Config: Send + Sync {
         Decision::Accept {
             reply: reply::okay_hello(
                 is_ehlo,
-                self.hostname(&conn_meta),
-                self.hello_banner(&conn_meta),
-                self.can_do_tls(&conn_meta),
+                self.hostname(conn_meta),
+                self.hello_banner(conn_meta),
+                self.can_do_tls(conn_meta),
             )
             .convert(),
             res: HelloInfo { is_ehlo, hostname },

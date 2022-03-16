@@ -94,7 +94,7 @@ pub mod fuzz {
                             i.push(IoSlice::new(&s[(written - skipped)..]));
                             skipped = written;
                         } else {
-                            i.push(IoSlice::new(&s));
+                            i.push(IoSlice::new(s));
                         }
                     }
                     written += executor::block_on(writer.write_vectored(&i)).unwrap();

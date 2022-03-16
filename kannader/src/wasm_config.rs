@@ -70,7 +70,7 @@ impl WasmConfig {
             .context("Adding ‘tracing’ module to the linker")?;
 
         linker
-            .module("config", &module)
+            .module("config", module)
             .context("Instantiating the wasm configuration blob")?;
 
         macro_rules! get_func {
