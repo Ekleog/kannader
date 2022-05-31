@@ -161,6 +161,9 @@ pub enum Command<S> {
     /// HELP [<subject>] <CRLF>
     Help { subject: MaybeUtf8<S> },
 
+    /// LHLO <hostname> <CRLF>
+    Lhlo { hostname: Hostname<S> },
+
     /// MAIL FROM:<@ONE,@TWO:JOE@THREE> [SP <mail-parameters>] <CRLF>
     Mail {
         path: Option<Path<S>>,
@@ -247,6 +250,16 @@ impl<S> Command<S> {
                         subject: MaybeUtf8::from(s),
                     })
                 },
+            ),
+            map(
+                tuple((
+                    tag_no_case(b"LHLO"),
+                    is_a(" \t"),
+                    Hostname::parse_until(b" \t\r"),
+                    opt(is_a(" \t")),
+                    tag(b"\r\n"),
+                )),
+                |(_, _, hostname, _, _)| Command::Lhlo { hostname },
             ),
             map(
                 tuple((
@@ -357,6 +370,10 @@ where
 
             Command::Help { subject } => iter::once(IoSlice::new(b"HELP "))
                 .chain(subject.as_io_slices())
+                .chain(iter::once(IoSlice::new(b"\r\n"))),
+
+            Command::Lhlo { hostname } => iter::once(IoSlice::new(b"LHLO "))
+                .chain(hostname.as_io_slices())
                 .chain(iter::once(IoSlice::new(b"\r\n"))),
 
             Command::Mail {
@@ -516,6 +533,12 @@ mod tests {
             }),
             (b"hElP \r\n", Command::Help {
                 subject: MaybeUtf8::Ascii(""),
+            }),
+            (b"lHlO \t hello.world \t \r\n", Command::Lhlo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
+            }),
+            (b"LHLO hello.world\r\n", Command::Lhlo {
+                hostname: Hostname::AsciiDomain { raw: "hello.world" },
             }),
             (b"Mail FROM:<@one,@two:foo@bar.baz>\r\n", Command::Mail {
                 path: Some(Path {
@@ -684,6 +707,14 @@ mod tests {
                     subject: MaybeUtf8::Ascii("topic"),
                 },
                 b"HELP topic\r\n",
+            ),
+            (
+                Command::Lhlo {
+                    hostname: Hostname::AsciiDomain {
+                        raw: "test.example.org",
+                    },
+                },
+                b"LHLO test.example.org\r\n",
             ),
             (
                 Command::Mail {
