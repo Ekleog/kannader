@@ -5,7 +5,10 @@ use std::{cmp, io, ops::Range, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    StreamExt,
+};
 use smol::future::FutureExt;
 use smtp_message::{
     next_crlf, nom, Command, Email, EscapedDataReader, Hostname, MaybeUtf8, NextCrLfState, Reply,
@@ -150,6 +153,45 @@ pub trait Config: Send + Sync {
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead;
+
+    /// `handle_mail_multi` is the alternative version of `handle_mail` that
+    /// must be implemented by LMTP servers: instead of being an async function
+    /// that returns a single decision, it is an async function that returns an
+    /// async stream of decisions that will all be sent back to the client.
+    /// Contrary to SMTP that returns a single decision signaling whether the
+    /// mail was accepted and added to the queue, in LMTP there must be one such
+    /// decision for each RCPT TO command that succeeded (i.e. for each accepted
+    /// recipient), which allows to indicate that the message could be stored in
+    /// the mailbox of some users, but not in that of other users.  This can
+    /// happen for instance if their mail quota is used up.
+    ///
+    /// This function is an async function that returns an async stream. The
+    /// lifetimes of the borrow on the mail's data stream is  limited to the
+    /// duration of the async call; this reference may not be retained by the
+    /// returned stream. The recommended implementation of this function would
+    /// start by reading the message's content in RAM (or to a temporary file),
+    /// and then produce a stream that writes the message to all of the
+    /// mailboxes one after the other.
+    ///
+    /// The default implementation of this function calls `handle_mail` to
+    /// produce a stream of only a single response. LMTP server implementors
+    /// must implement this function, and must define `handle_mail` as
+    /// `unreachable!()`.
+    async fn handle_mail_multi<'a, 'slife0, 'slife1, 'stream, R>(
+        &'slife0 self,
+        stream: &mut EscapedDataReader<'a, R>,
+        meta: MailMetadata<Self::MailUserMeta>,
+        conn_meta: &'slife1 mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Decision<()>> + Send + 'stream>>
+    where
+        R: Send + Unpin + AsyncRead,
+        'slife0: 'stream,
+        'slife1: 'stream,
+        Self: 'stream,
+    {
+        let resp = self.handle_mail(stream, meta, conn_meta).await;
+        Box::pin(futures::stream::once(async move { resp }))
+    }
 
     #[allow(unused_variables)]
     async fn handle_rset(
@@ -643,9 +685,9 @@ where
                             send_reply!(io, reply).await?;
                             let mut reader =
                                 EscapedDataReader::new(rdbuf, unhandled.clone(), &mut io);
-                            let decision = cfg
-                                .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta)
-                                .await;
+                            let mut decision_stream = cfg
+                                .handle_mail_multi(&mut reader, mail_meta_unw, &mut conn_meta).await;
+                            let mut next_decision = decision_stream.next().await;
                             // This variable is a trick because otherwise rustc thinks the `reader`
                             // borrow is still alive across await points and makes `interact: !Send`
                             let reader_was_completed = if let Some(u) = reader.get_unhandled() {
@@ -662,7 +704,10 @@ where
                                 // long, non-RFC5322-compliant, etc.).
                                 // Couldn't find the RFC reference
                                 // anywhere, though.
-                                simple_handler!(decision);
+                                while let Some(decision) = next_decision {
+                                    simple_handler!(decision);
+                                    next_decision = decision_stream.next().await;
+                                }
                             } else {
                                 // handle_mail did not call complete, let's read until the end and
                                 // then return an error
@@ -682,6 +727,8 @@ where
                                 }
                                 reader.complete();
                                 unhandled = reader.get_unhandled().unwrap();
+                                // TODO: in the case of LMTP, must we send multiple error replies?
+                                drop(decision_stream); // to free &mut conn_meta
                                 send_reply!(io, cfg.handle_mail_did_not_call_complete(&mut conn_meta)).await?;
                             };
                         }
