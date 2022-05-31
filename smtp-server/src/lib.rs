@@ -16,8 +16,16 @@ pub use smtp_server_types::{reply, ConnectionMetadata, Decision, HelloInfo, Mail
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
 
+#[derive(Copy, PartialEq, Eq, Clone, Debug)]
+pub enum Protocol {
+    Smtp,
+    Lmtp,
+}
+
 #[async_trait]
 pub trait Config: Send + Sync {
+    const PROTOCOL: Protocol = Protocol::Smtp;
+
     type ConnectionUserMeta: Send;
     type MailUserMeta: Send;
 
@@ -536,33 +544,31 @@ where
         match cmd {
             None => (),
 
-            // TODO: find some way to unify with the below branch
-            Some(Command::Ehlo { hostname }) => match conn_meta.hello {
-                Some(_) => {
-                    send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
-                }
-                None => dispatch_decision! {
-                    cfg.filter_hello(true, hostname.into_owned(), &mut conn_meta)
-                        .await,
-                    Accept(reply, res) => {
-                        conn_meta.hello = Some(res);
-                        send_reply!(io, reply).await?;
+            Some(cmd @ (Command::Ehlo { .. } | Command::Helo { .. } | Command::Lhlo { .. })) => {
+                let (cmd_proto, is_ehlo, hostname) = match cmd {
+                    Command::Ehlo { hostname } => (Protocol::Smtp, true, hostname),
+                    Command::Helo { hostname } => (Protocol::Smtp, false, hostname),
+                    Command::Lhlo { hostname } => (Protocol::Lmtp, false, hostname),
+                    _ => unreachable!(),
+                };
+                if cmd_proto == Cfg::PROTOCOL {
+                    match conn_meta.hello {
+                        Some(_) => {
+                            send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
+                        }
+                        None => dispatch_decision! {
+                            cfg.filter_hello(is_ehlo, hostname.into_owned(), &mut conn_meta)
+                                .await,
+                            Accept(reply, res) => {
+                                conn_meta.hello = Some(res);
+                                send_reply!(io, reply).await?;
+                            }
+                        },
                     }
-                },
-            },
-
-            Some(Command::Helo { hostname }) => match conn_meta.hello {
-                Some(_) => {
-                    send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
+                } else {
+                    send_reply!(io, cfg.command_unrecognized(&mut conn_meta)).await?;
                 }
-                None => dispatch_decision! {
-                    cfg.filter_hello(false, hostname.into_owned(), &mut conn_meta).await,
-                    Accept(reply, res) => {
-                        conn_meta.hello = Some(res);
-                        send_reply!(io, reply).await?;
-                    }
-                },
-            },
+            }
 
             Some(Command::Mail {
                 path: _path,
