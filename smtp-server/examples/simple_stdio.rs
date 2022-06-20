@@ -15,6 +15,7 @@ struct SimpleConfig;
 impl smtp_server::Config for SimpleConfig {
     type ConnectionUserMeta = ();
     type MailUserMeta = ();
+    type Protocol = smtp_server::protocol::Smtp;
 
     fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> &str {
         "simple.example.org"
@@ -85,14 +86,17 @@ impl smtp_server::Config for SimpleConfig {
         }
     }
 
-    async fn handle_mail<'a, R>(
-        &self,
-        reader: &mut EscapedDataReader<'a, R>,
-        _mail: MailMetadata<()>,
-        _conn_meta: &mut ConnectionMetadata<()>,
-    ) -> Decision<()>
+    async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
+        &'cfg self,
+        reader: &mut EscapedDataReader<'contents, R>,
+        _meta: MailMetadata<Self::MailUserMeta>,
+        _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
+    ) -> <Self::Protocol as smtp_server::Protocol<'resp>>::HandleMailReturnType
     where
         R: Send + Unpin + AsyncRead,
+        'cfg: 'resp,
+        'connmeta: 'resp,
+        Self: 'resp,
     {
         let mut text = Vec::new();
         if reader.read_to_end(&mut text).await.is_err() {

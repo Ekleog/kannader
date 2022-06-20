@@ -18,7 +18,7 @@ use smtp_message::{
 
 pub use smtp_server_types::{reply, ConnectionMetadata, Decision, HelloInfo, MailMetadata};
 
-use protocol::{Protocol, ProtocolName};
+pub use protocol::{Protocol, ProtocolName};
 
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
@@ -813,6 +813,7 @@ mod tests {
     impl Config for TestConfig {
         type ConnectionUserMeta = ();
         type MailUserMeta = ();
+        type Protocol = protocol::Smtp;
 
         fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> &str {
             "test.example.org".into()
@@ -889,14 +890,17 @@ mod tests {
             }
         }
 
-        async fn handle_mail<'a, R>(
-            &self,
-            reader: &mut EscapedDataReader<'a, R>,
-            meta: MailMetadata<()>,
-            _conn_meta: &mut ConnectionMetadata<()>,
-        ) -> Decision<()>
+        async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
+            &'cfg self,
+            reader: &mut EscapedDataReader<'contents, R>,
+            meta: MailMetadata<Self::MailUserMeta>,
+            _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
+        ) -> <Self::Protocol as Protocol<'resp>>::HandleMailReturnType
         where
             R: Send + Unpin + AsyncRead,
+            'cfg: 'resp,
+            'connmeta: 'resp,
+            Self: 'resp,
         {
             let mut mail_text = Vec::new();
             let res = reader.read_to_end(&mut mail_text).await;
