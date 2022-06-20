@@ -35,6 +35,8 @@ impl<'resp> Protocol<'resp> for Smtp {
 
 pub struct Lmtp;
 impl<'resp> Protocol<'resp> for Lmtp {
+    // TODO: we might be able to remove the Box type here Rust gains GATs (generic
+    // associated types) and TAIT (type Alias = impl Trait) is implemented
     type HandleMailReturnType = Pin<Box<dyn futures::Stream<Item = Decision<()>> + Send + 'resp>>;
 
     const PROTOCOL: ProtocolName = ProtocolName::Lmtp;

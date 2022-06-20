@@ -144,9 +144,6 @@ pub trait Config: Send + Sync {
         }
     }
 
-    // TODO: we might be able to remove the Box type in the return value when
-    // Rust gains GATs (generic associated types) and TAIT (type Alias = impl
-    // Trait) is implemented
     /// `handle_mail` is an async function that returns either a single decision
     /// in the case of the SMTP protocol, or an async stream of decisions in the
     /// case of the LMTP protocol.
