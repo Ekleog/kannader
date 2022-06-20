@@ -1,6 +1,8 @@
 #![cfg_attr(test, feature(negative_impls))]
 #![type_length_limit = "200000000"]
 
+pub mod protocol;
+
 use std::{cmp, io, ops::Range, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
@@ -16,18 +18,14 @@ use smtp_message::{
 
 pub use smtp_server_types::{reply, ConnectionMetadata, Decision, HelloInfo, MailMetadata};
 
+use protocol::{Protocol, ProtocolName};
+
 pub const RDBUF_SIZE: usize = 16 * 1024;
 const MINIMUM_FREE_BUFSPACE: usize = 128;
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Protocol {
-    Smtp,
-    Lmtp,
-}
-
 #[async_trait]
 pub trait Config: Send + Sync {
-    const PROTOCOL: Protocol = Protocol::Smtp;
+    type Protocol: for<'resp> Protocol<'resp>;
 
     type ConnectionUserMeta: Send;
     type MailUserMeta: Send;
@@ -149,24 +147,21 @@ pub trait Config: Send + Sync {
     // TODO: we might be able to remove the Box type in the return value when
     // Rust gains GATs (generic associated types) and TAIT (type Alias = impl
     // Trait) is implemented
-    /// `handle_mail` is an async function that returns an async stream of
-    /// decisions that will all be sent back to the client. In the case of an
-    /// SMTP server, it **MUST** return a stream of only one decision, that
-    /// signals whether the message was accepted and added to the queue for
-    /// delivery. In the case of an LMTP server, there must be one such decision
-    /// for each RCPT TO command that succeeded (i.e. for each accepted
-    /// recipient), which allows to indicate that the message could be stored in
-    /// the mailbox of some users, but not in that of other users. This can
-    /// happen for instance if their mail quota is used up.
+    /// `handle_mail` is an async function that returns either a single decision
+    /// in the case of the SMTP protocol, or an async stream of decisions in the
+    /// case of the LMTP protocol.
     ///
-    /// This function is an async function that returns an async stream. The
-    /// lifetimes of the borrow on the mail's data stream is limited to the
-    /// duration of the async call; this reference may not be retained by the
-    /// returned stream. The async function must consume the entire data stream
-    /// before returning its stream of responses. The recommended implementation
-    /// of this function would start by reading the message's content to a
-    /// temporary file, and then produce a stream that writes the message to all
-    /// of the mailboxes one after the other.
+    /// For LMTP: there must be one such decision for each RCPT TO command that
+    /// succeeded (i.e. for each accepted recipient), which allows to indicate
+    /// that the message could be stored in the mailbox of some users, but not
+    /// in that of other users. This can happen for instance if their mail
+    /// quota is used up. The lifetimes of the borrow on the mail's data stream
+    /// is limited to the duration of the async call; this reference may not be
+    /// retained by the returned stream. The async function must consume the
+    /// entire data stream before returning its stream of responses. The
+    /// recommended implementation of this function would start by reading the
+    /// message's content to a temporary file, and then produce a stream that
+    /// writes the message to all of the mailboxes one after the other.
     ///
     /// Note: the EscapedDataReader has an inner buffer size of
     /// [`RDBUF_SIZE`](RDBUF_SIZE), which means that reads should not happen
@@ -180,7 +175,7 @@ pub trait Config: Send + Sync {
         stream: &mut EscapedDataReader<'contents, R>,
         meta: MailMetadata<Self::MailUserMeta>,
         conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> Pin<Box<dyn futures::Stream<Item = Decision<()>> + Send + 'resp>>
+    ) -> <Self::Protocol as Protocol<'resp>>::HandleMailReturnType
     where
         R: Send + Unpin + AsyncRead,
         'cfg: 'resp,
@@ -582,12 +577,12 @@ where
 
             Some(cmd @ (Command::Ehlo { .. } | Command::Helo { .. } | Command::Lhlo { .. })) => {
                 let (cmd_proto, is_extended, hostname) = match cmd {
-                    Command::Ehlo { hostname } => (Protocol::Smtp, true, hostname),
-                    Command::Helo { hostname } => (Protocol::Smtp, false, hostname),
-                    Command::Lhlo { hostname } => (Protocol::Lmtp, true, hostname),
+                    Command::Ehlo { hostname } => (ProtocolName::Smtp, true, hostname),
+                    Command::Helo { hostname } => (ProtocolName::Smtp, false, hostname),
+                    Command::Lhlo { hostname } => (ProtocolName::Lmtp, true, hostname),
                     _ => unreachable!(),
                 };
-                if cmd_proto == Cfg::PROTOCOL {
+                if cmd_proto == <Cfg::Protocol as Protocol<'static>>::PROTOCOL {
                     match conn_meta.hello {
                         Some(_) => {
                             send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
@@ -679,12 +674,12 @@ where
                             send_reply!(io, reply).await?;
                             let mut reader =
                                 EscapedDataReader::new(rdbuf, unhandled.clone(), &mut io);
-                            let expected_n_decisions = match Cfg::PROTOCOL {
-                                Protocol::Smtp => 1,
-                                Protocol::Lmtp => mail_meta_unw.to.len(),
+                            let expected_n_decisions = match <Cfg::Protocol as Protocol<'static>>::PROTOCOL {
+                                ProtocolName::Smtp => 1,
+                                ProtocolName::Lmtp => mail_meta_unw.to.len(),
                             };
-                            let mut decision_stream = cfg
-                                .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta).await;
+                            let mut decision_stream = <Cfg::Protocol as Protocol<'_>>::handle_mail_return_type_as_stream(cfg
+                                .handle_mail(&mut reader, mail_meta_unw, &mut conn_meta).await);
                             // This variable is a trick because otherwise rustc thinks the `reader`
                             // borrow is still alive across await points and makes `interact: !Send`
                             let reader_was_completed = if let Some(u) = reader.get_unhandled() {
