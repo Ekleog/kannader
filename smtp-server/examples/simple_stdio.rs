@@ -91,12 +91,9 @@ impl smtp_server::Config for SimpleConfig {
         reader: &mut EscapedDataReader<'contents, R>,
         _meta: MailMetadata<Self::MailUserMeta>,
         _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
-    ) -> <Self::Protocol as smtp_server::Protocol<'resp>>::HandleMailReturnType
+    ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
-        'cfg: 'resp,
-        'connmeta: 'resp,
-        Self: 'resp,
     {
         let mut text = Vec::new();
         if reader.read_to_end(&mut text).await.is_err() {

@@ -895,12 +895,9 @@ mod tests {
             reader: &mut EscapedDataReader<'contents, R>,
             meta: MailMetadata<Self::MailUserMeta>,
             _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
-        ) -> <Self::Protocol as Protocol<'resp>>::HandleMailReturnType
+        ) -> Decision<()>
         where
             R: Send + Unpin + AsyncRead,
-            'cfg: 'resp,
-            'connmeta: 'resp,
-            Self: 'resp,
         {
             let mut mail_text = Vec::new();
             let res = reader.read_to_end(&mut mail_text).await;
