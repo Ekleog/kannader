@@ -59,6 +59,8 @@ impl<T> smtp_server::Config for ServerConfig<T>
 where
     T: smtp_queue::Transport<Meta>,
 {
+    type Protocol = smtp_server::protocol::Smtp;
+
     type ConnectionUserMeta = Vec<u8>;
     type MailUserMeta = Vec<u8>;
 
@@ -161,11 +163,11 @@ where
     /// Also, note that there is no timeout applied here, so the implementation
     /// of this function is responsible for making sure that the client does not
     /// just stop sending anything to DOS the system.
-    async fn handle_mail<'a, R>(
-        &self,
-        stream: &mut smtp_message::EscapedDataReader<'a, R>,
+    async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
+        &'cfg self,
+        stream: &mut smtp_message::EscapedDataReader<'contents, R>,
         meta: MailMeta,
-        _conn_meta: &mut ConnMeta,
+        _conn_meta: &'connmeta mut ConnMeta,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
