@@ -61,7 +61,9 @@ pub struct MailMetadata<U> {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct HelloInfo {
-    pub is_ehlo: bool,
+    /// is_extended: whether we are running Extended SMTP (ESMTP) or LMTP,
+    /// rather than plain SMTP
+    pub is_extended: bool,
     pub hostname: Hostname,
 }
 
