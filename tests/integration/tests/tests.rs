@@ -112,8 +112,8 @@ impl smtp_server::Config for TestReceiverCfg {
     async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
         &'cfg self,
         reader: &mut EscapedDataReader<'contents, R>,
-        _meta: MailMetadata<Self::MailUserMeta>,
-        _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
+        meta: MailMetadata<()>,
+        _conn_meta: &'connmeta mut ConnectionMetadata<()>,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
