@@ -59,10 +59,9 @@ impl<T> smtp_server::Config for ServerConfig<T>
 where
     T: smtp_queue::Transport<Meta>,
 {
-    type Protocol = smtp_server::protocol::Smtp;
-
     type ConnectionUserMeta = Vec<u8>;
     type MailUserMeta = Vec<u8>;
+    type Protocol = smtp_server::protocol::Smtp;
 
     fn hostname(&self, _: &ConnMeta) -> &str {
         unimplemented!()
@@ -82,11 +81,11 @@ where
 
     async fn filter_hello(
         &self,
-        is_ehlo: bool,
+        is_extended: bool,
         hostname: Hostname,
         conn_meta: &mut ConnMeta,
     ) -> Decision<HelloInfo> {
-        run_hook!(filter_hello(is_ehlo, hostname, conn_meta))
+        run_hook!(filter_hello(is_extended, hostname, conn_meta))
     }
 
     fn can_do_tls(&self, conn_meta: &ConnMeta) -> bool {
