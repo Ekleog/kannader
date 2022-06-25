@@ -60,8 +60,8 @@ impl WasmConfig {
                 guest,
             );
         }
-        wasmtime_wasi::Wasi::new(&store, b.build().context("Preparing WASI context")?)
-            .add_to_linker(&mut linker)
+        b.build();
+        wasmtime_wasi::add_to_linker(&mut linker, |_| &mut b)
             .context("Adding WASI exports to the linker")?;
 
         let tracing_serv = Rc::new(TracingServer);

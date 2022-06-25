@@ -137,7 +137,7 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
         // upstream)
         pub fn setup(
             path: &Path,
-            linker: &wasmtime::Linker,
+            linker: &wasmtime::Linker<()>,
             allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
         ) -> anyhow::Result<()> {
             // Recover memory instance
@@ -350,7 +350,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
 
         impl #struct_name {
             pub fn build(
-                linker: &wasmtime::Linker,
+                linker: &wasmtime::Linker<()>,
                 allocate: std::rc::Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
                 deallocate: std::rc::Rc<dyn Fn(u32, u32) -> Result<(), wasmtime::Trap>>,
             ) -> anyhow::Result<Self> {
@@ -478,7 +478,7 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
                 self: Rc<Self>,
                 allocate: Rc<RefCell<Option<Alloc>>>,
                 deallocate: Rc<RefCell<Option<Dealloc>>>,
-                l: &mut wasmtime::Linker,
+                l: &mut wasmtime::Linker<()>,
             ) -> anyhow::Result<()>
             where
                 Alloc: 'static + Fn(u32) -> Result<u32, wasmtime::Trap>,

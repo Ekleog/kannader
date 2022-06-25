@@ -297,7 +297,7 @@ where
         unblock(move || {
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let mail_uuid = Uuid::new_v4()
-                .to_hyphenated_ref()
+                .as_hyphenated()
                 .encode_lower(&mut uuid_buf);
 
             data.create_dir(&*mail_uuid, ONLY_USER_RWX).map_err(|e| {
@@ -352,7 +352,7 @@ where
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
             let uuid = Uuid::new_v4()
-                .to_hyphenated_ref()
+                .as_hyphenated()
                 .encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
 
@@ -927,7 +927,7 @@ where
 
     let mut dest_uuid_buf: [u8; 45] = Uuid::encode_buffer();
     let dest_uuid = Uuid::new_v4()
-        .to_hyphenated_ref()
+        .as_hyphenated()
         .encode_lower(&mut dest_uuid_buf);
 
     let mut symlink_value = PathBuf::from(DATA_DIR_FROM_OTHER_QUEUE);
@@ -995,7 +995,7 @@ where
             .map(|(meta, sched)| {
                 let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
                 let dest_uuid = Uuid::new_v4()
-                    .to_hyphenated_ref()
+                    .as_hyphenated()
                     .encode_lower(&mut uuid_buf);
                 (dest_uuid.to_string(), meta, sched)
             })

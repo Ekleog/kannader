@@ -38,15 +38,15 @@ pub struct Meta;
 
 struct NoCertVerifier;
 
-impl rustls::ServerCertVerifier for NoCertVerifier {
+impl rustls::client::ServerCertVerifier for NoCertVerifier {
     fn verify_server_cert(
         &self,
         _roots: &rustls::RootCertStore,
         _presented_certs: &[rustls::Certificate],
-        _dns_name: webpki::DNSNameRef,
+        _dns_name: webpki::DnsNameRef,
         _ocsp_response: &[u8],
-    ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-        Ok(rustls::ServerCertVerified::assertion())
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
     }
 }
 
@@ -126,7 +126,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     // Prepare the clients
                     debug!("Preparing the client configuration");
                     let mut tls_client_cfg =
-                        rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
+                        rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHER_SUITES);
                     // TODO: see for configuring persistence, for more performance?
                     tls_client_cfg
                         .dangerous()
@@ -167,8 +167,8 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     let tls_server_cfg = unblock(move || {
                         // Configure rustls
                         let mut tls_server_cfg = rustls::ServerConfig::with_ciphersuites(
-                            rustls::NoClientAuth::new(),
-                            &rustls::ALL_CIPHERSUITES,
+                            rustls::server::NoClientAuth::new(),
+                            &rustls::ALL_CIPHER_SUITES,
                         );
                         // TODO: see for configuring persistence, for more performance?
                         // TODO: support SNI

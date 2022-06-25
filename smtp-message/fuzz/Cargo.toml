@@ -10,9 +10,9 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-arbitrary = "0.4.4"
+arbitrary = "1.1"
 futures = "0.3.4"
-libfuzzer-sys = "0.3.2"
+libfuzzer-sys = "0.4.3"
 
 smtp-message = { path = "..", features = ["fuzz-targets"] }
 
