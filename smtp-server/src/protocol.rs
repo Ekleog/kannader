@@ -13,8 +13,12 @@ pub enum ProtocolName {
 pub trait Protocol<'resp>: private::Sealed {
     const PROTOCOL: ProtocolName;
 
+    // TODO: when we have GATs, 'resp should be a parameter of HandleMailReturnType
+    // and not of the whole Protocol trait.
     type HandleMailReturnType;
 
+    // TODO: we might be able to remove the Box type here Rust gains GATs (generic
+    // associated types) and TAIT (type Alias = impl Trait) is implemented
     fn handle_mail_return_type_as_stream(
         _resp: Self::HandleMailReturnType,
     ) -> Pin<Box<dyn futures::Stream<Item = Decision<()>> + Send + 'resp>>;
@@ -35,8 +39,7 @@ impl<'resp> Protocol<'resp> for Smtp {
 
 pub struct Lmtp;
 impl<'resp> Protocol<'resp> for Lmtp {
-    // TODO: we might be able to remove the Box type here Rust gains GATs (generic
-    // associated types) and TAIT (type Alias = impl Trait) is implemented
+    // TODO: same as above, GAT+TAIT might allow us to remove Box here
     type HandleMailReturnType = Pin<Box<dyn futures::Stream<Item = Decision<()>> + Send + 'resp>>;
 
     const PROTOCOL: ProtocolName = ProtocolName::Lmtp;

@@ -577,7 +577,9 @@ where
                     Command::Lhlo { hostname } => (ProtocolName::Lmtp, true, hostname),
                     _ => unreachable!(),
                 };
-                if cmd_proto == <Cfg::Protocol as Protocol<'static>>::PROTOCOL {
+                if cmd_proto != <Cfg::Protocol as Protocol<'static>>::PROTOCOL {
+                    send_reply!(io, cfg.command_unrecognized(&mut conn_meta)).await?;
+                } else {
                     match conn_meta.hello {
                         Some(_) => {
                             send_reply!(io, cfg.already_did_hello(&mut conn_meta)).await?;
@@ -591,8 +593,6 @@ where
                             }
                         },
                     }
-                } else {
-                    send_reply!(io, cfg.command_unrecognized(&mut conn_meta)).await?;
                 }
             }
 

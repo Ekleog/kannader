@@ -89,7 +89,7 @@ impl smtp_server::Config for SimpleConfig {
     async fn handle_mail<'resp, R>(
         &'resp self,
         reader: &mut EscapedDataReader<'_, R>,
-        _meta: MailMetadata<()>,
+        _mail: MailMetadata<()>,
         _conn_meta: &'resp mut ConnectionMetadata<()>,
     ) -> Decision<()>
     where
