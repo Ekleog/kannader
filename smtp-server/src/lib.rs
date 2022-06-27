@@ -167,16 +167,14 @@ pub trait Config: Send + Sync {
     /// Also, note that there is no timeout applied here, so the implementation
     /// of this function is responsible for making sure that the client does not
     /// just stop sending anything to DOS the system.
-    async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
-        &'cfg self,
-        stream: &mut EscapedDataReader<'contents, R>,
+    async fn handle_mail<'resp, R>(
+        &'resp self,
+        stream: &mut EscapedDataReader<'_, R>, // not borrowed for whole 'resp lifetime
         meta: MailMetadata<Self::MailUserMeta>,
-        conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
+        conn_meta: &'resp mut ConnectionMetadata<Self::ConnectionUserMeta>,
     ) -> <Self::Protocol as Protocol<'resp>>::HandleMailReturnType
     where
         R: Send + Unpin + AsyncRead,
-        'cfg: 'resp,
-        'connmeta: 'resp,
         Self: 'resp;
 
     #[allow(unused_variables)]
@@ -887,11 +885,11 @@ mod tests {
             }
         }
 
-        async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
-            &'cfg self,
-            reader: &mut EscapedDataReader<'contents, R>,
-            meta: MailMetadata<Self::MailUserMeta>,
-            _conn_meta: &'connmeta mut ConnectionMetadata<Self::ConnectionUserMeta>,
+        async fn handle_mail<'resp, R>(
+            &'resp self,
+            reader: &mut EscapedDataReader<'_, R>,
+            meta: MailMetadata<()>,
+            _conn_meta: &'resp mut ConnectionMetadata<()>,
         ) -> Decision<()>
         where
             R: Send + Unpin + AsyncRead,

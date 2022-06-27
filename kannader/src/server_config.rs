@@ -162,11 +162,11 @@ where
     /// Also, note that there is no timeout applied here, so the implementation
     /// of this function is responsible for making sure that the client does not
     /// just stop sending anything to DOS the system.
-    async fn handle_mail<'contents, 'cfg, 'connmeta, 'resp, R>(
-        &'cfg self,
-        stream: &mut smtp_message::EscapedDataReader<'contents, R>,
+    async fn handle_mail<'resp, R>(
+        &'resp self,
+        stream: &mut smtp_message::EscapedDataReader<'_, R>,
         meta: MailMeta,
-        _conn_meta: &'connmeta mut ConnMeta,
+        _conn_meta: &'resp mut ConnMeta,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,
