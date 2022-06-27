@@ -699,7 +699,7 @@ where
                                     }
                                     simple_handler!(decision);
                                 }
-                                assert_eq!(n_decisions, expected_n_decisions);
+                                assert_eq!(n_decisions, expected_n_decisions, "got {} decisions in handle_mail return, expected {}", n_decisions, expected_n_decisions);
                             } else {
                                 // handle_mail did not call complete, let's read until the end and
                                 // then return an error
