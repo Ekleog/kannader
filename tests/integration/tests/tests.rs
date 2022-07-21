@@ -60,6 +60,7 @@ impl TestReceiverCfg {
 impl smtp_server::Config for TestReceiverCfg {
     type ConnectionUserMeta = ();
     type MailUserMeta = ();
+    type Protocol = smtp_server::protocol::Smtp;
 
     fn hostname(&self, _conn_meta: &ConnectionMetadata<()>) -> &str {
         "receiver.example.org".into()
@@ -108,11 +109,11 @@ impl smtp_server::Config for TestReceiverCfg {
         }
     }
 
-    async fn handle_mail<'a, R>(
-        &self,
-        reader: &mut EscapedDataReader<'a, R>,
+    async fn handle_mail<'resp, R>(
+        &'resp self,
+        reader: &mut EscapedDataReader<'_, R>,
         meta: MailMetadata<()>,
-        _conn_meta: &mut ConnectionMetadata<()>,
+        _conn_meta: &'resp mut ConnectionMetadata<()>,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,

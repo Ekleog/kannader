@@ -857,7 +857,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
 
         fn filter_hello(
             &self,
-            is_ehlo: () bool,
+            is_extended: () bool,
             hostname: () smtp_message::Hostname,
             conn_meta: (&mut) smtp_server_types::ConnectionMetadata<Vec<u8>>,
         ) -> (smtp_server_types::SerializableDecision<smtp_server_types::HelloInfo>) ;
@@ -868,7 +868,7 @@ static SERVER_CONFIG: fn() -> Communicator = communicator! {
         ) -> (bool)
         {
             !conn_meta.is_encrypted &&
-                conn_meta.hello.as_ref().map(|h| h.is_ehlo).unwrap_or(false)
+                conn_meta.hello.as_ref().map(|h| h.is_extended).unwrap_or(false)
         }
 
         fn new_mail(

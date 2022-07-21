@@ -11,14 +11,19 @@ pub fn welcome_banner(hostname: &str, banner: &str) -> Reply {
 
 /// Usual value for returning “Okay” from `filter_hello`
 #[inline]
-pub fn okay_hello(is_ehlo: bool, local_hostname: &str, banner: &str, can_do_tls: bool) -> Reply {
+pub fn okay_hello(
+    is_extended: bool,
+    local_hostname: &str,
+    banner: &str,
+    can_do_tls: bool,
+) -> Reply {
     let mut built_banner = String::from(local_hostname);
     if !banner.is_empty() {
         built_banner += " ";
         built_banner += banner;
     }
     let mut text = vec![MaybeUtf8::Utf8(built_banner)];
-    if is_ehlo {
+    if is_extended {
         text.push(MaybeUtf8::Ascii("8BITMIME".into()));
         text.push(MaybeUtf8::Ascii("ENHANCEDSTATUSCODES".into()));
         text.push(MaybeUtf8::Ascii("PIPELINING".into()));

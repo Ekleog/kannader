@@ -61,6 +61,7 @@ where
 {
     type ConnectionUserMeta = Vec<u8>;
     type MailUserMeta = Vec<u8>;
+    type Protocol = smtp_server::protocol::Smtp;
 
     fn hostname(&self, _: &ConnMeta) -> &str {
         unimplemented!()
@@ -80,11 +81,11 @@ where
 
     async fn filter_hello(
         &self,
-        is_ehlo: bool,
+        is_extended: bool,
         hostname: Hostname,
         conn_meta: &mut ConnMeta,
     ) -> Decision<HelloInfo> {
-        run_hook!(filter_hello(is_ehlo, hostname, conn_meta))
+        run_hook!(filter_hello(is_extended, hostname, conn_meta))
     }
 
     fn can_do_tls(&self, conn_meta: &ConnMeta) -> bool {
@@ -161,11 +162,11 @@ where
     /// Also, note that there is no timeout applied here, so the implementation
     /// of this function is responsible for making sure that the client does not
     /// just stop sending anything to DOS the system.
-    async fn handle_mail<'a, R>(
-        &self,
-        stream: &mut smtp_message::EscapedDataReader<'a, R>,
+    async fn handle_mail<'resp, R>(
+        &'resp self,
+        stream: &mut smtp_message::EscapedDataReader<'_, R>,
         meta: MailMeta,
-        _conn_meta: &mut ConnMeta,
+        _conn_meta: &'resp mut ConnMeta,
     ) -> Decision<()>
     where
         R: Send + Unpin + AsyncRead,

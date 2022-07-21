@@ -117,18 +117,22 @@ impl kannader_config::ServerConfig for ServerConfig {
 
     fn filter_hello(
         cfg: &Config,
-        is_ehlo: bool,
+        is_extended: bool,
         hostname: Hostname,
         conn_meta: &mut server::ConnMeta,
     ) -> server::SerializableDecision<server::HelloInfo> {
         let mut cm = conn_meta.clone();
         cm.hello = Some(server::HelloInfo {
-            is_ehlo,
+            is_extended,
             hostname: hostname.clone(),
         });
         server::SerializableDecision::Accept {
-            reply: reply::okay_hello(is_ehlo, "localhost", "", Self::can_do_tls(cfg, cm)).convert(),
-            res: server::HelloInfo { is_ehlo, hostname },
+            reply: reply::okay_hello(is_extended, "localhost", "", Self::can_do_tls(cfg, cm))
+                .convert(),
+            res: server::HelloInfo {
+                is_extended,
+                hostname,
+            },
         }
     }
 
