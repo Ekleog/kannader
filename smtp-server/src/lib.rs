@@ -695,7 +695,7 @@ where
                                 while let Some(decision) = decision_stream.next().await {
                                     n_decisions += 1;
                                     if n_decisions > expected_n_decisions {
-                                        break;
+                                        panic!("got more decisions in handle_mail return than the expected {}", expected_n_decisions);
                                     }
                                     simple_handler!(decision);
                                 }
