@@ -139,8 +139,9 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
             path: &Path,
             ctx: &mut wasmtime::Store<WasmState>,
             linker: &wasmtime::Linker<WasmState>,
-            allocate: Rc<wasmtime::TypedFunc<u32, u32>>,
         ) -> anyhow::Result<()> {
+            let allocate = ctx.data().alloc.unwrap();
+
             // Recover memory instance
             let memory = linker
                 .get(&mut ctx, "config", "memory")
@@ -198,7 +199,7 @@ fn make_trait(trait_type: TraitType, c: Communicator) -> TokenStream {
     };
     let first_param = match trait_type {
         TraitType::OnGuest => quote!(cfg: &Self::Cfg),
-        TraitType::OnHost => quote!(self: Rc<Self>),
+        TraitType::OnHost => quote!(self: Arc<Self>),
     };
     let funcs = c.funcs.into_iter().map(|f| {
         let fn_name = f.fn_name;
@@ -320,8 +321,8 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
         quote! {
             let #fn_name = {
                 let memory = memory.clone();
-                let allocate = allocate.clone();
-                let deallocate = deallocate.clone();
+                let allocate = ctx.data().alloc.unwrap();
+                let deallocate = ctx.data().dealloc.unwrap();
 
                 let wasm_fun: wasmtime::TypedFunc<(u32, u32), u64> = linker
                     .get(&mut ctx, "config", #ffi_name_str)
@@ -347,8 +348,6 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
             pub fn build(
                 ctx: &mut wasmtime::Store<WasmState>,
                 linker: &wasmtime::Linker<WasmState>,
-                allocate: std::rc::Rc<wasmtime::TypedFunc<u32, u32>>,
-                deallocate: std::rc::Rc<wasmtime::TypedFunc<(u32, u32), ()>>,
             ) -> anyhow::Result<Self> {
                 use anyhow::{anyhow, ensure, Context};
 
@@ -438,19 +437,19 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
         let fn_body = run_ffi_fn(
             f,
             quote!(&memory.data(&mut ctx)[p as usize..(p + s) as usize]),
-            quote!(deallocate.borrow().as_ref().unwrap().call(&mut ctx, (p, s)).unwrap()),
+            quote!(deallocate.call(&mut ctx, (p, s)).unwrap()),
             |args| quote!(<Self as #trait_name>::#fn_name(this.clone(), #args)),
             |size| {
                 quote! {{
-                    let ptr: u32 = allocate.borrow().as_ref().unwrap().call(&mut ctx, #size).unwrap();
+                    let ptr: u32 = allocate.call(&mut ctx, #size).unwrap();
                     let slice = &mut memory.data_mut(&mut ctx)[ptr as usize..(ptr + #size) as usize];
                     (ptr, slice)
                 }}
             },
         );
         quote! {{
-            let allocate = allocate.clone();
-            let deallocate = deallocate.clone();
+            let allocate = ctx.data().alloc.unwrap();
+            let deallocate = ctx.data().dealloc.unwrap();
             let this = self.clone();
 
             let the_fn = move |ctx: wasmtime::Caller<WasmState>, p: u32, s: u32| {
@@ -469,10 +468,8 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
     let res = quote! {
         impl #impl_name {
             pub fn add_to_linker(
-                self: Rc<Self>,
+                self: Arc<Self>,
                 ctx: &mut wasmtime::Store<WasmState>,
-                allocate: Rc<RefCell<Option<wasmtime::TypedFunc<u32, u32>>>>,
-                deallocate: Rc<RefCell<Option<wasmtime::TypedFunc<(u32, u32), ()>>>>,
                 l: &mut wasmtime::Linker<WasmState>,
             ) -> anyhow::Result<()> {
                 #(#linker_add)*
