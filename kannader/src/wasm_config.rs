@@ -5,20 +5,29 @@ use std::{
 };
 
 use anyhow::{anyhow, Context};
+use wasmtime_wasi::{ambient_authority, Dir};
+
+pub struct WasmState {
+    wasi: wasmtime_wasi::WasiCtx,
+}
 
 pub mod setup {
+    use super::WasmState;
     kannader_config_macros::implement_host!();
 }
 
 pub mod client_config {
+    use super::WasmState;
     kannader_config_macros::client_config_implement_host_client!(WasmFuncs);
 }
 
 pub mod queue_config {
+    use super::WasmState;
     kannader_config_macros::queue_config_implement_host_client!(WasmFuncs);
 }
 
 pub mod server_config {
+    use super::WasmState;
     kannader_config_macros::server_config_implement_host_client!(WasmFuncs);
 }
 
@@ -26,6 +35,7 @@ pub struct WasmConfig {
     pub client_config: client_config::WasmFuncs,
     pub queue_config: queue_config::WasmFuncs,
     pub server_config: server_config::WasmFuncs,
+    pub store: wasmtime::Store<WasmState>,
 }
 
 impl WasmConfig {
@@ -45,9 +55,6 @@ impl WasmConfig {
         let early_alloc = Rc::new(RefCell::new(None));
         let early_dealloc = Rc::new(RefCell::new(None));
 
-        let store = wasmtime::Store::new(engine);
-        let mut linker = wasmtime::Linker::new(&store);
-
         let mut b = wasmtime_wasi::WasiCtxBuilder::new();
         for (guest, host) in dirs {
             // TODO: this is bad! replace with something that only
@@ -55,63 +62,71 @@ impl WasmConfig {
             // TODO: this should be async files, but let's keep
             // that for the day async wasi is implemented upstream
             b.preopened_dir(
-                std::fs::File::open(&host)
+                Dir::open_ambient_dir(&host, ambient_authority())
                     .with_context(|| format!("Preopening ‘{}’ for the guest", host.display()))?,
                 guest,
             );
         }
-        b.build();
-        wasmtime_wasi::add_to_linker(&mut linker, |_| &mut b)
+
+        let store = wasmtime::Store::new(engine, WasmState {
+            wasi: b.build(),
+        });
+        let mut linker = wasmtime::Linker::new(&engine);
+
+        wasmtime_wasi::add_to_linker(&mut linker, |state: &mut WasmState| &mut state.wasi)
             .context("Adding WASI exports to the linker")?;
 
         let tracing_serv = Rc::new(TracingServer);
         tracing_serv
-            .add_to_linker(early_alloc.clone(), early_dealloc.clone(), &mut linker)
+            .add_to_linker(&mut store, early_alloc.clone(), early_dealloc.clone(), &mut linker)
             .context("Adding ‘tracing’ module to the linker")?;
 
         linker
-            .module("config", module)
+            .module(&mut store, "config", module)
             .context("Instantiating the wasm configuration blob")?;
 
         macro_rules! get_func {
-            ($getter:ident, $function:expr) => {
+            ($function:expr) => {
                 linker
-                    .get_one_by_name("config", Some($function))
-                    .with_context(|| format!("Looking for an export for ‘{}’", $function))?
+                    .get(&mut store, "config", $function)
+                    .ok_or_else(|| anyhow!("No export for ‘{}’", $function))?
                     .into_func()
                     .ok_or_else(|| anyhow!("Export for ‘{}’ is not a function", $function))?
-                    .$getter()
+                    .typed(&mut store)
                     .with_context(|| format!("Checking the type of ‘{}’", $function))?
             };
         }
 
         // Parameter: size of the block to allocate
         // Return: address of the allocated block
-        let allocate = Rc::new(get_func!(get1, "allocate"));
-        *early_alloc.borrow_mut() = Some(get_func!(get1, "allocate"));
+        let allocate = Rc::new(get_func!("allocate"));
+        *early_alloc.borrow_mut() = Some(*allocate);
 
         // Parameters: (address, size) of the block to deallocate
-        let deallocate = Rc::new(get_func!(get2, "deallocate"));
-        *early_dealloc.borrow_mut() = Some(get_func!(get2, "deallocate"));
+        let deallocate = Rc::new(get_func!("deallocate"));
+        *early_dealloc.borrow_mut() = Some(*deallocate);
 
         let res = WasmConfig {
             client_config: client_config::WasmFuncs::build(
+                &mut store,
                 &linker,
                 allocate.clone(),
                 deallocate.clone(),
             )
             .context("Getting client configuration")?,
             queue_config: queue_config::WasmFuncs::build(
+                &mut store,
                 &linker,
                 allocate.clone(),
                 deallocate.clone(),
             )
             .context("Getting queue configuration")?,
-            server_config: server_config::WasmFuncs::build(&linker, allocate.clone(), deallocate)
+            server_config: server_config::WasmFuncs::build(&mut store, &linker, allocate.clone(), deallocate)
                 .context("Getting server configuration")?,
+            store,
         };
 
-        setup::setup(cfg, &linker, allocate).context("Running the setup hook")?;
+        setup::setup(cfg, &mut res.store, &linker, allocate).context("Running the setup hook")?;
 
         Ok(res)
     }

@@ -18,7 +18,7 @@ impl QueueConfig {
 macro_rules! run_hook {
     ($fn:ident($($arg:expr),*) || $res:expr) => {
         WASM_CONFIG.with(|wasm_config| {
-            match (wasm_config.queue_config.$fn)($($arg),*) {
+            match (wasm_config.queue_config.$fn)(&mut wasm_config.store, $($arg),*) {
                 Ok(res) => res,
                 Err(e) => {
                     error!(error = ?e, "Internal server in ‘queue_config_{}’", stringify!($fn));
