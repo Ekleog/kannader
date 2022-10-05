@@ -296,9 +296,7 @@ where
 
         unblock(move || {
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
-            let mail_uuid = Uuid::new_v4()
-                .as_hyphenated()
-                .encode_lower(&mut uuid_buf);
+            let mail_uuid = Uuid::new_v4().as_hyphenated().encode_lower(&mut uuid_buf);
 
             data.create_dir(&*mail_uuid, ONLY_USER_RWX).map_err(|e| {
                 Error::CreatingFolderInQueue(mail_uuid.to_string(), QueueType::Data, e)
@@ -351,9 +349,7 @@ where
 
             let mut tmp_sched_file = String::from(TMP_SCHEDULE_FILE_PREFIX);
             let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
-            let uuid = Uuid::new_v4()
-                .as_hyphenated()
-                .encode_lower(&mut uuid_buf);
+            let uuid = Uuid::new_v4().as_hyphenated().encode_lower(&mut uuid_buf);
             tmp_sched_file.push_str(uuid);
 
             let tmp_file = dest_dir
@@ -994,9 +990,7 @@ where
             .into_iter()
             .map(|(meta, sched)| {
                 let mut uuid_buf: [u8; 45] = Uuid::encode_buffer();
-                let dest_uuid = Uuid::new_v4()
-                    .as_hyphenated()
-                    .encode_lower(&mut uuid_buf);
+                let dest_uuid = Uuid::new_v4().as_hyphenated().encode_lower(&mut uuid_buf);
                 (dest_uuid.to_string(), meta, sched)
             })
             .collect::<Vec<_>>();

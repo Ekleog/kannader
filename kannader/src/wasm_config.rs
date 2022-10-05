@@ -68,9 +68,7 @@ impl WasmConfig {
             );
         }
 
-        let store = wasmtime::Store::new(engine, WasmState {
-            wasi: b.build(),
-        });
+        let store = wasmtime::Store::new(engine, WasmState { wasi: b.build() });
         let mut linker = wasmtime::Linker::new(&engine);
 
         wasmtime_wasi::add_to_linker(&mut linker, |state: &mut WasmState| &mut state.wasi)
@@ -78,7 +76,12 @@ impl WasmConfig {
 
         let tracing_serv = Rc::new(TracingServer);
         tracing_serv
-            .add_to_linker(&mut store, early_alloc.clone(), early_dealloc.clone(), &mut linker)
+            .add_to_linker(
+                &mut store,
+                early_alloc.clone(),
+                early_dealloc.clone(),
+                &mut linker,
+            )
             .context("Adding ‘tracing’ module to the linker")?;
 
         linker
@@ -121,8 +124,13 @@ impl WasmConfig {
                 deallocate.clone(),
             )
             .context("Getting queue configuration")?,
-            server_config: server_config::WasmFuncs::build(&mut store, &linker, allocate.clone(), deallocate)
-                .context("Getting server configuration")?,
+            server_config: server_config::WasmFuncs::build(
+                &mut store,
+                &linker,
+                allocate.clone(),
+                deallocate,
+            )
+            .context("Getting server configuration")?,
             store,
         };
 

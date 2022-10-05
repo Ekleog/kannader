@@ -63,7 +63,13 @@ impl smtp_client::Config for ClientConfig {
                 // TODO: switch everywhere to tokio?
                 use async_compat::CompatExt;
                 use std::convert::TryFrom;
-                let io = self.connector.connect(rustls::ServerName::try_from("nodomainyet").unwrap(), io.compat_mut()).await?;
+                let io = self
+                    .connector
+                    .connect(
+                        rustls::ServerName::try_from("nodomainyet").unwrap(),
+                        io.compat_mut(),
+                    )
+                    .await?;
                 let (r, w) = io.compat_mut().split();
                 let io = duplexify::Duplex::new(
                     Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
