@@ -128,7 +128,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     // Prepare the clients
                     debug!("Preparing the client configuration");
                     // TODO: see for configuring persistence, for more performance?
-                    let mut tls_client_cfg = rustls::ClientConfig::builder()
+                    let tls_client_cfg = rustls::ClientConfig::builder()
                         .with_cipher_suites(&rustls::ALL_CIPHER_SUITES)
                         .with_kx_groups(&rustls::ALL_KX_GROUPS)
                         .with_protocol_versions(&rustls::ALL_VERSIONS)
@@ -145,8 +145,11 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
 
                     // Spawn the queue
                     debug!("Preparing the queue configuration");
-                    let storage = (wasm_config.queue_config.storage_type)(&mut wasm_config.store)
-                        .context("Retrieving storage type")?;
+                    let storage = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.queue_config.storage_type)(&mut *store)
+                            .context("Retrieving storage type")?
+                    };
                     let storage = match storage {
                         kannader_types::QueueStorage::Fs(path) => FsStorage::new(Arc::new(path))
                             .await
@@ -164,12 +167,16 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     // TODO: introduce some tests that make sure that starting kannader with an
                     // invalid config does result in a user-visible error
                     debug!("Preparing the TLS configuration");
-                    let cert_file =
-                        (wasm_config.server_config.tls_cert_file)(&mut wasm_config.store)
-                            .context("Getting the path to the TLS cert file")?;
-                    let keys_file =
-                        (wasm_config.server_config.tls_key_file)(&mut wasm_config.store)
-                            .context("Getting the path to the TLS key file")?;
+                    let cert_file = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.server_config.tls_cert_file)(&mut *store)
+                            .context("Getting the path to the TLS cert file")?
+                    };
+                    let keys_file = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.server_config.tls_key_file)(&mut *store)
+                            .context("Getting the path to the TLS key file")?
+                    };
                     let tls_server_cfg = unblock(move || {
                         // Load the certificates and keys
                         let certs = rustls_pemfile::certs(&mut io::BufReader::new(
@@ -204,7 +211,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         // Configure rustls
                         // TODO: see for configuring persistence, for more performance?
                         // TODO: support SNI
-                        let mut tls_server_cfg = rustls::ServerConfig::builder()
+                        let tls_server_cfg = rustls::ServerConfig::builder()
                             .with_cipher_suites(&rustls::ALL_CIPHER_SUITES)
                             .with_kx_groups(&rustls::ALL_KX_GROUPS)
                             .with_protocol_versions(&rustls::ALL_VERSIONS)

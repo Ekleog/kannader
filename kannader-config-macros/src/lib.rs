@@ -109,10 +109,10 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 pub fn implement_host(_input: TokenStream) -> TokenStream {
     let fn_body = call_ffi_fn(
         &SETUP_FN(),
-        quote!(memory.data_ptr(&mut ctx)),
-        quote!(memory.data_size(&mut ctx)),
-        |s| quote!(allocate.call(&mut ctx, #s)),
-        |p, s| quote!(wasm_fun.call(&mut ctx, (#p, #s))),
+        quote!(memory.data_ptr(&mut *ctx)),
+        quote!(memory.data_size(&mut *ctx)),
+        |s| quote!(allocate.call(&mut *ctx, #s)),
+        |p, s| quote!(wasm_fun.call(&mut *ctx, (#p, #s))),
         |_, s| {
             quote! {{
                 if #s == 0 {
@@ -144,18 +144,18 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
 
             // Recover memory instance
             let memory = linker
-                .get(&mut ctx, "config", "memory")
+                .get(&mut *ctx, "config", "memory")
                 .context("Looking for an export for ‘memory’")?
                 .into_memory()
                 .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
 
             // Recover setup function
             let wasm_fun: wasmtime::TypedFunc<(u32, u32), u64> = linker
-                .get(&mut ctx, "config", "setup")
+                .get(&mut *ctx, "config", "setup")
                 .context("Looking for an export for ‘setup’")?
                 .into_func()
                 .ok_or_else(|| anyhow!("Export for ‘setup’ is not a function"))?
-                .typed(&mut ctx)
+                .typed(&mut *ctx)
                 .with_context(|| format!("Checking the type of ‘setup’"))?;
 
             #fn_body
@@ -312,11 +312,11 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
         let checking_type = format!("Checking the type of ‘{}’", f.ffi_name);
         let fn_body = call_ffi_fn(
             f,
-            quote!(memory.data_ptr(&mut ctx)),
-            quote!(memory.data_size(&mut ctx)),
-            |s| quote!(allocate.call(&mut ctx, #s)),
-            |p, s| quote!(wasm_fun.call(&mut ctx, (#p, #s))),
-            |p, s| quote!(deallocate.call(&mut ctx, (#p, #s))),
+            quote!(memory.data_ptr(&mut *ctx)),
+            quote!(memory.data_size(&mut *ctx)),
+            |s| quote!(allocate.call(&mut *ctx, #s)),
+            |p, s| quote!(wasm_fun.call(&mut *ctx, (#p, #s))),
+            |p, s| quote!(deallocate.call(&mut *ctx, (#p, #s))),
         );
         quote! {
             let #fn_name = {
@@ -325,11 +325,11 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 let deallocate = ctx.data().dealloc.unwrap();
 
                 let wasm_fun: wasmtime::TypedFunc<(u32, u32), u64> = linker
-                    .get(&mut ctx, "config", #ffi_name_str)
+                    .get(&mut *ctx, "config", #ffi_name_str)
                     .context(#looking_for_export)?
                     .into_func()
                     .ok_or_else(|| anyhow::Error::msg(#export_is_not_function))?
-                    .typed(&mut ctx)
+                    .typed(&mut *ctx)
                     .context(#checking_type)?;
 
                 Box::new(move |ctx: &mut wasmtime::Store<WasmState>, #(#host_args),*| {
@@ -352,7 +352,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
                 use anyhow::{anyhow, ensure, Context};
 
                 let memory = linker
-                    .get(&mut ctx, "config", "memory")
+                    .get(&mut *ctx, "config", "memory")
                     .context("Looking for an export for ‘memory’")?
                     .into_memory()
                     .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
@@ -452,7 +452,7 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
             let deallocate = ctx.data().dealloc.unwrap();
             let this = self.clone();
 
-            let the_fn = move |ctx: wasmtime::Caller<WasmState>, p: u32, s: u32| {
+            let the_fn = move |mut ctx: wasmtime::Caller<WasmState>, p: u32, s: u32| {
                 let memory = ctx.get_export("memory")
                     .and_then(|m| m.into_memory())
                     .expect(#unable_to_find_memory);
@@ -462,7 +462,7 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
                 #fn_body
             };
 
-            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(&mut ctx, the_fn))?;
+            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(&mut *ctx, the_fn))?;
         }}
     });
     let res = quote! {

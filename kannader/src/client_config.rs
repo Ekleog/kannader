@@ -25,7 +25,8 @@ impl ClientConfig {
 macro_rules! run_hook {
     ($fn:ident($($arg:expr),*) || $res:expr) => {
         WASM_CONFIG.with(|wasm_config| {
-            match (wasm_config.client_config.$fn)(&mut wasm_config.store, $($arg),*) {
+            let mut store = wasm_config.store.borrow_mut();
+            match (wasm_config.client_config.$fn)(&mut *store, $($arg),*) {
                 Ok(res) => res,
                 Err(e) => {
                     error!(error = ?e, "Internal server in ‘client_config_{}’", stringify!($fn));
@@ -67,10 +68,10 @@ impl smtp_client::Config for ClientConfig {
                     .connector
                     .connect(
                         rustls::ServerName::try_from("nodomainyet").unwrap(),
-                        io.compat_mut(),
+                        io.compat(),
                     )
                     .await?;
-                let (r, w) = io.compat_mut().split();
+                let (r, w) = io.compat().split();
                 let io = duplexify::Duplex::new(
                     Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
                     Box::pin(w) as Pin<Box<dyn Send + AsyncWrite>>,

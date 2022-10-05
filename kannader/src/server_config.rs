@@ -42,7 +42,8 @@ macro_rules! run_hook {
 
     ($fn:ident($($arg:expr),*) || $res:expr) => {
         WASM_CONFIG.with(|wasm_config| {
-            let res = (wasm_config.server_config.$fn)(&mut wasm_config.store, $($arg),*);
+            let mut store = wasm_config.store.borrow_mut();
+            let res = (wasm_config.server_config.$fn)(&mut *store, $($arg),*);
             match res {
                 Ok(res) => res.into(),
                 Err(e) => {
@@ -120,8 +121,8 @@ where
         // multiple SNI hostnames / multiple IP addresses
         // TODO: switch everything to tokio?
         use async_compat::CompatExt;
-        let io = self.acceptor.accept(io.compat_mut()).await?;
-        let (r, w) = io.compat_mut().split();
+        let io = self.acceptor.accept(io.compat()).await?;
+        let (r, w) = io.compat().split();
         let io = duplexify::Duplex::new(
             Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
             Box::pin(w) as Pin<Box<dyn Send + AsyncWrite>>,

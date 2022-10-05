@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -39,7 +40,7 @@ pub struct WasmConfig {
     pub client_config: client_config::WasmFuncs,
     pub queue_config: queue_config::WasmFuncs,
     pub server_config: server_config::WasmFuncs,
-    pub store: wasmtime::Store<WasmState>,
+    pub store: RefCell<wasmtime::Store<WasmState>>,
 }
 
 impl WasmConfig {
@@ -59,14 +60,23 @@ impl WasmConfig {
             // adds the necessary stuff
             // TODO: this should be async files, but let's keep
             // that for the day async wasi is implemented upstream
-            b.preopened_dir(
-                Dir::open_ambient_dir(&host, ambient_authority())
-                    .with_context(|| format!("Preopening ‘{}’ for the guest", host.display()))?,
-                guest,
-            );
+            b = b
+                .preopened_dir(
+                    Dir::open_ambient_dir(&host, ambient_authority()).with_context(|| {
+                        format!("Preopening ‘{}’ for the guest", host.display())
+                    })?,
+                    guest,
+                )
+                .with_context(|| {
+                    format!(
+                        "Registering ‘{}’ as preopened dir pointing to ‘{}‘ for the guest",
+                        guest.display(),
+                        host.display()
+                    )
+                })?;
         }
 
-        let store = wasmtime::Store::new(engine, WasmState {
+        let mut store = wasmtime::Store::new(engine, WasmState {
             wasi: b.build(),
             alloc: None,
             dealloc: None,
@@ -107,10 +117,13 @@ impl WasmConfig {
                 .context("Getting queue configuration")?,
             server_config: server_config::WasmFuncs::build(&mut store, &linker)
                 .context("Getting server configuration")?,
-            store,
+            store: RefCell::new(store),
         };
 
-        setup::setup(cfg, &mut res.store, &linker).context("Running the setup hook")?;
+        {
+            let mut store = res.store.borrow_mut();
+            setup::setup(cfg, &mut *store, &linker).context("Running the setup hook")?;
+        }
 
         Ok(res)
     }
