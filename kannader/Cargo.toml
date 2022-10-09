@@ -6,6 +6,8 @@ license = "AGPL-3.0-only"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
 description = "A highly configurable SMTP server written in Rust"
+readme = "../README.md"
+repository = "https://github.com/Ekleog/kannader"
 edition = "2018"
 
 [dependencies]

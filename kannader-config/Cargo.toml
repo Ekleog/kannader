@@ -8,6 +8,8 @@ license = "AGPL-3.0-only"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
 description = "Configuration system for kannader"
+readme = "../README.md"
+repository = "https://github.com/Ekleog/kannader"
 edition = "2018"
 
 forced-target = "wasm32-wasi"

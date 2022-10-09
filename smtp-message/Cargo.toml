@@ -6,6 +6,8 @@ license = "MIT OR Apache-2.0"
 categories = ["email", "network-programming", "parser-implementations"]
 keywords = ["parser", "builder", "smtp", "email"]
 description = "Line-oriented parser and builder for SMTP protocol messages"
+readme = "../README.md"
+repository = "https://github.com/Ekleog/kannader"
 edition = "2018"
 
 [features]

@@ -6,6 +6,8 @@ license = "MIT OR Apache-2.0"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "client", "asynchronous", "email"]
 description = "Asynchronous SMTP client library"
+readme = "../README.md"
+repository = "https://github.com/Ekleog/kannader"
 edition = "2018"
 
 [dependencies]

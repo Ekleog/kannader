@@ -1,5 +1,12 @@
 # kannader
 
+Kannader is a SMTP server designed from the ground up with the intention of
+being both highly configurable and secure-by-default.
+
+This crate is part of the ecosystem of crates developed to support it. It is
+still possible to use it for other use cases, but the one it was designed for is
+kannader.
+
 ## Documentation
 
 - [User documentation](https://ekleog.github.io/kannader/book)

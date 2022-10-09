@@ -6,6 +6,8 @@ license = "MIT OR Apache-2.0"
 categories = ["email", "network-programming"]
 keywords = ["smtp", "server", "asynchronous", "email"]
 description = "Types required for configuring the smtp-server crate"
+readme = "../README.md"
+repository = "https://github.com/Ekleog/kannader"
 edition = "2018"
 
 [dependencies]
