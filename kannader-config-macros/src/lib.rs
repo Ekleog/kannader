@@ -437,19 +437,17 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
         let fn_body = run_ffi_fn(
             f,
             quote!(&memory.data(&mut ctx)[p as usize..(p + s) as usize]),
-            quote!(deallocate.call(&mut ctx, (p, s)).unwrap()),
+            quote!(ctx.data().dealloc.unwrap().call(&mut ctx, (p, s)).unwrap()),
             |args| quote!(<Self as #trait_name>::#fn_name(this.clone(), #args)),
             |size| {
                 quote! {{
-                    let ptr: u32 = allocate.call(&mut ctx, #size).unwrap();
+                    let ptr: u32 = ctx.data().alloc.unwrap().call(&mut ctx, #size).unwrap();
                     let slice = &mut memory.data_mut(&mut ctx)[ptr as usize..(ptr + #size) as usize];
                     (ptr, slice)
                 }}
             },
         );
         quote! {{
-            let allocate = ctx.data().alloc.unwrap();
-            let deallocate = ctx.data().dealloc.unwrap();
             let this = self.clone();
 
             let the_fn = move |mut ctx: wasmtime::Caller<WasmState>, p: u32, s: u32| {
