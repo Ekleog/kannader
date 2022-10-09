@@ -1,0 +1,146 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Define a custom mutator."><meta name="keywords" content="rust, rustlang, rust-lang, fuzz_mutator"><title>fuzz_mutator in libfuzzer_sys - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script src="../crates.js"></script><script defer src="../main.js"></script>
+    <noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc macro"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../libfuzzer_sys/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../libfuzzer_sys/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><div class="sidebar-elems"><h2 class="location"><a href="index.html">In libfuzzer_sys</a></h2><div id="sidebar-vars" data-name="fuzz_mutator" data-ty="macro" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../libfuzzer_sys/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
+    <h1 class="fqn"><span class="in-band">Macro <a href="index.html">libfuzzer_sys</a>::<wbr><a class="macro" href="#">fuzz_mutator</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/libfuzzer_sys/lib.rs.html#352-386">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><div class="docblock item-decl"><div class="example-wrap"><pre class="rust macro"><code><span class="macro">macro_rules!</span> <span class="ident">fuzz_mutator</span> {
+    (
+        <span class="op">|</span>
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>:<span class="ident">ident</span> : <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">size</span>:<span class="ident">ident</span> : <span class="ident">usize</span> ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">max_size</span>:<span class="ident">ident</span> : <span class="ident">usize</span> ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">seed</span>:<span class="ident">ident</span> : <span class="ident">u32</span> $(,)<span class="op">*</span>
+        <span class="op">|</span>
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>:<span class="ident">block</span>
+    ) =&gt; { ... };
+}</code></pre></div>
+</div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Define a custom mutator.</p>
+<p>This is optional, and libFuzzer will use its own, default mutation strategy
+if this is not provided.</p>
+<p>You might consider using a custom mutator when your fuzz target is very
+particular about the shape of its input:</p>
+<ul>
+<li>You want to fuzz “deeper” than just the parser.</li>
+<li>The input contains checksums that have to match the hash of some subset of
+the data or else the whole thing is invalid, and therefore mutating any of
+that subset means you need to recompute the checksums.</li>
+<li>Small random changes to the input buffer make it invalid.</li>
+</ul>
+<p>That is, a custom mutator is useful in similar situations where <a href="macro.fuzz_target.html#arbitrary-input-types">a <code>T: Arbitrary</code> input type</a> is
+useful. Note that the two approaches are not mutually exclusive; you can use
+whichever is easier for your problem domain or both!</p>
+<h3 id="implementation-contract"><a href="#implementation-contract">Implementation Contract</a></h3>
+<p>The original, unmodified input is given in <code>data[..size]</code>.</p>
+<p>You must modify the data in place and return the new size.</p>
+<p>The new size should not be greater than <code>max_size</code>. If this is not the case,
+then the <code>data</code> will be truncated to fit within <code>max_size</code>. Note that
+<code>max_size &lt; size</code> is possible when shrinking test cases.</p>
+<p>You must produce the same mutation given the same <code>seed</code>. Generally, when
+choosing what kind of mutation to make or where to mutate, you should start
+by creating a random number generator (RNG) that is seeded with the given
+<code>seed</code> and then consult the RNG whenever making a decision:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="attribute">#![<span class="ident">no_main</span>]</span>
+
+<span class="kw">use</span> <span class="ident">rand</span>::{<span class="ident">rngs::StdRng</span>, <span class="ident">Rng</span>, <span class="ident">SeedableRng</span>};
+
+<span class="macro">libfuzzer_sys::fuzz_mutator!</span>(<span class="op">|</span><span class="ident">data</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>], <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">max_size</span>: <span class="ident">usize</span>, <span class="ident">seed</span>: <span class="ident">u32</span><span class="op">|</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">rng</span> <span class="op">=</span> <span class="ident">StdRng::seed_from_u64</span>(<span class="ident">seed</span> <span class="kw">as</span> <span class="ident">u64</span>);
+
+    <span class="comment">// Choose which of our four supported kinds of mutations we want to make.</span>
+    <span class="kw">match</span> <span class="ident">rng</span>.<span class="ident">gen_range</span>(<span class="number">0</span>..<span class="number">4</span>) {
+        <span class="number">0</span> =&gt; <span class="ident">first_mutation</span>(<span class="ident">rng</span>, <span class="ident">data</span>, <span class="ident">size</span>, <span class="ident">max_size</span>),
+        <span class="number">1</span> =&gt; <span class="ident">second_mutation</span>(<span class="ident">rng</span>, <span class="ident">data</span>, <span class="ident">size</span>, <span class="ident">max_size</span>),
+        <span class="number">2</span> =&gt; <span class="ident">third_mutation</span>(<span class="ident">rng</span>, <span class="ident">data</span>, <span class="ident">size</span>, <span class="ident">max_size</span>),
+        <span class="number">3</span> =&gt; <span class="ident">fourth_mutation</span>(<span class="ident">rng</span>, <span class="ident">data</span>, <span class="ident">size</span>, <span class="ident">max_size</span>),
+        <span class="kw">_</span> =&gt; <span class="macro">unreachable!</span>()
+    }
+});</code></pre></div>
+<h3 id="example-compression"><a href="#example-compression">Example: Compression</a></h3>
+<p>Consider a simple fuzz target that takes compressed data as input,
+decompresses it, and then asserts that the decompressed data doesn’t begin
+with “boom”. It is difficult for <code>libFuzzer</code> (or any other fuzzer) to crash
+this fuzz target because nearly all mutations it makes will invalidate the
+compression format. Therefore, we use a custom mutator that decompresses the
+raw input, mutates the decompressed data, and then recompresses it. This
+allows <code>libFuzzer</code> to quickly discover crashing inputs.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="attribute">#![<span class="ident">no_main</span>]</span>
+
+<span class="kw">use</span> <span class="ident">flate2</span>::{<span class="ident">read::GzDecoder</span>, <span class="ident">write::GzEncoder</span>, <span class="ident">Compression</span>};
+<span class="kw">use</span> <span class="ident">libfuzzer_sys</span>::{<span class="ident">fuzz_mutator</span>, <span class="ident">fuzz_target</span>};
+<span class="kw">use</span> <span class="ident">std::io</span>::{<span class="ident">Read</span>, <span class="ident">Write</span>};
+
+<span class="macro">fuzz_target!</span>(<span class="op">|</span><span class="ident">data</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]<span class="op">|</span> {
+    <span class="comment">// Decompress the input data and crash if it starts with &quot;boom&quot;.</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">data</span>) <span class="op">=</span> <span class="ident">decompress</span>(<span class="ident">data</span>) {
+        <span class="kw">if</span> <span class="ident">data</span>.<span class="ident">starts_with</span>(<span class="string">b&quot;boom&quot;</span>) {
+            <span class="macro">panic!</span>();
+        }
+    }
+});
+
+<span class="macro">fuzz_mutator!</span>(
+    <span class="op">|</span><span class="ident">data</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>], <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">max_size</span>: <span class="ident">usize</span>, <span class="ident">_seed</span>: <span class="ident">u32</span><span class="op">|</span> {
+        <span class="comment">// Decompress the input data. If that fails, use a dummy value.</span>
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">decompressed</span> <span class="op">=</span> <span class="ident">decompress</span>(<span class="kw-2">&amp;</span><span class="ident">data</span>[..<span class="ident">size</span>]).<span class="ident">unwrap_or_else</span>(<span class="op">|</span><span class="op">|</span> <span class="string">b&quot;hi&quot;</span>.<span class="ident">to_vec</span>());
+
+        <span class="comment">// Mutate the decompressed data with `libFuzzer`&#39;s default mutator. Make</span>
+        <span class="comment">// the `decompressed` vec&#39;s extra capacity available for insertion</span>
+        <span class="comment">// mutations via `resize`.</span>
+        <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="ident">decompressed</span>.<span class="ident">len</span>();
+        <span class="kw">let</span> <span class="ident">cap</span> <span class="op">=</span> <span class="ident">decompressed</span>.<span class="ident">capacity</span>();
+        <span class="ident">decompressed</span>.<span class="ident">resize</span>(<span class="ident">cap</span>, <span class="number">0</span>);
+        <span class="kw">let</span> <span class="ident">new_decompressed_size</span> <span class="op">=</span> <span class="ident">libfuzzer_sys::fuzzer_mutate</span>(<span class="kw-2">&amp;mut</span> <span class="ident">decompressed</span>, <span class="ident">len</span>, <span class="ident">cap</span>);
+
+        <span class="comment">// Recompress the mutated data.</span>
+        <span class="kw">let</span> <span class="ident">compressed</span> <span class="op">=</span> <span class="ident">compress</span>(<span class="kw-2">&amp;</span><span class="ident">decompressed</span>[..<span class="ident">new_decompressed_size</span>]);
+
+        <span class="comment">// Copy the recompressed mutated data into `data` and return the new size.</span>
+        <span class="kw">let</span> <span class="ident">new_size</span> <span class="op">=</span> <span class="ident">std::cmp::min</span>(<span class="ident">max_size</span>, <span class="ident">compressed</span>.<span class="ident">len</span>());
+        <span class="ident">data</span>[..<span class="ident">new_size</span>].<span class="ident">copy_from_slice</span>(<span class="kw-2">&amp;</span><span class="ident">compressed</span>[..<span class="ident">new_size</span>]);
+        <span class="ident">new_size</span>
+    }
+);
+
+<span class="kw">fn</span> <span class="ident">decompress</span>(<span class="ident">compressed_data</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) -&gt; <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">decoder</span> <span class="op">=</span> <span class="ident">GzDecoder::new</span>(<span class="ident">compressed_data</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">decompressed</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
+    <span class="kw">if</span> <span class="ident">decoder</span>.<span class="ident">read_to_end</span>(<span class="kw-2">&amp;mut</span> <span class="ident">decompressed</span>).<span class="ident">is_ok</span>() {
+        <span class="prelude-val">Some</span>(<span class="ident">decompressed</span>)
+    } <span class="kw">else</span> {
+        <span class="prelude-val">None</span>
+    }
+}
+
+<span class="kw">fn</span> <span class="ident">compress</span>(<span class="ident">data</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) -&gt; <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">encoder</span> <span class="op">=</span> <span class="ident">GzEncoder::new</span>(<span class="ident">Vec::new</span>(), <span class="ident">Compression::default</span>());
+    <span class="ident">encoder</span>
+        .<span class="ident">write_all</span>(<span class="ident">data</span>)
+        .<span class="ident">expect</span>(<span class="string">&quot;writing into a vec is infallible&quot;</span>);
+    <span class="ident">encoder</span>.<span class="ident">finish</span>().<span class="ident">expect</span>(<span class="string">&quot;writing into a vec is infallible&quot;</span>)
+}</code></pre></div>
+<p>This example is inspired by <a href="https://github.com/google/fuzzing/blob/master/docs/structure-aware-fuzzing.md#example-compression">a similar example from the official <code>libFuzzer</code>
+docs</a>.</p>
+<h3 id="more-example-ideas"><a href="#more-example-ideas">More Example Ideas</a></h3>
+<ul>
+<li>
+<p>A PNG custom mutator that decodes a PNG, mutates the image, and then
+re-encodes the mutated image as a new PNG.</p>
+</li>
+<li>
+<p>A <a href="https://serde.rs/"><code>serde</code></a> custom mutator that deserializes your
+structure, mutates it, and then reserializes it.</p>
+</li>
+<li>
+<p>A Wasm binary custom mutator that inserts, replaces, and removes a
+bytecode instruction in a function’s body.</p>
+</li>
+<li>
+<p>An HTTP request custom mutator that inserts, replaces, and removes a
+header from an HTTP request.</p>
+</li>
+</ul>
+</div></details></section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../" data-current-crate="libfuzzer_sys" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["sync","Re-export the commonly used wasi-cap-std-sync crate here. This saves consumers of this library from having to keep additional dependencies in sync."]],"struct":[["Error","The `Error` type, a wrapper around a dynamic error type."],["WasiCtx",""]],"trait":[["WasiDir",""],["WasiFile",""]]});

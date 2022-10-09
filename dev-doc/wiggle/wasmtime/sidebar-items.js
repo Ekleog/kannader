@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["WasmtimeGuestMemory","Lightweight `wasmtime::Memory` wrapper so we can implement the `wiggle::GuestMemory` trait on it."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["RawReadable","A non-owning unsafe I/O handle that implements [`Read`]. `Read` functions are considered safe, so this type requires `unsafe` to construct."],["RawWriteable","A non-owning unsafe I/O handle that implements [`Write`]. `Write` functions considered are safe, so this type requires `unsafe` to construct."]]});

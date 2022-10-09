@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["wasmtime_environ"] = [{"text":"impl <a class=\"trait\" href=\"wasmtime_environ/__core/cmp/trait.PartialOrd.html\" title=\"trait wasmtime_environ::__core::cmp::PartialOrd\">PartialOrd</a>&lt;<a class=\"struct\" href=\"wasmtime_environ/struct.AnyfuncIndex.html\" title=\"struct wasmtime_environ::AnyfuncIndex\">AnyfuncIndex</a>&gt; for <a class=\"struct\" href=\"wasmtime_environ/struct.AnyfuncIndex.html\" title=\"struct wasmtime_environ::AnyfuncIndex\">AnyfuncIndex</a>","synthetic":false,"types":["wasmtime_environ::module::AnyfuncIndex"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["fuzzer_mutate","The default `libFuzzer` mutator."]],"macro":[["fuzz_mutator","Define a custom mutator."],["fuzz_target","Define a fuzz target."]]});

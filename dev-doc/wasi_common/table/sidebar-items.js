@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Table","The `Table` type is designed to map u32 handles to resources. The table is now part of the public interface to a `WasiCtx` - it is reference counted so that it can be shared beyond a `WasiCtx` with other WASI proposals (e.g. `wasi-crypto` and `wasi-nn`) to manage their resources. Elements in the `Table` are `Any` typed."]]});

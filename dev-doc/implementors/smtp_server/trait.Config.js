@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["fuzz_interact"] = [{"text":"impl <a class=\"trait\" href=\"smtp_server/trait.Config.html\" title=\"trait smtp_server::Config\">Config</a> for <a class=\"struct\" href=\"fuzz_interact/struct.FuzzConfig.html\" title=\"struct fuzz_interact::FuzzConfig\">FuzzConfig</a>","synthetic":false,"types":["fuzz_interact::FuzzConfig"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,1150 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/.cargo/registry/src/github.com-1ecc6299db9ec823/cap-primitives-0.25.3/src/fs/manually/open.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>open.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../../storage.js"></script><script src="../../../../crates.js"></script><script defer src="../../../../main.js"></script><script defer src="../../../../source-script.js"></script><script defer src="../../../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../../../noscript.css"></noscript><link rel="icon" href="https://raw.githubusercontent.com/bytecodealliance/cap-std/main/media/cap-std.ico"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../../cap_primitives/index.html"><div class="logo-container"><img src="https://raw.githubusercontent.com/bytecodealliance/cap-std/main/media/cap-std.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../../../cap_primitives/index.html"><div class="logo-container">
+                    <img src="https://raw.githubusercontent.com/bytecodealliance/cap-std/main/media/cap-std.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../../cap_primitives/index.html">
+                        <img src="https://raw.githubusercontent.com/bytecodealliance/cap-std/main/media/cap-std.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<span id="2">2</span>
+<span id="3">3</span>
+<span id="4">4</span>
+<span id="5">5</span>
+<span id="6">6</span>
+<span id="7">7</span>
+<span id="8">8</span>
+<span id="9">9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+<span id="61">61</span>
+<span id="62">62</span>
+<span id="63">63</span>
+<span id="64">64</span>
+<span id="65">65</span>
+<span id="66">66</span>
+<span id="67">67</span>
+<span id="68">68</span>
+<span id="69">69</span>
+<span id="70">70</span>
+<span id="71">71</span>
+<span id="72">72</span>
+<span id="73">73</span>
+<span id="74">74</span>
+<span id="75">75</span>
+<span id="76">76</span>
+<span id="77">77</span>
+<span id="78">78</span>
+<span id="79">79</span>
+<span id="80">80</span>
+<span id="81">81</span>
+<span id="82">82</span>
+<span id="83">83</span>
+<span id="84">84</span>
+<span id="85">85</span>
+<span id="86">86</span>
+<span id="87">87</span>
+<span id="88">88</span>
+<span id="89">89</span>
+<span id="90">90</span>
+<span id="91">91</span>
+<span id="92">92</span>
+<span id="93">93</span>
+<span id="94">94</span>
+<span id="95">95</span>
+<span id="96">96</span>
+<span id="97">97</span>
+<span id="98">98</span>
+<span id="99">99</span>
+<span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
+<span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
+<span id="314">314</span>
+<span id="315">315</span>
+<span id="316">316</span>
+<span id="317">317</span>
+<span id="318">318</span>
+<span id="319">319</span>
+<span id="320">320</span>
+<span id="321">321</span>
+<span id="322">322</span>
+<span id="323">323</span>
+<span id="324">324</span>
+<span id="325">325</span>
+<span id="326">326</span>
+<span id="327">327</span>
+<span id="328">328</span>
+<span id="329">329</span>
+<span id="330">330</span>
+<span id="331">331</span>
+<span id="332">332</span>
+<span id="333">333</span>
+<span id="334">334</span>
+<span id="335">335</span>
+<span id="336">336</span>
+<span id="337">337</span>
+<span id="338">338</span>
+<span id="339">339</span>
+<span id="340">340</span>
+<span id="341">341</span>
+<span id="342">342</span>
+<span id="343">343</span>
+<span id="344">344</span>
+<span id="345">345</span>
+<span id="346">346</span>
+<span id="347">347</span>
+<span id="348">348</span>
+<span id="349">349</span>
+<span id="350">350</span>
+<span id="351">351</span>
+<span id="352">352</span>
+<span id="353">353</span>
+<span id="354">354</span>
+<span id="355">355</span>
+<span id="356">356</span>
+<span id="357">357</span>
+<span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
+<span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
+<span id="449">449</span>
+<span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
+<span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
+<span id="480">480</span>
+<span id="481">481</span>
+<span id="482">482</span>
+<span id="483">483</span>
+<span id="484">484</span>
+<span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
+<span id="505">505</span>
+<span id="506">506</span>
+<span id="507">507</span>
+<span id="508">508</span>
+<span id="509">509</span>
+<span id="510">510</span>
+<span id="511">511</span>
+<span id="512">512</span>
+<span id="513">513</span>
+<span id="514">514</span>
+<span id="515">515</span>
+<span id="516">516</span>
+<span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
+<span id="529">529</span>
+<span id="530">530</span>
+<span id="531">531</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
+<span id="535">535</span>
+<span id="536">536</span>
+<span id="537">537</span>
+<span id="538">538</span>
+<span id="539">539</span>
+<span id="540">540</span>
+<span id="541">541</span>
+<span id="542">542</span>
+<span id="543">543</span>
+<span id="544">544</span>
+<span id="545">545</span>
+<span id="546">546</span>
+<span id="547">547</span>
+<span id="548">548</span>
+<span id="549">549</span>
+<span id="550">550</span>
+<span id="551">551</span>
+<span id="552">552</span>
+<span id="553">553</span>
+<span id="554">554</span>
+<span id="555">555</span>
+<span id="556">556</span>
+<span id="557">557</span>
+<span id="558">558</span>
+<span id="559">559</span>
+<span id="560">560</span>
+<span id="561">561</span>
+<span id="562">562</span>
+<span id="563">563</span>
+<span id="564">564</span>
+<span id="565">565</span>
+<span id="566">566</span>
+<span id="567">567</span>
+<span id="568">568</span>
+<span id="569">569</span>
+<span id="570">570</span>
+</pre><pre class="rust"><code><span class="doccomment">//! Manual path resolution, one component at a time, with manual symlink</span>
+<span class="doccomment">//! resolution, in order to enforce sandboxing.</span>
+
+<span class="kw">use</span> <span class="kw">super</span>::{<span class="ident">read_link_one</span>, <span class="ident">CanonicalPath</span>, <span class="ident">CowComponent</span>};
+<span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::fs</span>::{
+    <span class="ident">dir_options</span>, <span class="ident">errors</span>, <span class="ident">open_unchecked</span>, <span class="ident">path_has_trailing_dot</span>, <span class="ident">path_has_trailing_slash</span>,
+    <span class="ident">stat_unchecked</span>, <span class="ident">FollowSymlinks</span>, <span class="ident">MaybeOwnedFile</span>, <span class="ident">Metadata</span>, <span class="ident">OpenOptions</span>, <span class="ident">OpenUncheckedError</span>,
+};
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">any</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;android&quot;</span>, <span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;linux&quot;</span>))]</span>
+<span class="kw">use</span> <span class="ident">rustix::fs::OFlags</span>;
+<span class="kw">use</span> <span class="ident">std::borrow::Cow</span>;
+<span class="kw">use</span> <span class="ident">std::ffi::OsStr</span>;
+<span class="kw">use</span> <span class="ident">std::path</span>::{<span class="ident">Component</span>, <span class="ident">Path</span>, <span class="ident">PathBuf</span>};
+<span class="kw">use</span> <span class="ident">std</span>::{<span class="ident">fs</span>, <span class="ident">io</span>, <span class="ident">mem</span>};
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+<span class="kw">use</span> {
+    <span class="ident"><span class="kw">crate</span>::fs</span>::{<span class="ident">open_dir_unchecked</span>, <span class="ident">path_really_has_trailing_dot</span>, <span class="ident">SymlinkKind</span>},
+    <span class="ident">windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY</span>,
+};
+
+<span class="doccomment">/// Implement `open` by breaking up the path into components, resolving each</span>
+<span class="doccomment">/// component individually, and resolving symbolic links manually.</span>
+<span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">open</span>(<span class="ident">start</span>: <span class="kw-2">&amp;</span><span class="ident">fs::File</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="ident">Path</span>, <span class="ident">options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span><span class="ident">fs::File</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">symlink_count</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">let</span> <span class="ident">start</span> <span class="op">=</span> <span class="ident">MaybeOwnedFile::borrowed</span>(<span class="ident">start</span>);
+    <span class="kw">let</span> <span class="ident">maybe_owned</span> <span class="op">=</span> <span class="ident">internal_open</span>(<span class="ident">start</span>, <span class="ident">path</span>, <span class="ident">options</span>, <span class="kw-2">&amp;mut</span> <span class="ident">symlink_count</span>, <span class="prelude-val">None</span>)<span class="question-mark">?</span>;
+    <span class="ident">maybe_owned</span>.<span class="ident">into_file</span>(<span class="ident">options</span>)
+}
+
+<span class="doccomment">/// Context for performing manual component-at-a-time path resolution.</span>
+<span class="kw">struct</span> <span class="ident">Context</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// The current base directory handle for path lookups.</span>
+    <span class="ident">base</span>: <span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// The stack of directory handles below the base.</span>
+    <span class="ident">dirs</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// The current worklist stack of path components to process.</span>
+    <span class="ident">components</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CowComponent</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// If requested, the canonical path is constructed here.</span>
+    <span class="ident">canonical_path</span>: <span class="ident">CanonicalPath</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>,
+
+    <span class="doccomment">/// Does the path end in `/` or similar, so it requires a directory?</span>
+    <span class="ident">dir_required</span>: <span class="ident">bool</span>,
+
+    <span class="doccomment">/// Are we requesting write permissions, so we can&#39;t open a directory?</span>
+    <span class="ident">dir_precluded</span>: <span class="ident">bool</span>,
+
+    <span class="doccomment">/// Where there a trailing slash on the path?</span>
+    <span class="ident">trailing_slash</span>: <span class="ident">bool</span>,
+
+    <span class="doccomment">/// If a path ends in `.`, `..`, or `/`, including after expanding</span>
+    <span class="doccomment">/// symlinks, we need to follow path resolution by opening `.` so that we</span>
+    <span class="doccomment">/// obtain a full `dir_options` file descriptor and confirm that we have</span>
+    <span class="doccomment">/// search rights in the last component.</span>
+    <span class="ident">follow_with_dot</span>: <span class="ident">bool</span>,
+
+    <span class="doccomment">/// A `PathBuf` that we reuse for calling `read_link_one` to minimize</span>
+    <span class="doccomment">/// allocations.</span>
+    <span class="ident">reuse</span>: <span class="ident">PathBuf</span>,
+
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+    <span class="ident">start_clone</span>: <span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>,
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span> <span class="ident">Context</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Construct a new instance of `Self`.</span>
+    <span class="kw">fn</span> <span class="ident">new</span>(
+        <span class="ident">start</span>: <span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>,
+        <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;start</span> <span class="ident">Path</span>,
+        <span class="ident">_options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>,
+        <span class="ident">canonical_path</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;start</span> <span class="kw-2">mut</span> <span class="ident">PathBuf</span><span class="op">&gt;</span>,
+    ) -&gt; <span class="self">Self</span> {
+        <span class="kw">let</span> <span class="ident">trailing_slash</span> <span class="op">=</span> <span class="ident">path_has_trailing_slash</span>(<span class="ident">path</span>);
+        <span class="kw">let</span> <span class="ident">trailing_dot</span> <span class="op">=</span> <span class="ident">path_has_trailing_dot</span>(<span class="ident">path</span>);
+        <span class="kw">let</span> <span class="ident">trailing_dotdot</span> <span class="op">=</span> <span class="ident">path</span>.<span class="ident">ends_with</span>(<span class="ident">Component::ParentDir</span>);
+
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">components</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CowComponent</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+        {
+            <span class="comment">// Windows resolves `..` before doing filesystem lookups.</span>
+            <span class="kw">for</span> <span class="ident">component</span> <span class="kw">in</span> <span class="ident">path</span>.<span class="ident">components</span>().<span class="ident">map</span>(<span class="ident">CowComponent::borrowed</span>) {
+                <span class="kw">match</span> <span class="ident">component</span> {
+                    <span class="ident">CowComponent::ParentDir</span>
+                        <span class="kw">if</span> <span class="op">!</span><span class="ident">components</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="ident">components</span>.<span class="ident">last</span>().<span class="ident">unwrap</span>().<span class="ident">is_normal</span>() =&gt;
+                    {
+                        <span class="kw">let</span> <span class="kw">_</span> <span class="op">=</span> <span class="ident">components</span>.<span class="ident">pop</span>();
+                    }
+                    <span class="kw">_</span> =&gt; <span class="ident">components</span>.<span class="ident">push</span>(<span class="ident">component</span>),
+                }
+            }
+            <span class="ident">components</span>.<span class="ident">reverse</span>();
+        }
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">windows</span>))]</span>
+        {
+            <span class="comment">// Add the path components to the worklist. Rust&#39;s `Path`</span>
+            <span class="comment">// normalizes away `.` components, however a trailing `.` affects</span>
+            <span class="comment">// path lookup, so special-case it here.</span>
+            <span class="kw">if</span> <span class="ident">trailing_dot</span> {
+                <span class="ident">components</span>.<span class="ident">push</span>(<span class="ident">CowComponent::CurDir</span>);
+            }
+            <span class="ident">components</span>.<span class="ident">extend</span>(<span class="ident">path</span>.<span class="ident">components</span>().<span class="ident">rev</span>().<span class="ident">map</span>(<span class="ident">CowComponent::borrowed</span>));
+        }
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+        <span class="kw">let</span> <span class="ident">start_clone</span> <span class="op">=</span> <span class="ident">MaybeOwnedFile::owned</span>(<span class="ident">start</span>.<span class="ident">try_clone</span>().<span class="ident">unwrap</span>());
+
+        <span class="self">Self</span> {
+            <span class="ident">base</span>: <span class="ident">start</span>,
+            <span class="ident">dirs</span>: <span class="ident">Vec::with_capacity</span>(<span class="ident">components</span>.<span class="ident">len</span>()),
+            <span class="ident">components</span>,
+            <span class="ident">canonical_path</span>: <span class="ident">CanonicalPath::new</span>(<span class="ident">canonical_path</span>),
+            <span class="ident">dir_required</span>: <span class="ident">trailing_slash</span>,
+
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">windows</span>))]</span>
+            <span class="ident">dir_precluded</span>: <span class="ident">_options</span>.<span class="ident">write</span> <span class="op">|</span><span class="op">|</span> <span class="ident">_options</span>.<span class="ident">append</span>,
+
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+            <span class="ident">dir_precluded</span>: <span class="bool-val">false</span>,
+
+            <span class="ident">trailing_slash</span>,
+
+            <span class="ident">follow_with_dot</span>: <span class="ident">trailing_dot</span> <span class="op">|</span> <span class="ident">trailing_dotdot</span>,
+
+            <span class="ident">reuse</span>: <span class="ident">PathBuf::new</span>(),
+
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+            <span class="ident">start_clone</span>,
+        }
+    }
+
+    <span class="kw">fn</span> <span class="ident">check_dot_access</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="comment">// Manually check that we have permissions to search `self.base` to</span>
+        <span class="comment">// search for `.` in it, since we otherwise resolve `.` and `..`</span>
+        <span class="comment">// ourselves by just manipulating the `dirs` stack.</span>
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">windows</span>))]</span>
+        {
+            <span class="comment">// Use `faccess` with `AT_EACCESS`. `AT_EACCESS` is not often the</span>
+            <span class="comment">// right tool for the job; in POSIX, it&#39;s better to ask for errno</span>
+            <span class="comment">// than to ask for permission. But we use `check_dot_access` to</span>
+            <span class="comment">// check access for opening `.` and `..` in situations where we</span>
+            <span class="comment">// already have open handles to them, and now we&#39;re accessing them</span>
+            <span class="comment">// through different paths, and we need to check whether these</span>
+            <span class="comment">// paths allow us access.</span>
+            <span class="comment">//</span>
+            <span class="comment">// Android and Emscripten lack `AT_EACCESS`.</span>
+            <span class="comment">// &lt;https://android.googlesource.com/platform/bionic/+/master/libc/bionic/faccessat.cpp&gt;</span>
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">any</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;emscripten&quot;</span>, <span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;android&quot;</span>))]</span>
+            <span class="kw">let</span> <span class="ident">at_flags</span> <span class="op">=</span> <span class="ident">rustix::fs::AtFlags::empty</span>();
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">any</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;emscripten&quot;</span>, <span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;android&quot;</span>)))]</span>
+            <span class="kw">let</span> <span class="ident">at_flags</span> <span class="op">=</span> <span class="ident">rustix::fs::AtFlags::EACCESS</span>;
+
+            <span class="comment">// Always use `CurDir`, even though this code is used to check</span>
+            <span class="comment">// permissions for both `.` and `..`, because in both cases we</span>
+            <span class="comment">// already know we can access the referenced directory, and we</span>
+            <span class="comment">// just need to check for the ability to search for `.` or `..`</span>
+            <span class="comment">// within `self.base`, which should always be the same. And</span>
+            <span class="comment">// using `.` means we avoid asking the OS to access a `..` path</span>
+            <span class="comment">// for us.</span>
+            <span class="prelude-val">Ok</span>(<span class="ident">rustix::fs::accessat</span>(
+                <span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="self">self</span>.<span class="ident">base</span>,
+                <span class="ident">Component::CurDir</span>.<span class="ident">as_os_str</span>(),
+                <span class="ident">rustix::fs::Access::EXEC_OK</span>,
+                <span class="ident">at_flags</span>,
+            )<span class="question-mark">?</span>)
+        }
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+        <span class="ident">open_dir_unchecked</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">base</span>, <span class="ident">Component::CurDir</span>.<span class="ident">as_ref</span>()).<span class="ident">map</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> ())
+    }
+
+    <span class="doccomment">/// Handle a &quot;.&quot; path component.</span>
+    <span class="kw">fn</span> <span class="ident">cur_dir</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="comment">// This is a no-op. If this occurs at the end of the path, it does</span>
+        <span class="comment">// imply that we need search access to the directory, and it requires</span>
+        <span class="comment">// we open a directory, however we&#39;ll handle that in the</span>
+        <span class="comment">// `follow_with_dot` check.</span>
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// Handle a &quot;..&quot; path component.</span>
+    <span class="kw">fn</span> <span class="ident">parent_dir</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+        <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">dirs</span>.<span class="ident">is_empty</span>() {
+            <span class="macro">assert_different_file!</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">start_clone</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">base</span>);
+        }
+
+        <span class="comment">// We hold onto all the parent directory descriptors so that we</span>
+        <span class="comment">// don&#39;t have to re-open anything when we encounter a `..`. This</span>
+        <span class="comment">// way, even if the directory is concurrently moved, we don&#39;t have</span>
+        <span class="comment">// to worry about `..` leaving the sandbox.</span>
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">dirs</span>.<span class="ident">pop</span>() {
+            <span class="prelude-val">Some</span>(<span class="ident">dir</span>) =&gt; {
+                <span class="comment">// Check that we have permission to look up `..`.</span>
+                <span class="self">self</span>.<span class="ident">check_dot_access</span>()<span class="question-mark">?</span>;
+
+                <span class="comment">// Looks good.</span>
+                <span class="self">self</span>.<span class="ident">base</span> <span class="op">=</span> <span class="ident">dir</span>;
+            }
+            <span class="prelude-val">None</span> =&gt; <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::escape_attempt</span>()),
+        }
+        <span class="macro">assert!</span>(<span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">pop</span>());
+
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// Handle a &quot;normal&quot; path component.</span>
+    <span class="kw">fn</span> <span class="ident">normal</span>(
+        <span class="kw-2">&amp;mut</span> <span class="self">self</span>,
+        <span class="ident">one</span>: <span class="kw-2">&amp;</span><span class="ident">OsStr</span>,
+        <span class="ident">options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>,
+        <span class="ident">symlink_count</span>: <span class="kw-2">&amp;mut</span> <span class="ident">u8</span>,
+    ) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="comment">// If there are more named components left, this will be a base</span>
+        <span class="comment">// directory from which to open subsequent components, so use &quot;path&quot;</span>
+        <span class="comment">// options (`O_PATH` on Linux).</span>
+        <span class="kw">let</span> <span class="ident">use_options</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>() {
+            <span class="ident">options</span>.<span class="ident">clone</span>()
+        } <span class="kw">else</span> {
+            <span class="ident">dir_options</span>()
+        };
+
+        <span class="comment">// If the last path component ended in a slash, re-add the slash,</span>
+        <span class="comment">// as Rust&#39;s `Path` will have removed it, and we need it to get the</span>
+        <span class="comment">// same behavior from the OS.</span>
+        <span class="kw">let</span> <span class="ident">use_path</span>: <span class="ident">Cow</span><span class="op">&lt;</span><span class="ident">OsStr</span><span class="op">&gt;</span> <span class="op">=</span> <span class="kw">if</span> <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="self">self</span>.<span class="ident">trailing_slash</span> {
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">p</span> <span class="op">=</span> <span class="ident">one</span>.<span class="ident">to_os_string</span>();
+            <span class="ident">p</span>.<span class="ident">push</span>(<span class="string">&quot;/&quot;</span>);
+            <span class="ident">Cow::Owned</span>(<span class="ident">p</span>)
+        } <span class="kw">else</span> {
+            <span class="ident">Cow::Borrowed</span>(<span class="ident">one</span>)
+        };
+
+        <span class="kw">let</span> <span class="ident">dir_required</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">dir_required</span> <span class="op">|</span><span class="op">|</span> <span class="ident">use_options</span>.<span class="ident">dir_required</span>;
+
+        <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">clippy::redundant_clone</span>)]</span>
+        <span class="kw">match</span> <span class="ident">open_unchecked</span>(
+            <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">base</span>,
+            <span class="ident">use_path</span>.<span class="ident">as_ref</span>(),
+            <span class="ident">use_options</span>
+                .<span class="ident">clone</span>()
+                .<span class="ident">follow</span>(<span class="ident">FollowSymlinks::No</span>)
+                .<span class="ident">dir_required</span>(<span class="ident">dir_required</span>),
+        ) {
+            <span class="prelude-val">Ok</span>(<span class="ident">file</span>) =&gt; {
+                <span class="comment">// Emulate `O_PATH` + `FollowSymlinks::Yes` on Linux. If `file`</span>
+                <span class="comment">// is a symlink, follow it.</span>
+                <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">any</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;android&quot;</span>, <span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;linux&quot;</span>))]</span>
+                <span class="kw">if</span> <span class="ident">should_emulate_o_path</span>(<span class="kw-2">&amp;</span><span class="ident">use_options</span>) {
+                    <span class="kw">match</span> <span class="ident">read_link_one</span>(
+                        <span class="kw-2">&amp;</span><span class="ident">file</span>,
+                        <span class="ident">Default::default</span>(),
+                        <span class="ident">symlink_count</span>,
+                        <span class="ident">mem::take</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">reuse</span>),
+                    ) {
+                        <span class="prelude-val">Ok</span>(<span class="ident">destination</span>) =&gt; {
+                            <span class="kw">return</span> <span class="self">self</span>.<span class="ident">push_symlink_destination</span>(<span class="ident">destination</span>);
+                        }
+                        <span class="comment">// If it isn&#39;t a symlink, handle it as normal.</span>
+                        <span class="comment">// `readlinkat` returns `ENOENT` if the file isn&#39;t a</span>
+                        <span class="comment">// symlink in this situation.</span>
+                        <span class="prelude-val">Err</span>(<span class="ident">err</span>) <span class="kw">if</span> <span class="ident">err</span>.<span class="ident">kind</span>() <span class="op">==</span> <span class="ident">io::ErrorKind::NotFound</span> =&gt; (),
+                        <span class="comment">// If `readlinkat` fails any other way, pass it on.</span>
+                        <span class="prelude-val">Err</span>(<span class="ident">err</span>) =&gt; <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">err</span>),
+                    }
+                }
+
+                <span class="comment">// Normal case</span>
+                <span class="kw">let</span> <span class="ident">prev_base</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">base</span>.<span class="ident">descend_to</span>(<span class="ident">MaybeOwnedFile::owned</span>(<span class="ident">file</span>));
+                <span class="self">self</span>.<span class="ident">dirs</span>.<span class="ident">push</span>(<span class="ident">prev_base</span>);
+                <span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">push</span>(<span class="ident">one</span>);
+
+                <span class="prelude-val">Ok</span>(())
+            }
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">windows</span>))]</span>
+            <span class="prelude-val">Err</span>(<span class="ident">OpenUncheckedError::Symlink</span>(<span class="ident">err</span>, ())) =&gt; {
+                <span class="self">self</span>.<span class="ident">maybe_last_component_symlink</span>(<span class="ident">one</span>, <span class="ident">symlink_count</span>, <span class="ident">options</span>.<span class="ident">follow</span>, <span class="ident">err</span>)
+            }
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+            <span class="prelude-val">Err</span>(<span class="ident">OpenUncheckedError::Symlink</span>(<span class="ident">err</span>, <span class="ident">SymlinkKind::Dir</span>)) =&gt; {
+                <span class="comment">// If this is a Windows directory symlink, require a directory.</span>
+                <span class="self">self</span>.<span class="ident">dir_required</span> <span class="op">|</span><span class="op">=</span> <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>();
+                <span class="self">self</span>.<span class="ident">maybe_last_component_symlink</span>(<span class="ident">one</span>, <span class="ident">symlink_count</span>, <span class="ident">options</span>.<span class="ident">follow</span>, <span class="ident">err</span>)
+            }
+            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+            <span class="prelude-val">Err</span>(<span class="ident">OpenUncheckedError::Symlink</span>(<span class="ident">err</span>, <span class="ident">SymlinkKind::File</span>)) =&gt; {
+                <span class="comment">// If this is a Windows file symlink, preclude a directory.</span>
+                <span class="self">self</span>.<span class="ident">dir_precluded</span> <span class="op">=</span> <span class="bool-val">true</span>;
+                <span class="self">self</span>.<span class="ident">maybe_last_component_symlink</span>(<span class="ident">one</span>, <span class="ident">symlink_count</span>, <span class="ident">options</span>.<span class="ident">follow</span>, <span class="ident">err</span>)
+            }
+            <span class="prelude-val">Err</span>(<span class="ident">OpenUncheckedError::NotFound</span>(<span class="ident">err</span>)) =&gt; <span class="prelude-val">Err</span>(<span class="ident">err</span>),
+            <span class="prelude-val">Err</span>(<span class="ident">OpenUncheckedError::Other</span>(<span class="ident">err</span>)) =&gt; {
+                <span class="comment">// An error occurred. If this was the last component, and the</span>
+                <span class="comment">// error wasn&#39;t due to invalid inputs (eg. the path has an</span>
+                <span class="comment">// embedded NUL), record it as the last component of the</span>
+                <span class="comment">// canonical path, even if we couldn&#39;t open it.</span>
+                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="ident">err</span>.<span class="ident">kind</span>() <span class="op">!</span><span class="op">=</span> <span class="ident">io::ErrorKind::InvalidInput</span> {
+                    <span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">push</span>(<span class="ident">one</span>);
+                    <span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">complete</span>();
+                }
+                <span class="prelude-val">Err</span>(<span class="ident">err</span>)
+            }
+        }
+    }
+
+    <span class="doccomment">/// Dereference one symlink level.</span>
+    <span class="kw">fn</span> <span class="ident">symlink</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">one</span>: <span class="kw-2">&amp;</span><span class="ident">OsStr</span>, <span class="ident">symlink_count</span>: <span class="kw-2">&amp;mut</span> <span class="ident">u8</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">destination</span> <span class="op">=</span>
+            <span class="ident">read_link_one</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">base</span>, <span class="ident">one</span>, <span class="ident">symlink_count</span>, <span class="ident">mem::take</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">reuse</span>))<span class="question-mark">?</span>;
+        <span class="self">self</span>.<span class="ident">push_symlink_destination</span>(<span class="ident">destination</span>)
+    }
+
+    <span class="doccomment">/// Push the components of `destination` onto the worklist stack.</span>
+    <span class="kw">fn</span> <span class="ident">push_symlink_destination</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">destination</span>: <span class="ident">PathBuf</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">trailing_slash</span> <span class="op">=</span> <span class="ident">path_has_trailing_slash</span>(<span class="kw-2">&amp;</span><span class="ident">destination</span>);
+        <span class="kw">let</span> <span class="ident">trailing_dot</span> <span class="op">=</span> <span class="ident">path_has_trailing_dot</span>(<span class="kw-2">&amp;</span><span class="ident">destination</span>);
+        <span class="kw">let</span> <span class="ident">trailing_dotdot</span> <span class="op">=</span> <span class="ident">destination</span>.<span class="ident">ends_with</span>(<span class="ident">Component::ParentDir</span>);
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+        {
+            <span class="comment">// `path_has_trailing_dot` returns false so that we don&#39;t open `.`</span>
+            <span class="comment">// at the end of path resolution. But for determining the Windows</span>
+            <span class="comment">// symlink restrictions, we need to know whether the path really</span>
+            <span class="comment">// ends in a `.`.</span>
+            <span class="kw">let</span> <span class="ident">trailing_dot_really</span> <span class="op">=</span> <span class="ident">path_really_has_trailing_dot</span>(<span class="kw-2">&amp;</span><span class="ident">destination</span>);
+
+            <span class="comment">// Windows appears to disallow symlinks to paths with trailing</span>
+            <span class="comment">// slashes, slashdots, or slashdotdots.</span>
+            <span class="kw">if</span> <span class="ident">trailing_slash</span>
+                <span class="op">|</span><span class="op">|</span> (<span class="ident">trailing_dot_really</span> <span class="op">&amp;&amp;</span> <span class="ident">destination</span>.<span class="ident">as_os_str</span>() <span class="op">!</span><span class="op">=</span> <span class="ident">Component::CurDir</span>.<span class="ident">as_os_str</span>())
+                <span class="op">|</span><span class="op">|</span> (<span class="ident">trailing_dotdot</span> <span class="op">&amp;&amp;</span> <span class="ident">destination</span>.<span class="ident">as_os_str</span>() <span class="op">!</span><span class="op">=</span> <span class="ident">Component::ParentDir</span>.<span class="ident">as_os_str</span>())
+            {
+                <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">io::Error::from_raw_os_error</span>(<span class="number">123</span>));
+            }
+
+            <span class="comment">// Windows resolves `..` before doing filesystem lookups.</span>
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">components</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">CowComponent</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">Vec::new</span>();
+            <span class="kw">for</span> <span class="ident">component</span> <span class="kw">in</span> <span class="ident">destination</span>.<span class="ident">components</span>().<span class="ident">map</span>(<span class="ident">CowComponent::owned</span>) {
+                <span class="kw">match</span> <span class="ident">component</span> {
+                    <span class="ident">CowComponent::ParentDir</span>
+                        <span class="kw">if</span> <span class="op">!</span><span class="ident">components</span>.<span class="ident">is_empty</span>() <span class="op">&amp;&amp;</span> <span class="ident">components</span>.<span class="ident">last</span>().<span class="ident">unwrap</span>().<span class="ident">is_normal</span>() =&gt;
+                    {
+                        <span class="kw">let</span> <span class="kw">_</span> <span class="op">=</span> <span class="ident">components</span>.<span class="ident">pop</span>();
+                    }
+                    <span class="kw">_</span> =&gt; <span class="ident">components</span>.<span class="ident">push</span>(<span class="ident">component</span>),
+                }
+            }
+            <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">extend</span>(<span class="ident">components</span>.<span class="ident">into_iter</span>().<span class="ident">rev</span>());
+        }
+
+        <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">windows</span>))]</span>
+        {
+            <span class="comment">// Rust&#39;s `Path` hides a trailing dot, so handle it manually.</span>
+            <span class="kw">if</span> <span class="ident">trailing_dot</span> {
+                <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">push</span>(<span class="ident">CowComponent::CurDir</span>);
+            }
+            <span class="self">self</span>.<span class="ident">components</span>
+                .<span class="ident">extend</span>(<span class="ident">destination</span>.<span class="ident">components</span>().<span class="ident">rev</span>().<span class="ident">map</span>(<span class="ident">CowComponent::owned</span>));
+        }
+
+        <span class="comment">// Record whether the new components ended with a path that implies</span>
+        <span class="comment">// an open of `.` at the end of path resolution.</span>
+        <span class="self">self</span>.<span class="ident">follow_with_dot</span> <span class="op">|</span><span class="op">=</span> <span class="ident">trailing_dot</span> <span class="op">|</span> <span class="ident">trailing_dotdot</span>;
+        <span class="self">self</span>.<span class="ident">trailing_slash</span> <span class="op">|</span><span class="op">=</span> <span class="ident">trailing_slash</span>;
+        <span class="self">self</span>.<span class="ident">dir_required</span> <span class="op">|</span><span class="op">=</span> <span class="ident">trailing_slash</span>;
+
+        <span class="comment">// As an optimization, hold onto the `PathBuf` buffer for later reuse.</span>
+        <span class="self">self</span>.<span class="ident">reuse</span> <span class="op">=</span> <span class="ident">destination</span>;
+
+        <span class="prelude-val">Ok</span>(())
+    }
+
+    <span class="doccomment">/// Check whether this is the last component and we don&#39;t need</span>
+    <span class="doccomment">/// to dereference; otherwise call `Self::symlink`.</span>
+    <span class="kw">fn</span> <span class="ident">maybe_last_component_symlink</span>(
+        <span class="kw-2">&amp;mut</span> <span class="self">self</span>,
+        <span class="ident">one</span>: <span class="kw-2">&amp;</span><span class="ident">OsStr</span>,
+        <span class="ident">symlink_count</span>: <span class="kw-2">&amp;mut</span> <span class="ident">u8</span>,
+        <span class="ident">follow</span>: <span class="ident">FollowSymlinks</span>,
+        <span class="ident">err</span>: <span class="ident">io::Error</span>,
+    ) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="ident">follow</span> <span class="op">==</span> <span class="ident">FollowSymlinks::No</span> <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">trailing_slash</span> <span class="op">&amp;&amp;</span> <span class="self">self</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>() {
+            <span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">push</span>(<span class="ident">one</span>);
+            <span class="self">self</span>.<span class="ident">canonical_path</span>.<span class="ident">complete</span>();
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">err</span>);
+        }
+
+        <span class="self">self</span>.<span class="ident">symlink</span>(<span class="ident">one</span>, <span class="ident">symlink_count</span>)
+    }
+}
+
+<span class="doccomment">/// Internal implementation of manual `open`, exposing some additional</span>
+<span class="doccomment">/// parameters.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Callers can request the canonical path by passing `Some` to</span>
+<span class="doccomment">/// `canonical_path`. If the complete canonical path is processed, it will be</span>
+<span class="doccomment">/// stored in the provided `&amp;mut PathBuf`, even if the actual open fails. If</span>
+<span class="doccomment">/// a failure occurs before the complete canonical path is processed, the</span>
+<span class="doccomment">/// provided `&amp;mut PathBuf` is cleared to empty.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// A note on lifetimes: `path` and `canonical_path` here don&#39;t strictly</span>
+<span class="doccomment">/// need `&#39;start`, but using them makes it easier to store them in the</span>
+<span class="doccomment">/// `Context` struct.</span>
+<span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn</span> <span class="ident">internal_open</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>(
+    <span class="ident">start</span>: <span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span>,
+    <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;start</span> <span class="ident">Path</span>,
+    <span class="ident">options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>,
+    <span class="ident">symlink_count</span>: <span class="kw-2">&amp;mut</span> <span class="ident">u8</span>,
+    <span class="ident">canonical_path</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;start</span> <span class="kw-2">mut</span> <span class="ident">PathBuf</span><span class="op">&gt;</span>,
+) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span><span class="ident">MaybeOwnedFile</span><span class="op">&lt;</span><span class="lifetime">&#39;start</span><span class="op">&gt;</span><span class="op">&gt;</span> {
+    <span class="comment">// POSIX returns `ENOENT` on an empty path. TODO: On Windows, we should</span>
+    <span class="comment">// be compatible with what Windows does instead.</span>
+    <span class="kw">if</span> <span class="ident">path</span>.<span class="ident">as_os_str</span>().<span class="ident">is_empty</span>() {
+        <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::no_such_file_or_directory</span>());
+    }
+
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ctx</span> <span class="op">=</span> <span class="ident">Context::new</span>(<span class="ident">start</span>, <span class="ident">path</span>, <span class="ident">options</span>, <span class="ident">canonical_path</span>);
+
+    <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">c</span>) <span class="op">=</span> <span class="ident">ctx</span>.<span class="ident">components</span>.<span class="ident">pop</span>() {
+        <span class="kw">match</span> <span class="ident">c</span> {
+            <span class="ident">CowComponent::PrefixOrRootDir</span> =&gt; <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::escape_attempt</span>()),
+            <span class="ident">CowComponent::CurDir</span> =&gt; <span class="ident">ctx</span>.<span class="ident">cur_dir</span>()<span class="question-mark">?</span>,
+            <span class="ident">CowComponent::ParentDir</span> =&gt; <span class="ident">ctx</span>.<span class="ident">parent_dir</span>()<span class="question-mark">?</span>,
+            <span class="ident">CowComponent::Normal</span>(<span class="ident">one</span>) =&gt; <span class="ident">ctx</span>.<span class="ident">normal</span>(<span class="kw-2">&amp;</span><span class="ident">one</span>, <span class="ident">options</span>, <span class="ident">symlink_count</span>)<span class="question-mark">?</span>,
+        }
+    }
+
+    <span class="comment">// We&#39;ve now finished all the path components other than any trailing `.`s,</span>
+    <span class="comment">// so we have the complete canonical path.</span>
+    <span class="ident">ctx</span>.<span class="ident">canonical_path</span>.<span class="ident">complete</span>();
+
+    <span class="comment">// If the path ended in `.` (explicit or implied) or `..`, we may have</span>
+    <span class="comment">// opened the directory with eg. `O_PATH` on Linux, or we may have skipped</span>
+    <span class="comment">// checking for search access to `.`, so re-open it.</span>
+    <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">follow_with_dot</span> {
+        <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">dir_precluded</span> {
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::is_directory</span>());
+        }
+        <span class="ident">ctx</span>.<span class="ident">base</span> <span class="op">=</span> <span class="ident">MaybeOwnedFile::owned</span>(<span class="ident">open_unchecked</span>(
+            <span class="kw-2">&amp;</span><span class="ident">ctx</span>.<span class="ident">base</span>,
+            <span class="ident">Component::CurDir</span>.<span class="ident">as_ref</span>(),
+            <span class="ident">options</span>,
+        )<span class="question-mark">?</span>);
+    }
+
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+    <span class="ident">check_internal_open</span>(<span class="kw-2">&amp;</span><span class="ident">ctx</span>, <span class="ident">path</span>, <span class="ident">options</span>);
+
+    <span class="prelude-val">Ok</span>(<span class="ident">ctx</span>.<span class="ident">base</span>)
+}
+
+<span class="doccomment">/// Implement manual `stat` in a similar manner as manual `open`.</span>
+<span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn</span> <span class="ident">stat</span>(<span class="ident">start</span>: <span class="kw-2">&amp;</span><span class="ident">fs::File</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="ident">Path</span>, <span class="ident">follow</span>: <span class="ident">FollowSymlinks</span>) -&gt; <span class="ident">io::Result</span><span class="op">&lt;</span><span class="ident">Metadata</span><span class="op">&gt;</span> {
+    <span class="comment">// POSIX returns `ENOENT` on an empty path. TODO: On Windows, we should</span>
+    <span class="comment">// be compatible with what Windows does instead.</span>
+    <span class="kw">if</span> <span class="ident">path</span>.<span class="ident">as_os_str</span>().<span class="ident">is_empty</span>() {
+        <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::no_such_file_or_directory</span>());
+    }
+
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">options</span> <span class="op">=</span> <span class="ident">OpenOptions::new</span>();
+    <span class="ident">options</span>.<span class="ident">follow</span>(<span class="ident">follow</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">symlink_count</span> <span class="op">=</span> <span class="number">0</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">ctx</span> <span class="op">=</span> <span class="ident">Context::new</span>(<span class="ident">MaybeOwnedFile::borrowed</span>(<span class="ident">start</span>), <span class="ident">path</span>, <span class="kw-2">&amp;</span><span class="ident">options</span>, <span class="prelude-val">None</span>);
+    <span class="macro">assert!</span>(<span class="op">!</span><span class="ident">ctx</span>.<span class="ident">dir_precluded</span>);
+
+    <span class="kw">while</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">c</span>) <span class="op">=</span> <span class="ident">ctx</span>.<span class="ident">components</span>.<span class="ident">pop</span>() {
+        <span class="kw">match</span> <span class="ident">c</span> {
+            <span class="ident">CowComponent::PrefixOrRootDir</span> =&gt; <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::escape_attempt</span>()),
+            <span class="ident">CowComponent::CurDir</span> =&gt; <span class="ident">ctx</span>.<span class="ident">cur_dir</span>()<span class="question-mark">?</span>,
+            <span class="ident">CowComponent::ParentDir</span> =&gt; <span class="ident">ctx</span>.<span class="ident">parent_dir</span>()<span class="question-mark">?</span>,
+            <span class="ident">CowComponent::Normal</span>(<span class="ident">one</span>) =&gt; {
+                <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">components</span>.<span class="ident">is_empty</span>() {
+                    <span class="comment">// If this is the last component, do a non-following</span>
+                    <span class="comment">// `stat_unchecked` on it.</span>
+                    <span class="kw">let</span> <span class="ident">stat</span> <span class="op">=</span> <span class="ident">stat_unchecked</span>(<span class="kw-2">&amp;</span><span class="ident">ctx</span>.<span class="ident">base</span>, <span class="ident">one</span>.<span class="ident">as_ref</span>(), <span class="ident">FollowSymlinks::No</span>)<span class="question-mark">?</span>;
+
+                    <span class="comment">// If we weren&#39;t asked to follow symlinks, or it wasn&#39;t a</span>
+                    <span class="comment">// symlink, we&#39;re done.</span>
+                    <span class="kw">if</span> <span class="ident">options</span>.<span class="ident">follow</span> <span class="op">==</span> <span class="ident">FollowSymlinks::No</span> <span class="op">|</span><span class="op">|</span> <span class="op">!</span><span class="ident">stat</span>.<span class="ident">file_type</span>().<span class="ident">is_symlink</span>() {
+                        <span class="kw">if</span> <span class="ident">stat</span>.<span class="ident">is_dir</span>() {
+                            <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">dir_precluded</span> {
+                                <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::is_directory</span>());
+                            }
+                        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">dir_required</span> {
+                            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::is_not_directory</span>());
+                        }
+                        <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="ident">stat</span>);
+                    }
+
+                    <span class="comment">// On Windows, symlinks know whether they are a file or</span>
+                    <span class="comment">// directory.</span>
+                    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">windows</span>)]</span>
+                    <span class="kw">if</span> <span class="ident">stat</span>.<span class="ident">file_attributes</span>() <span class="op">&amp;</span> <span class="ident">FILE_ATTRIBUTE_DIRECTORY</span> <span class="op">!</span><span class="op">=</span> <span class="number">0</span> {
+                        <span class="ident">ctx</span>.<span class="ident">dir_required</span> <span class="op">=</span> <span class="bool-val">true</span>;
+                    } <span class="kw">else</span> {
+                        <span class="ident">ctx</span>.<span class="ident">dir_precluded</span> <span class="op">=</span> <span class="bool-val">true</span>;
+                    }
+
+                    <span class="comment">// If it was a symlink and we&#39;re asked to follow symlinks,</span>
+                    <span class="comment">// dereference it.</span>
+                    <span class="ident">ctx</span>.<span class="ident">symlink</span>(<span class="kw-2">&amp;</span><span class="ident">one</span>, <span class="kw-2">&amp;mut</span> <span class="ident">symlink_count</span>)<span class="question-mark">?</span>
+                } <span class="kw">else</span> {
+                    <span class="comment">// Otherwise open the path component normally.</span>
+                    <span class="ident">ctx</span>.<span class="ident">normal</span>(<span class="kw-2">&amp;</span><span class="ident">one</span>, <span class="kw-2">&amp;</span><span class="ident">options</span>, <span class="kw-2">&amp;mut</span> <span class="ident">symlink_count</span>)<span class="question-mark">?</span>
+                }
+            }
+        }
+    }
+
+    <span class="comment">// If the path ended in `.` (explicit or implied) or `..`, we may have</span>
+    <span class="comment">// opened the directory with eg. `O_PATH` on Linux, or we may have skipped</span>
+    <span class="comment">// checking for search access to `.`, so re-check it.</span>
+    <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">follow_with_dot</span> {
+        <span class="kw">if</span> <span class="ident">ctx</span>.<span class="ident">dir_precluded</span> {
+            <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">errors::is_directory</span>());
+        }
+
+        <span class="ident">ctx</span>.<span class="ident">check_dot_access</span>()<span class="question-mark">?</span>;
+    }
+
+    <span class="comment">// If the path ended in `.` or `..`, we already have it open, so just do</span>
+    <span class="comment">// `.metadata()` on it.</span>
+    <span class="ident">Metadata::from_file</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">ctx</span>.<span class="ident">base</span>)
+}
+
+<span class="doccomment">/// Test whether the given options imply that we should treat an open file as</span>
+<span class="doccomment">/// potentially being a symlink we need to follow, due to use of `O_PATH`.</span>
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">any</span>(<span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;android&quot;</span>, <span class="ident">target_os</span> <span class="op">=</span> <span class="string">&quot;linux&quot;</span>))]</span>
+<span class="kw">fn</span> <span class="ident">should_emulate_o_path</span>(<span class="ident">use_options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>) -&gt; <span class="ident">bool</span> {
+    (<span class="ident">use_options</span>.<span class="ident">ext</span>.<span class="ident">custom_flags</span> <span class="op">&amp;</span> (<span class="ident">OFlags::PATH</span>.<span class="ident">bits</span>() <span class="kw">as</span> <span class="ident">i32</span>)) <span class="op">==</span> (<span class="ident">OFlags::PATH</span>.<span class="ident">bits</span>() <span class="kw">as</span> <span class="ident">i32</span>)
+        <span class="op">&amp;&amp;</span> <span class="ident">use_options</span>.<span class="ident">follow</span> <span class="op">==</span> <span class="ident">FollowSymlinks::Yes</span>
+}
+
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">racy_asserts</span>)]</span>
+<span class="kw">fn</span> <span class="ident">check_internal_open</span>(<span class="ident">ctx</span>: <span class="kw-2">&amp;</span><span class="ident">Context</span>, <span class="ident">path</span>: <span class="kw-2">&amp;</span><span class="ident">Path</span>, <span class="ident">options</span>: <span class="kw-2">&amp;</span><span class="ident">OpenOptions</span>) {
+    <span class="kw">match</span> <span class="ident">open_unchecked</span>(
+        <span class="kw-2">&amp;</span><span class="ident">ctx</span>.<span class="ident">start_clone</span>,
+        <span class="ident">ctx</span>.<span class="ident">canonical_path</span>.<span class="ident">debug</span>.<span class="ident">as_ref</span>(),
+        <span class="ident">options</span>
+            .<span class="ident">clone</span>()
+            .<span class="ident">create</span>(<span class="bool-val">false</span>)
+            .<span class="ident">create_new</span>(<span class="bool-val">false</span>)
+            .<span class="ident">truncate</span>(<span class="bool-val">false</span>),
+    ) {
+        <span class="prelude-val">Ok</span>(<span class="ident">unchecked_file</span>) =&gt; {
+            <span class="macro">assert_same_file!</span>(
+                <span class="kw-2">&amp;</span><span class="ident">ctx</span>.<span class="ident">base</span>,
+                <span class="kw-2">&amp;</span><span class="ident">unchecked_file</span>,
+                <span class="string">&quot;path resolution inconsistency: start=&#39;{:?}&#39;, path=&#39;{}&#39;; canonical_path=&#39;{}&#39;&quot;</span>,
+                <span class="ident">ctx</span>.<span class="ident">start_clone</span>,
+                <span class="ident">path</span>.<span class="ident">display</span>(),
+                <span class="ident">ctx</span>.<span class="ident">canonical_path</span>.<span class="ident">debug</span>.<span class="ident">display</span>(),
+            );
+        }
+        <span class="prelude-val">Err</span>(<span class="ident">_unchecked_error</span>) =&gt; {
+            <span class="comment">/* TODO: Check error messages.
+            panic!(
+                &quot;unexpected success opening result={:?} start=&#39;{:?}&#39;, path=&#39;{}&#39;; canonical_path=&#39;{}&#39;; \
+                 expected {:?}&quot;,
+                ctx.base,
+                ctx.start_clone,
+                path.display(),
+                ctx.canonical_path.debug.display(),
+                unchecked_error,
+            */</span>
+        }
+    }
+}
+</code></pre></div>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../../" data-current-crate="cap_primitives" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

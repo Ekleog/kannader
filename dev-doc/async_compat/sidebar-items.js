@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Compat","Compatibility adapter for futures and I/O types."]],"trait":[["CompatExt","Applies the [`Compat`] adapter to futures and I/O types."]]});

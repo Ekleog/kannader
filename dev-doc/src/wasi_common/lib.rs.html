@@ -1,0 +1,154 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/.cargo/registry/src/github.com-1ecc6299db9ec823/wasi-common-1.0.1/src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../storage.js"></script><script src="../../crates.js"></script><script defer src="../../main.js"></script><script defer src="../../source-script.js"></script><script defer src="../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../favicon.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../wasi_common/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../wasi_common/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../wasi_common/index.html"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<span id="2">2</span>
+<span id="3">3</span>
+<span id="4">4</span>
+<span id="5">5</span>
+<span id="6">6</span>
+<span id="7">7</span>
+<span id="8">8</span>
+<span id="9">9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+<span id="61">61</span>
+<span id="62">62</span>
+<span id="63">63</span>
+<span id="64">64</span>
+<span id="65">65</span>
+<span id="66">66</span>
+<span id="67">67</span>
+<span id="68">68</span>
+<span id="69">69</span>
+<span id="70">70</span>
+<span id="71">71</span>
+<span id="72">72</span>
+<span id="73">73</span>
+</pre><pre class="rust"><code><span class="doccomment">//! ## The `WasiFile` and `WasiDir` traits</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The WASI specification only defines one `handle` type, `fd`, on which all</span>
+<span class="doccomment">//! operations on both files and directories (aka dirfds) are defined. We</span>
+<span class="doccomment">//! believe this is a design mistake, and are architecting wasi-common to make</span>
+<span class="doccomment">//! this straightforward to correct in future snapshots of WASI.  Wasi-common</span>
+<span class="doccomment">//! internally treats files and directories as two distinct resource types in</span>
+<span class="doccomment">//! the table - `Box&lt;dyn WasiFile&gt;` and `Box&lt;dyn WasiDir&gt;`. The snapshot 0 and</span>
+<span class="doccomment">//! 1 interfaces via `fd` will attempt to downcast a table element to one or</span>
+<span class="doccomment">//! both of these interfaces depending on what is appropriate - e.g.</span>
+<span class="doccomment">//! `fd_close` operates on both files and directories, `fd_read` only operates</span>
+<span class="doccomment">//! on files, and `fd_readdir` only operates on directories.</span>
+
+<span class="doccomment">//! The `WasiFile` and `WasiDir` traits are defined by `wasi-common` in terms</span>
+<span class="doccomment">//! of types defined directly in the crate&#39;s source code (I decided it should</span>
+<span class="doccomment">//! NOT those generated by the `wiggle` proc macros, see snapshot architecture</span>
+<span class="doccomment">//! below), as well as the `cap_std::time` family of types.  And, importantly,</span>
+<span class="doccomment">//! `wasi-common` itself provides no implementation of `WasiDir`, and only two</span>
+<span class="doccomment">//! trivial implementations of `WasiFile` on the `crate::pipe::{ReadPipe,</span>
+<span class="doccomment">//! WritePipe}` types, which in turn just delegate to `std::io::{Read,</span>
+<span class="doccomment">//! Write}`. In order for `wasi-common` to access the local filesystem at all,</span>
+<span class="doccomment">//! you need to provide `WasiFile` and `WasiDir` impls through either the new</span>
+<span class="doccomment">//! `wasi-cap-std-sync` crate found at `crates/wasi-common/cap-std-sync` - see</span>
+<span class="doccomment">//! the section on that crate below - or by providing your own implementation</span>
+<span class="doccomment">//! from elsewhere.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This design makes it possible for `wasi-common` embedders to statically</span>
+<span class="doccomment">//! reason about access to the local filesystem by examining what impls are</span>
+<span class="doccomment">//! linked into an application. We found that this separation of concerns also</span>
+<span class="doccomment">//! makes it pretty enjoyable to write alternative implementations, e.g. a</span>
+<span class="doccomment">//! virtual filesystem (which will land in a future PR).</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ## Traits for the rest of WASI&#39;s features</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Other aspects of a WASI implementation are not yet considered resources</span>
+<span class="doccomment">//! and accessed by `handle`. We plan to correct this design deficiency in</span>
+<span class="doccomment">//! WASI in the future, but for now we have designed the following traits to</span>
+<span class="doccomment">//! provide embedders with the same sort of implementation flexibility they</span>
+<span class="doccomment">//! get with WasiFile/WasiDir:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! * Timekeeping: `WasiSystemClock` and `WasiMonotonicClock` provide the two</span>
+<span class="doccomment">//! interfaces for a clock. `WasiSystemClock` represents time as a</span>
+<span class="doccomment">//! `cap_std::time::SystemTime`, and `WasiMonotonicClock` represents time as</span>
+<span class="doccomment">//! `cap_std::time::Instant`.  * Randomness: we re-use the `cap_rand::RngCore`</span>
+<span class="doccomment">//! trait to represent a randomness source. A trivial `Deterministic` impl is</span>
+<span class="doccomment">//! provided.  * Scheduling: The `WasiSched` trait abstracts over the</span>
+<span class="doccomment">//! `sched_yield` and `poll_oneoff` functions.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Users can provide implementations of each of these interfaces to the</span>
+<span class="doccomment">//! `WasiCtx::builder(...)` function. The</span>
+<span class="doccomment">//! `wasi_cap_std_sync::WasiCtxBuilder::new()` function uses this public</span>
+<span class="doccomment">//! interface to plug in its own implementations of each of these resources.</span>
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">clocks</span>;
+<span class="kw">mod</span> <span class="ident">ctx</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">dir</span>;
+<span class="kw">mod</span> <span class="ident">error</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">file</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">pipe</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">random</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">sched</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">snapshots</span>;
+<span class="kw">mod</span> <span class="ident">string_array</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">table</span>;
+
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">cap_rand::RngCore</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">clocks</span>::{<span class="ident">SystemTimeSpec</span>, <span class="ident">WasiClocks</span>, <span class="ident">WasiMonotonicClock</span>, <span class="ident">WasiSystemClock</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">ctx::WasiCtx</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">dir::WasiDir</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">error</span>::{<span class="ident">Context</span>, <span class="ident">Error</span>, <span class="ident">ErrorExt</span>, <span class="ident">ErrorKind</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">file::WasiFile</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">sched</span>::{<span class="ident">Poll</span>, <span class="ident">WasiSched</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">string_array::StringArrayError</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">table::Table</span>;
+</code></pre></div>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="wasi_common" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["NO_SOCKET_ADDRS","An empty array of `SocketAddr`s."]],"struct":[["Pool","A representation of a set of network resources that may be accessed."]]});

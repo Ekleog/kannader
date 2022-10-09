@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["AssertUnmoved","Combinator that asserts that the underlying type is not moved after being polled."],["InterleavePending","Wrapper that interleaves [`Poll::Pending`] in calls to poll."],["TrackClosed","Async wrapper that tracks whether it has been closed."]],"trait":[["SinkTestExt","Additional combinators for testing sinks."]]});

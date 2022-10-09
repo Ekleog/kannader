@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Provides functions for performing shell-like expansions in strings."><meta name="keywords" content="rust, rustlang, rust-lang, shellexpand"><title>shellexpand - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script src="../crates.js"></script><script defer src="../main.js"></script>
+    <noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../shellexpand/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../shellexpand/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"><a href="#">Crate shellexpand</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 2.1.0</li><li><a id="all-types" href="all.html">All Items</a></li></div></ul><section><div class="block"><ul><li><a href="#structs">Structs</a></li><li><a href="#functions">Functions</a></li></ul></div></section><div id="sidebar-vars" data-name="shellexpand" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../shellexpand/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">shellexpand</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/shellexpand/lib.rs.html#1-970">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Provides functions for performing shell-like expansions in strings.</p>
+<p>In particular, the following expansions are supported:</p>
+<ul>
+<li>tilde expansion, when <code>~</code> in the beginning of a string, like in <code>&quot;~/some/path&quot;</code>,
+is expanded into the home directory of the current user;</li>
+<li>environment expansion, when <code>$A</code> or <code>${B}</code>, like in <code>&quot;~/$A/${B}something&quot;</code>,
+are expanded into their values in some environment.</li>
+</ul>
+<p>Environment expansion also supports default values with the familiar shell syntax,
+so for example <code>${UNSET_ENV:-42}</code> will use the specified default value, i.e. <code>42</code>, if
+the <code>UNSET_ENV</code> variable is not set in the environment.</p>
+<p>The source of external information for these expansions (home directory and environment
+variables) is called their <em>context</em>. The context is provided to these functions as a closure
+of the respective type.</p>
+<p>This crate provides both customizable functions, which require their context to be provided
+explicitly, and wrapper functions which use <code>dirs::home_dir()</code> and <code>std::env::var()</code>
+for obtaining home directory and environment variables, respectively.</p>
+<p>Also there is a “full” function which performs both tilde and environment
+expansion, but does it correctly, rather than just doing one after another: for example,
+if the string starts with a variable whose value starts with a <code>~</code>, then this tilde
+won’t be expanded.</p>
+<p>All functions return <code>Cow&lt;str&gt;</code> because it is possible for their input not to contain anything
+which triggers the expansion. In that case performing allocations can be avoided.</p>
+<p>Please note that by default unknown variables in environment expansion are left as they are
+and are not, for example, substituted with an empty string:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">fn</span> <span class="ident">context</span>(<span class="kw">_</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) -&gt; <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span> { <span class="prelude-val">None</span> }
+
+<span class="macro">assert_eq!</span>(
+    <span class="ident">shellexpand::env_with_context_no_errors</span>(<span class="string">&quot;$A $B&quot;</span>, <span class="ident">context</span>),
+    <span class="string">&quot;$A $B&quot;</span>
+);</code></pre></div>
+<p>Environment expansion context allows for a very fine tweaking of how results should be handled,
+so it is up to the user to pass a context function which does the necessary thing. For example,
+<code>env()</code> and <code>full()</code> functions from this library pass all errors returned by <code>std::env::var()</code>
+through, therefore they will also return an error if some unknown environment
+variable is used, because <code>std::env::var()</code> returns an error in this case:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use</span> <span class="ident">std::env</span>;
+
+<span class="comment">// make sure that the variable indeed does not exist</span>
+<span class="ident">env::remove_var</span>(<span class="string">&quot;MOST_LIKELY_NONEXISTING_VAR&quot;</span>);
+
+<span class="macro">assert_eq!</span>(
+    <span class="ident">shellexpand::env</span>(<span class="string">&quot;$MOST_LIKELY_NONEXISTING_VAR&quot;</span>),
+    <span class="prelude-val">Err</span>(<span class="ident">shellexpand::LookupError</span> {
+        <span class="ident">var_name</span>: <span class="string">&quot;MOST_LIKELY_NONEXISTING_VAR&quot;</span>.<span class="ident">into</span>(),
+        <span class="ident">cause</span>: <span class="ident">env::VarError::NotPresent</span>
+    })
+);</code></pre></div>
+<p>The author thinks that this approach is more useful than just substituting an empty string
+(like, for example, does Go with its <a href="https://golang.org/pkg/os/#ExpandEnv">os.ExpandEnv</a>
+function), but if you do need <code>os.ExpandEnv</code>-like behavior, it is fairly easy to get one:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use</span> <span class="ident">std::env</span>;
+<span class="kw">use</span> <span class="ident">std::borrow::Cow</span>;
+
+<span class="kw">fn</span> <span class="ident">context</span>(<span class="ident">s</span>: <span class="kw-2">&amp;</span><span class="ident">str</span>) -&gt; <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">Cow</span><span class="op">&lt;</span><span class="lifetime">&#39;static</span>, <span class="ident">str</span><span class="op">&gt;</span><span class="op">&gt;</span>, <span class="ident">env::VarError</span><span class="op">&gt;</span> {
+    <span class="kw">match</span> <span class="ident">env::var</span>(<span class="ident">s</span>) {
+        <span class="prelude-val">Ok</span>(<span class="ident">value</span>) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(<span class="ident">value</span>.<span class="ident">into</span>())),
+        <span class="prelude-val">Err</span>(<span class="ident">env::VarError::NotPresent</span>) =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(<span class="string">&quot;&quot;</span>.<span class="ident">into</span>())),
+        <span class="prelude-val">Err</span>(<span class="ident">e</span>) =&gt; <span class="prelude-val">Err</span>(<span class="ident">e</span>)
+    }
+}
+
+<span class="comment">// make sure that the variable indeed does not exist</span>
+<span class="ident">env::remove_var</span>(<span class="string">&quot;MOST_LIKELY_NONEXISTING_VAR&quot;</span>);
+
+<span class="macro">assert_eq!</span>(
+    <span class="ident">shellexpand::env_with_context</span>(<span class="string">&quot;a${MOST_LIKELY_NOEXISTING_VAR}b&quot;</span>, <span class="ident">context</span>).<span class="ident">unwrap</span>(),
+    <span class="string">&quot;ab&quot;</span>
+);</code></pre></div>
+<p>The above example also demonstrates the flexibility of context function signatures: the context
+function may return anything which can be <code>AsRef</code>ed into a string slice.</p>
+</div></details><h2 id="structs" class="small-section-header"><a href="#structs">Structs</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.LookupError.html" title="shellexpand::LookupError struct">LookupError</a></div><div class="item-right docblock-short"><p>Represents a variable lookup error.</p>
+</div></div></div><h2 id="functions" class="small-section-header"><a href="#functions">Functions</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.env.html" title="shellexpand::env fn">env</a></div><div class="item-right docblock-short"><p>Performs the environment expansion using the default system context.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.env_with_context.html" title="shellexpand::env_with_context fn">env_with_context</a></div><div class="item-right docblock-short"><p>Performs the environment expansion using the provided context.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.env_with_context_no_errors.html" title="shellexpand::env_with_context_no_errors fn">env_with_context_no_errors</a></div><div class="item-right docblock-short"><p>Same as <code>env_with_context()</code>, but forbids the variable lookup function to return errors.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.full.html" title="shellexpand::full fn">full</a></div><div class="item-right docblock-short"><p>Performs both tilde and environment expansions in the default system context.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.full_with_context.html" title="shellexpand::full_with_context fn">full_with_context</a></div><div class="item-right docblock-short"><p>Performs both tilde and environment expansion using the provided contexts.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.full_with_context_no_errors.html" title="shellexpand::full_with_context_no_errors fn">full_with_context_no_errors</a></div><div class="item-right docblock-short"><p>Same as <code>full_with_context()</code>, but forbids the variable lookup function to return errors.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.tilde.html" title="shellexpand::tilde fn">tilde</a></div><div class="item-right docblock-short"><p>Performs the tilde expansion using the default system context.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="fn" href="fn.tilde_with_context.html" title="shellexpand::tilde_with_context fn">tilde_with_context</a></div><div class="item-right docblock-short"><p>Performs the tilde expansion using the provided context.</p>
+</div></div></div></section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../" data-current-crate="shellexpand" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This crate provides a few miscellaneous utilities related to I/O:"><meta name="keywords" content="rust, rustlang, rust-lang, io_extras"><title>io_extras - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../dark.css" disabled><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../storage.js"></script><script src="../crates.js"></script><script defer src="../main.js"></script>
+    <noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../favicon.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../io_extras/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../io_extras/index.html"><div class="logo-container"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"><a href="#">Crate io_extras</a></h2><div class="sidebar-elems"><div class="block"><ul><li class="version">Version 0.15.0</li><li><a id="all-types" href="all.html">All Items</a></li></div></ul><section><div class="block"><ul><li><a href="#modules">Modules</a></li></ul></div></section><div id="sidebar-vars" data-name="io_extras" data-ty="mod" data-relpath=""></div><script defer src="sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../io_extras/index.html"><img class="rust-logo" src="../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
+    <h1 class="fqn"><span class="in-band">Crate <a class="mod" href="#">io_extras</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../src/io_extras/lib.rs.html#1-29">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This crate provides a few miscellaneous utilities related to I/O:</p>
+<ul>
+<li>
+<p><code>HandleOrSocket</code> types and traits for Windows, which abstract over
+Windows <code>*Handle*</code> and their corresponding Windows <code>*Socket*</code> types and
+traits.</p>
+</li>
+<li>
+<p><code>Grip</code> types and traits, which abstract over the aforementioned Windows
+<code>HandleOrSocket</code> types and traits and their corresponding non-Windows
+<code>Fd</code> types and traits.</p>
+</li>
+<li>
+<p><code>OwnedReadable</code>, <code>OwnedWriteable</code>, <code>BorrowedReadable</code>,
+<code>BorrowedWriteable</code>, <code>RawReadable</code> and <code>RawWriteable</code>, which adapt a raw
+<code>Fd</code>/<code>Handle</code> to implement the <code>Read</code> and <code>Write</code> traits, respectively.</p>
+</li>
+<li>
+<p><code>ReadWrite</code> traits, and supporting types, which provide abstractions over
+types with one or two I/O resources, for reading and for writing.</p>
+</li>
+</ul>
+</div></details><h2 id="modules" class="small-section-header"><a href="#modules">Modules</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="mod" href="borrowed/index.html" title="io_extras::borrowed mod">borrowed</a></div><div class="item-right docblock-short"><p><code>BorrowedReadable</code> and <code>BorrowedWriteable</code>.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="grip/index.html" title="io_extras::grip mod">grip</a></div><div class="item-right docblock-short"><p>“Grip” is an abstraction over “Fd” and “HandleOrSocket”. “Handle”
+would be the obvious term, but that has a more specific meaning on
+Windows.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="os/index.html" title="io_extras::os mod">os</a></div><div class="item-right docblock-short"><p>OS-specific functionality.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="owned/index.html" title="io_extras::owned mod">owned</a></div><div class="item-right docblock-short"><p><code>OwnedReadable</code> and <code>OwnedWriteable</code>.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="raw/index.html" title="io_extras::raw mod">raw</a></div><div class="item-right docblock-short"><p><code>RawReadable</code> and <code>RawWriteable</code>.</p>
+</div></div><div class="item-row"><div class="item-left module-item"><a class="mod" href="read_write/index.html" title="io_extras::read_write mod">read_write</a></div><div class="item-right docblock-short"><p>Traits for working with types that may have up to two I/O objects.</p>
+</div></div></div></section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../" data-current-crate="io_extras" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

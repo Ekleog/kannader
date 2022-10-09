@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["NegativeType",""]],"struct":[["DnsResponse","A DNS response object"],["DnsResponseStream","A stream returning DNS responses"]]});

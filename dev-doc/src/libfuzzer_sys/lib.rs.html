@@ -1,0 +1,860 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/.cargo/registry/src/github.com-1ecc6299db9ec823/libfuzzer-sys-0.4.3/src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../storage.js"></script><script src="../../crates.js"></script><script defer src="../../main.js"></script><script defer src="../../source-script.js"></script><script defer src="../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../favicon.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../libfuzzer_sys/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../libfuzzer_sys/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../libfuzzer_sys/index.html"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<span id="2">2</span>
+<span id="3">3</span>
+<span id="4">4</span>
+<span id="5">5</span>
+<span id="6">6</span>
+<span id="7">7</span>
+<span id="8">8</span>
+<span id="9">9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+<span id="61">61</span>
+<span id="62">62</span>
+<span id="63">63</span>
+<span id="64">64</span>
+<span id="65">65</span>
+<span id="66">66</span>
+<span id="67">67</span>
+<span id="68">68</span>
+<span id="69">69</span>
+<span id="70">70</span>
+<span id="71">71</span>
+<span id="72">72</span>
+<span id="73">73</span>
+<span id="74">74</span>
+<span id="75">75</span>
+<span id="76">76</span>
+<span id="77">77</span>
+<span id="78">78</span>
+<span id="79">79</span>
+<span id="80">80</span>
+<span id="81">81</span>
+<span id="82">82</span>
+<span id="83">83</span>
+<span id="84">84</span>
+<span id="85">85</span>
+<span id="86">86</span>
+<span id="87">87</span>
+<span id="88">88</span>
+<span id="89">89</span>
+<span id="90">90</span>
+<span id="91">91</span>
+<span id="92">92</span>
+<span id="93">93</span>
+<span id="94">94</span>
+<span id="95">95</span>
+<span id="96">96</span>
+<span id="97">97</span>
+<span id="98">98</span>
+<span id="99">99</span>
+<span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
+<span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
+<span id="314">314</span>
+<span id="315">315</span>
+<span id="316">316</span>
+<span id="317">317</span>
+<span id="318">318</span>
+<span id="319">319</span>
+<span id="320">320</span>
+<span id="321">321</span>
+<span id="322">322</span>
+<span id="323">323</span>
+<span id="324">324</span>
+<span id="325">325</span>
+<span id="326">326</span>
+<span id="327">327</span>
+<span id="328">328</span>
+<span id="329">329</span>
+<span id="330">330</span>
+<span id="331">331</span>
+<span id="332">332</span>
+<span id="333">333</span>
+<span id="334">334</span>
+<span id="335">335</span>
+<span id="336">336</span>
+<span id="337">337</span>
+<span id="338">338</span>
+<span id="339">339</span>
+<span id="340">340</span>
+<span id="341">341</span>
+<span id="342">342</span>
+<span id="343">343</span>
+<span id="344">344</span>
+<span id="345">345</span>
+<span id="346">346</span>
+<span id="347">347</span>
+<span id="348">348</span>
+<span id="349">349</span>
+<span id="350">350</span>
+<span id="351">351</span>
+<span id="352">352</span>
+<span id="353">353</span>
+<span id="354">354</span>
+<span id="355">355</span>
+<span id="356">356</span>
+<span id="357">357</span>
+<span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
+<span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+</pre><pre class="rust"><code><span class="doccomment">//! Bindings to [libFuzzer](http://llvm.org/docs/LibFuzzer.html): a runtime for</span>
+<span class="doccomment">//! coverage-guided fuzzing.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! See [the `cargo-fuzz`</span>
+<span class="doccomment">//! guide](https://rust-fuzz.github.io/book/cargo-fuzz.html) for a usage</span>
+<span class="doccomment">//! tutorial.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The main export of this crate is [the `fuzz_target!`</span>
+<span class="doccomment">//! macro](./macro.fuzz_target.html), which allows you to define targets for</span>
+<span class="doccomment">//! libFuzzer to exercise.</span>
+
+<span class="attribute">#![<span class="ident">deny</span>(<span class="ident">missing_docs</span>, <span class="ident">missing_debug_implementations</span>)]</span>
+
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">arbitrary</span>;
+<span class="kw">use</span> <span class="ident">once_cell::sync::OnceCell</span>;
+
+<span class="kw">extern</span> <span class="string">&quot;C&quot;</span> {
+    <span class="comment">// We do not actually cross the FFI bound here.</span>
+    <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">improper_ctypes</span>)]</span>
+    <span class="kw">fn</span> <span class="ident">rust_fuzzer_test_input</span>(<span class="ident">input</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]);
+
+    <span class="kw">fn</span> <span class="ident">LLVMFuzzerMutate</span>(<span class="ident">data</span>: <span class="kw-2">*mut</span> <span class="ident">u8</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">max_size</span>: <span class="ident">usize</span>) -&gt; <span class="ident">usize</span>;
+}
+
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="attribute">#[<span class="ident">export_name</span> <span class="op">=</span> <span class="string">&quot;LLVMFuzzerTestOneInput&quot;</span>]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">test_input_wrap</span>(<span class="ident">data</span>: <span class="kw-2">*const</span> <span class="ident">u8</span>, <span class="ident">size</span>: <span class="ident">usize</span>) -&gt; <span class="ident">i32</span> {
+    <span class="kw">let</span> <span class="ident">test_input</span> <span class="op">=</span> <span class="ident">::std::panic::catch_unwind</span>(<span class="op">|</span><span class="op">|</span> <span class="kw">unsafe</span> {
+        <span class="kw">let</span> <span class="ident">data_slice</span> <span class="op">=</span> <span class="ident">::std::slice::from_raw_parts</span>(<span class="ident">data</span>, <span class="ident">size</span>);
+        <span class="ident">rust_fuzzer_test_input</span>(<span class="ident">data_slice</span>);
+    });
+    <span class="kw">if</span> <span class="ident">test_input</span>.<span class="ident">err</span>().<span class="ident">is_some</span>() {
+        <span class="comment">// hopefully the custom panic hook will be called before and abort the</span>
+        <span class="comment">// process before the stack frames are unwinded.</span>
+        <span class="ident">::std::process::abort</span>();
+    }
+    <span class="number">0</span>
+}
+
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="kw">pub</span> <span class="kw">static</span> <span class="ident">RUST_LIBFUZZER_DEBUG_PATH</span>: <span class="ident">OnceCell</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">OnceCell::new</span>();
+
+<span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
+<span class="attribute">#[<span class="ident">export_name</span> <span class="op">=</span> <span class="string">&quot;LLVMFuzzerInitialize&quot;</span>]</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">initialize</span>(<span class="ident">_argc</span>: <span class="kw-2">*const</span> <span class="ident">isize</span>, <span class="ident">_argv</span>: <span class="kw-2">*const</span> <span class="kw-2">*const</span> <span class="kw-2">*const</span> <span class="ident">u8</span>) -&gt; <span class="ident">isize</span> {
+    <span class="comment">// Registers a panic hook that aborts the process before unwinding.</span>
+    <span class="comment">// It is useful to abort before unwinding so that the fuzzer will then be</span>
+    <span class="comment">// able to analyse the process stack frames to tell different bugs appart.</span>
+    <span class="comment">//</span>
+    <span class="comment">// HACK / FIXME: it would be better to use `-C panic=abort` but it&#39;s currently</span>
+    <span class="comment">// impossible to build code using compiler plugins with this flag.</span>
+    <span class="comment">// We will be able to remove this code when</span>
+    <span class="comment">// https://github.com/rust-lang/cargo/issues/5423 is fixed.</span>
+    <span class="kw">let</span> <span class="ident">default_hook</span> <span class="op">=</span> <span class="ident">::std::panic::take_hook</span>();
+    <span class="ident">::std::panic::set_hook</span>(<span class="ident">Box::new</span>(<span class="kw">move</span> <span class="op">|</span><span class="ident">panic_info</span><span class="op">|</span> {
+        <span class="ident">default_hook</span>(<span class="ident">panic_info</span>);
+        <span class="ident">::std::process::abort</span>();
+    }));
+
+    <span class="comment">// Initialize the `RUST_LIBFUZZER_DEBUG_PATH` cell with the path so it can be</span>
+    <span class="comment">// reused with little overhead.</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Ok</span>(<span class="ident">path</span>) <span class="op">=</span> <span class="ident">std::env::var</span>(<span class="string">&quot;RUST_LIBFUZZER_DEBUG_PATH&quot;</span>) {
+        <span class="ident">RUST_LIBFUZZER_DEBUG_PATH</span>
+            .<span class="ident">set</span>(<span class="ident">path</span>)
+            .<span class="ident">expect</span>(<span class="string">&quot;Since this is initialize it is only called once so can never fail&quot;</span>);
+    }
+    <span class="number">0</span>
+}
+
+<span class="doccomment">/// Define a fuzz target.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Example</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This example takes a `&amp;[u8]` slice and attempts to parse it. The parsing</span>
+<span class="doccomment">/// might fail and return an `Err`, but it shouldn&#39;t ever panic or segfault.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// #![no_main]</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// use libfuzzer_sys::fuzz_target;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Note: `|input|` is short for `|input: &amp;[u8]|`.</span>
+<span class="doccomment">/// fuzz_target!(|input| {</span>
+<span class="doccomment">///     let _result: Result&lt;_, _&gt; = my_crate::parse(input);</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">/// # mod my_crate { pub fn parse(_: &amp;[u8]) -&gt; Result&lt;(), ()&gt; { unimplemented!() } }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Arbitrary Input Types</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The input is a `&amp;[u8]` slice by default, but you can take arbitrary input</span>
+<span class="doccomment">/// types, as long as the type implements [the `arbitrary` crate&#39;s `Arbitrary`</span>
+<span class="doccomment">/// trait](https://docs.rs/arbitrary/*/arbitrary/trait.Arbitrary.html) (which is</span>
+<span class="doccomment">/// also re-exported as `libfuzzer_sys::arbitrary::Arbitrary` for convenience).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// For example, if you wanted to take an arbitrary RGB color, you could do the</span>
+<span class="doccomment">/// following:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// #![no_main]</span>
+<span class="doccomment">/// # mod foo {</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// use libfuzzer_sys::{arbitrary::{Arbitrary, Error, Unstructured}, fuzz_target};</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// #[derive(Debug)]</span>
+<span class="doccomment">/// pub struct Rgb {</span>
+<span class="doccomment">///     r: u8,</span>
+<span class="doccomment">///     g: u8,</span>
+<span class="doccomment">///     b: u8,</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// impl&lt;&#39;a&gt; Arbitrary&lt;&#39;a&gt; for Rgb {</span>
+<span class="doccomment">///     fn arbitrary(raw: &amp;mut Unstructured&lt;&#39;a&gt;) -&gt; Result&lt;Self, Error&gt; {</span>
+<span class="doccomment">///         let mut buf = [0; 3];</span>
+<span class="doccomment">///         raw.fill_buffer(&amp;mut buf)?;</span>
+<span class="doccomment">///         let r = buf[0];</span>
+<span class="doccomment">///         let g = buf[1];</span>
+<span class="doccomment">///         let b = buf[2];</span>
+<span class="doccomment">///         Ok(Rgb { r, g, b })</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Write a fuzz target that works with RGB colors instead of raw bytes.</span>
+<span class="doccomment">/// fuzz_target!(|color: Rgb| {</span>
+<span class="doccomment">///     my_crate::convert_color(color);</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">/// # mod my_crate {</span>
+<span class="doccomment">/// #     use super::Rgb;</span>
+<span class="doccomment">/// #     pub fn convert_color(_: Rgb) {}</span>
+<span class="doccomment">/// # }</span>
+<span class="doccomment">/// # }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You can also enable the `arbitrary` crate&#39;s custom derive via this crate&#39;s</span>
+<span class="doccomment">/// `&quot;arbitrary-derive&quot;` cargo feature.</span>
+<span class="attribute">#[<span class="ident">macro_export</span>]</span>
+<span class="macro">macro_rules!</span> <span class="ident">fuzz_target</span> {
+    (<span class="op">|</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">bytes</span>:<span class="ident">ident</span><span class="op">|</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>:<span class="ident">block</span>) =&gt; {
+        <span class="doccomment">/// Auto-generated function</span>
+        <span class="attribute">#[<span class="ident">no_mangle</span>]</span>
+        <span class="kw">pub</span> <span class="kw">extern</span> <span class="string">&quot;C&quot;</span> <span class="kw">fn</span> <span class="ident">rust_fuzzer_test_input</span>(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">bytes</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) {
+            <span class="comment">// When `RUST_LIBFUZZER_DEBUG_PATH` is set, write the debug</span>
+            <span class="comment">// formatting of the input to that file. This is only intended for</span>
+            <span class="comment">// `cargo fuzz`&#39;s use!</span>
+
+            <span class="comment">// `RUST_LIBFUZZER_DEBUG_PATH` is set in initialization.</span>
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">path</span>) <span class="op">=</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">crate::RUST_LIBFUZZER_DEBUG_PATH</span>.<span class="ident">get</span>() {
+                <span class="kw">use</span> <span class="ident">std::io::Write</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">file</span> <span class="op">=</span> <span class="ident">std::fs::File::create</span>(<span class="ident">path</span>)
+                    .<span class="ident">expect</span>(<span class="string">&quot;failed to create `RUST_LIBFUZZER_DEBUG_PATH` file&quot;</span>);
+                <span class="macro">writeln!</span>(<span class="kw-2">&amp;mut</span> <span class="ident">file</span>, <span class="string">&quot;{:?}&quot;</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">bytes</span>)
+                    .<span class="ident">expect</span>(<span class="string">&quot;failed to write to `RUST_LIBFUZZER_DEBUG_PATH` file&quot;</span>);
+                <span class="kw">return</span>;
+            }
+
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>
+        }
+    };
+
+    (<span class="op">|</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>:<span class="ident">ident</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]<span class="op">|</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>:<span class="ident">block</span>) =&gt; {
+        <span class="macro-nonterminal">$</span><span class="macro">crate::fuzz_target!</span>(<span class="op">|</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span><span class="op">|</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>);
+    };
+
+    (<span class="op">|</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>:<span class="ident">ident</span>: <span class="macro-nonterminal">$</span><span class="macro-nonterminal">dty</span>: <span class="ident">ty</span><span class="op">|</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>:<span class="ident">block</span>) =&gt; {
+        <span class="doccomment">/// Auto-generated function</span>
+        <span class="attribute">#[<span class="ident">no_mangle</span>]</span>
+        <span class="kw">pub</span> <span class="kw">extern</span> <span class="string">&quot;C&quot;</span> <span class="kw">fn</span> <span class="ident">rust_fuzzer_test_input</span>(<span class="ident">bytes</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) {
+            <span class="kw">use</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">crate::arbitrary</span>::{<span class="ident">Arbitrary</span>, <span class="ident">Unstructured</span>};
+
+            <span class="comment">// Early exit if we don&#39;t have enough bytes for the `Arbitrary`</span>
+            <span class="comment">// implementation. This helps the fuzzer avoid exploring all the</span>
+            <span class="comment">// different not-enough-input-bytes paths inside the `Arbitrary`</span>
+            <span class="comment">// implementation. Additionally, it exits faster, letting the fuzzer</span>
+            <span class="comment">// get to longer inputs that actually lead to interesting executions</span>
+            <span class="comment">// quicker.</span>
+            <span class="kw">if</span> <span class="ident">bytes</span>.<span class="ident">len</span>() <span class="op">&lt;</span> <span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">dty</span> <span class="kw">as</span> <span class="ident">Arbitrary</span><span class="op">&gt;</span><span class="ident">::size_hint</span>(<span class="number">0</span>).<span class="number">0</span> {
+                <span class="kw">return</span>;
+            }
+
+            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">u</span> <span class="op">=</span> <span class="ident">Unstructured::new</span>(<span class="ident">bytes</span>);
+            <span class="kw">let</span> <span class="ident">data</span> <span class="op">=</span> <span class="op">&lt;</span><span class="macro-nonterminal">$</span><span class="macro-nonterminal">dty</span> <span class="kw">as</span> <span class="ident">Arbitrary</span><span class="op">&gt;</span><span class="ident">::arbitrary_take_rest</span>(<span class="ident">u</span>);
+
+            <span class="comment">// When `RUST_LIBFUZZER_DEBUG_PATH` is set, write the debug</span>
+            <span class="comment">// formatting of the input to that file. This is only intended for</span>
+            <span class="comment">// `cargo fuzz`&#39;s use!</span>
+
+            <span class="comment">// `RUST_LIBFUZZER_DEBUG_PATH` is set in initialization.</span>
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">path</span>) <span class="op">=</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">crate::RUST_LIBFUZZER_DEBUG_PATH</span>.<span class="ident">get</span>() {
+                <span class="kw">use</span> <span class="ident">std::io::Write</span>;
+                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">file</span> <span class="op">=</span> <span class="ident">std::fs::File::create</span>(<span class="ident">path</span>)
+                    .<span class="ident">expect</span>(<span class="string">&quot;failed to create `RUST_LIBFUZZER_DEBUG_PATH` file&quot;</span>);
+                (<span class="kw">match</span> <span class="ident">data</span> {
+                    <span class="prelude-val">Ok</span>(<span class="ident">data</span>) =&gt; <span class="macro">writeln!</span>(<span class="kw-2">&amp;mut</span> <span class="ident">file</span>, <span class="string">&quot;{:#?}&quot;</span>, <span class="ident">data</span>),
+                    <span class="prelude-val">Err</span>(<span class="ident">err</span>) =&gt; <span class="macro">writeln!</span>(<span class="kw-2">&amp;mut</span> <span class="ident">file</span>, <span class="string">&quot;Arbitrary Error: {}&quot;</span>, <span class="ident">err</span>),
+                })
+                .<span class="ident">expect</span>(<span class="string">&quot;failed to write to `RUST_LIBFUZZER_DEBUG_PATH` file&quot;</span>);
+                <span class="kw">return</span>;
+            }
+
+            <span class="kw">let</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">data</span> {
+                <span class="prelude-val">Ok</span>(<span class="ident">d</span>) =&gt; <span class="ident">d</span>,
+                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return</span>,
+            };
+
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>
+        }
+    };
+}
+
+<span class="doccomment">/// Define a custom mutator.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is optional, and libFuzzer will use its own, default mutation strategy</span>
+<span class="doccomment">/// if this is not provided.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You might consider using a custom mutator when your fuzz target is very</span>
+<span class="doccomment">/// particular about the shape of its input:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * You want to fuzz &quot;deeper&quot; than just the parser.</span>
+<span class="doccomment">/// * The input contains checksums that have to match the hash of some subset of</span>
+<span class="doccomment">///   the data or else the whole thing is invalid, and therefore mutating any of</span>
+<span class="doccomment">///   that subset means you need to recompute the checksums.</span>
+<span class="doccomment">/// * Small random changes to the input buffer make it invalid.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// That is, a custom mutator is useful in similar situations where [a `T:</span>
+<span class="doccomment">/// Arbitrary` input type](macro.fuzz_target.html#arbitrary-input-types) is</span>
+<span class="doccomment">/// useful. Note that the two approaches are not mutually exclusive; you can use</span>
+<span class="doccomment">/// whichever is easier for your problem domain or both!</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Implementation Contract</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The original, unmodified input is given in `data[..size]`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You must modify the data in place and return the new size.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The new size should not be greater than `max_size`. If this is not the case,</span>
+<span class="doccomment">/// then the `data` will be truncated to fit within `max_size`. Note that</span>
+<span class="doccomment">/// `max_size &lt; size` is possible when shrinking test cases.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You must produce the same mutation given the same `seed`. Generally, when</span>
+<span class="doccomment">/// choosing what kind of mutation to make or where to mutate, you should start</span>
+<span class="doccomment">/// by creating a random number generator (RNG) that is seeded with the given</span>
+<span class="doccomment">/// `seed` and then consult the RNG whenever making a decision:</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// #![no_main]</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// use rand::{rngs::StdRng, Rng, SeedableRng};</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// libfuzzer_sys::fuzz_mutator!(|data: &amp;mut [u8], size: usize, max_size: usize, seed: u32| {</span>
+<span class="doccomment">///     let mut rng = StdRng::seed_from_u64(seed as u64);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// #   let first_mutation = |_, _, _, _| todo!();</span>
+<span class="doccomment">/// #   let second_mutation = |_, _, _, _| todo!();</span>
+<span class="doccomment">/// #   let third_mutation = |_, _, _, _| todo!();</span>
+<span class="doccomment">/// #   let fourth_mutation = |_, _, _, _| todo!();</span>
+<span class="doccomment">///     // Choose which of our four supported kinds of mutations we want to make.</span>
+<span class="doccomment">///     match rng.gen_range(0..4) {</span>
+<span class="doccomment">///         0 =&gt; first_mutation(rng, data, size, max_size),</span>
+<span class="doccomment">///         1 =&gt; second_mutation(rng, data, size, max_size),</span>
+<span class="doccomment">///         2 =&gt; third_mutation(rng, data, size, max_size),</span>
+<span class="doccomment">///         3 =&gt; fourth_mutation(rng, data, size, max_size),</span>
+<span class="doccomment">///         _ =&gt; unreachable!()</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## Example: Compression</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Consider a simple fuzz target that takes compressed data as input,</span>
+<span class="doccomment">/// decompresses it, and then asserts that the decompressed data doesn&#39;t begin</span>
+<span class="doccomment">/// with &quot;boom&quot;. It is difficult for `libFuzzer` (or any other fuzzer) to crash</span>
+<span class="doccomment">/// this fuzz target because nearly all mutations it makes will invalidate the</span>
+<span class="doccomment">/// compression format. Therefore, we use a custom mutator that decompresses the</span>
+<span class="doccomment">/// raw input, mutates the decompressed data, and then recompresses it. This</span>
+<span class="doccomment">/// allows `libFuzzer` to quickly discover crashing inputs.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// #![no_main]</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// use flate2::{read::GzDecoder, write::GzEncoder, Compression};</span>
+<span class="doccomment">/// use libfuzzer_sys::{fuzz_mutator, fuzz_target};</span>
+<span class="doccomment">/// use std::io::{Read, Write};</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fuzz_target!(|data: &amp;[u8]| {</span>
+<span class="doccomment">///     // Decompress the input data and crash if it starts with &quot;boom&quot;.</span>
+<span class="doccomment">///     if let Some(data) = decompress(data) {</span>
+<span class="doccomment">///         if data.starts_with(b&quot;boom&quot;) {</span>
+<span class="doccomment">///             panic!();</span>
+<span class="doccomment">///         }</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// });</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fuzz_mutator!(</span>
+<span class="doccomment">///     |data: &amp;mut [u8], size: usize, max_size: usize, _seed: u32| {</span>
+<span class="doccomment">///         // Decompress the input data. If that fails, use a dummy value.</span>
+<span class="doccomment">///         let mut decompressed = decompress(&amp;data[..size]).unwrap_or_else(|| b&quot;hi&quot;.to_vec());</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         // Mutate the decompressed data with `libFuzzer`&#39;s default mutator. Make</span>
+<span class="doccomment">///         // the `decompressed` vec&#39;s extra capacity available for insertion</span>
+<span class="doccomment">///         // mutations via `resize`.</span>
+<span class="doccomment">///         let len = decompressed.len();</span>
+<span class="doccomment">///         let cap = decompressed.capacity();</span>
+<span class="doccomment">///         decompressed.resize(cap, 0);</span>
+<span class="doccomment">///         let new_decompressed_size = libfuzzer_sys::fuzzer_mutate(&amp;mut decompressed, len, cap);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         // Recompress the mutated data.</span>
+<span class="doccomment">///         let compressed = compress(&amp;decompressed[..new_decompressed_size]);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         // Copy the recompressed mutated data into `data` and return the new size.</span>
+<span class="doccomment">///         let new_size = std::cmp::min(max_size, compressed.len());</span>
+<span class="doccomment">///         data[..new_size].copy_from_slice(&amp;compressed[..new_size]);</span>
+<span class="doccomment">///         new_size</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// );</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn decompress(compressed_data: &amp;[u8]) -&gt; Option&lt;Vec&lt;u8&gt;&gt; {</span>
+<span class="doccomment">///     let mut decoder = GzDecoder::new(compressed_data);</span>
+<span class="doccomment">///     let mut decompressed = Vec::new();</span>
+<span class="doccomment">///     if decoder.read_to_end(&amp;mut decompressed).is_ok() {</span>
+<span class="doccomment">///         Some(decompressed)</span>
+<span class="doccomment">///     } else {</span>
+<span class="doccomment">///         None</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn compress(data: &amp;[u8]) -&gt; Vec&lt;u8&gt; {</span>
+<span class="doccomment">///     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());</span>
+<span class="doccomment">///     encoder</span>
+<span class="doccomment">///         .write_all(data)</span>
+<span class="doccomment">///         .expect(&quot;writing into a vec is infallible&quot;);</span>
+<span class="doccomment">///     encoder.finish().expect(&quot;writing into a vec is infallible&quot;)</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This example is inspired by [a similar example from the official `libFuzzer`</span>
+<span class="doccomment">/// docs](https://github.com/google/fuzzing/blob/master/docs/structure-aware-fuzzing.md#example-compression).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ## More Example Ideas</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * A PNG custom mutator that decodes a PNG, mutates the image, and then</span>
+<span class="doccomment">/// re-encodes the mutated image as a new PNG.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * A [`serde`](https://serde.rs/) custom mutator that deserializes your</span>
+<span class="doccomment">///   structure, mutates it, and then reserializes it.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * A Wasm binary custom mutator that inserts, replaces, and removes a</span>
+<span class="doccomment">///   bytecode instruction in a function&#39;s body.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * An HTTP request custom mutator that inserts, replaces, and removes a</span>
+<span class="doccomment">///   header from an HTTP request.</span>
+<span class="attribute">#[<span class="ident">macro_export</span>]</span>
+<span class="macro">macro_rules!</span> <span class="ident">fuzz_mutator</span> {
+    (
+        <span class="op">|</span>
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>:<span class="ident">ident</span> : <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">size</span>:<span class="ident">ident</span> : <span class="ident">usize</span> ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">max_size</span>:<span class="ident">ident</span> : <span class="ident">usize</span> ,
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">seed</span>:<span class="ident">ident</span> : <span class="ident">u32</span> $(,)<span class="op">*</span>
+        <span class="op">|</span>
+        <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span>:<span class="ident">block</span>
+    ) =&gt; {
+        <span class="doccomment">/// Auto-generated function.</span>
+        <span class="attribute">#[<span class="ident">export_name</span> <span class="op">=</span> <span class="string">&quot;LLVMFuzzerCustomMutator&quot;</span>]</span>
+        <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">rust_fuzzer_custom_mutator</span>(
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>: <span class="kw-2">*mut</span> <span class="ident">u8</span>,
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">size</span>: <span class="ident">usize</span>,
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">max_size</span>: <span class="ident">usize</span>,
+            <span class="macro-nonterminal">$</span><span class="macro-nonterminal">seed</span>: <span class="ident">std::os::raw::c_uint</span>,
+        ) -&gt; <span class="ident">usize</span> {
+            <span class="comment">// Depending on if we are growing or shrinking the test case, `size`</span>
+            <span class="comment">// might be larger or smaller than `max_size`. The `data`&#39;s capacity</span>
+            <span class="comment">// is the maximum of the two.</span>
+            <span class="kw">let</span> <span class="ident">len</span> <span class="op">=</span> <span class="ident">std::cmp::max</span>(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">max_size</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">size</span>);
+            <span class="kw">let</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">std::slice::from_raw_parts_mut</span>(<span class="macro-nonterminal">$</span><span class="macro-nonterminal">data</span>, <span class="ident">len</span>) };
+
+            <span class="comment">// `unsigned int` is generally a `u32`, but not on all targets. Do</span>
+            <span class="comment">// an infallible (and potentially lossy, but that&#39;s okay because it</span>
+            <span class="comment">// preserves determinism) conversion.</span>
+            <span class="kw">let</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">seed</span> <span class="op">=</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">seed</span> <span class="kw">as</span> <span class="ident">u32</span>;
+
+            <span class="comment">// Truncate the new size if it is larger than the max.</span>
+            <span class="kw">let</span> <span class="ident">new_size</span> <span class="op">=</span> { <span class="macro-nonterminal">$</span><span class="macro-nonterminal">body</span> };
+            <span class="ident">std::cmp::min</span>(<span class="ident">new_size</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">max_size</span>)
+        }
+    };
+}
+
+<span class="doccomment">/// The default `libFuzzer` mutator.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You generally don&#39;t have to use this at all unless you&#39;re defining a</span>
+<span class="doccomment">/// custom mutator with [the `fuzz_mutator!` macro][crate::fuzz_mutator].</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Mutates `data[..size]` in place such that the mutated data is no larger than</span>
+<span class="doccomment">/// `max_size` and returns the new size of the mutated data.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// To only allow shrinking mutations, make `max_size &lt; size`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// To additionally allow mutations that grow the size of the data, make</span>
+<span class="doccomment">/// `max_size &gt; size`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Both `size` and `max_size` must be less than or equal to `data.len()`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Example</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```no_run</span>
+<span class="doccomment">/// // Create some data in a buffer.</span>
+<span class="doccomment">/// let mut data = vec![0; 128];</span>
+<span class="doccomment">/// data[..b&quot;hello&quot;.len()].copy_from_slice(b&quot;hello&quot;);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Ask `libFuzzer` to mutate the data. By setting `max_size` to our buffer&#39;s</span>
+<span class="doccomment">/// // full length, we are allowing `libFuzzer` to perform mutations that grow</span>
+<span class="doccomment">/// // the size of the data, such as insertions.</span>
+<span class="doccomment">/// let size = b&quot;hello&quot;.len();</span>
+<span class="doccomment">/// let max_size = data.len();</span>
+<span class="doccomment">/// let new_size = libfuzzer_sys::fuzzer_mutate(&amp;mut data, size, max_size);</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // Get the mutated data out of the buffer.</span>
+<span class="doccomment">/// let mutated_data = &amp;data[..new_size];</span>
+<span class="doccomment">/// ```</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">fuzzer_mutate</span>(<span class="ident">data</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>], <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">max_size</span>: <span class="ident">usize</span>) -&gt; <span class="ident">usize</span> {
+    <span class="macro">assert!</span>(<span class="ident">size</span> <span class="op">&lt;</span><span class="op">=</span> <span class="ident">data</span>.<span class="ident">len</span>());
+    <span class="macro">assert!</span>(<span class="ident">max_size</span> <span class="op">&lt;</span><span class="op">=</span> <span class="ident">data</span>.<span class="ident">len</span>());
+    <span class="kw">let</span> <span class="ident">new_size</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">LLVMFuzzerMutate</span>(<span class="ident">data</span>.<span class="ident">as_mut_ptr</span>(), <span class="ident">size</span>, <span class="ident">max_size</span>) };
+    <span class="macro">assert!</span>(<span class="ident">new_size</span> <span class="op">&lt;</span><span class="op">=</span> <span class="ident">data</span>.<span class="ident">len</span>());
+    <span class="ident">new_size</span>
+}
+</code></pre></div>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="libfuzzer_sys" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

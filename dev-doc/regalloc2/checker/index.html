@@ -1,0 +1,90 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Checker: verifies that spills/reloads/moves retain equivalent dataflow to original, VReg-based code."><meta name="keywords" content="rust, rustlang, rust-lang, checker"><title>regalloc2::checker - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../storage.js"></script><script src="../../crates.js"></script><script defer src="../../main.js"></script>
+    <noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../favicon.svg"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../regalloc2/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../regalloc2/index.html"><div class="logo-container"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"><a href="#">Module checker</a></h2><div class="sidebar-elems"><section><div class="block"><ul><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li></ul></div></section><div id="sidebar-vars" data-name="checker" data-ty="mod" data-relpath="./"></div><script defer src="./sidebar-items.js"></script></div></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../regalloc2/index.html"><img class="rust-logo" src="../../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="main-heading">
+    <h1 class="fqn"><span class="in-band">Module <a href="../index.html">regalloc2</a>::<wbr><a class="mod" href="#">checker</a><button id="copy-path" onclick="copy_path(this)" title="Copy item path to clipboard"><img src="../../clipboard.svg" width="19" height="18" alt="Copy item path"></button></span></h1><span class="out-of-band"><a class="srclink" href="../../src/regalloc2/checker.rs.html#9-1156">source</a> · <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class="inner">&#x2212;</span>]</a></span></div><details class="rustdoc-toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Checker: verifies that spills/reloads/moves retain equivalent
+dataflow to original, VReg-based code.</p>
+<p>The basic idea is that we track symbolic values as they flow
+through spills and reloads.  The symbolic values represent
+particular virtual registers in the original function body
+presented to the register allocator. Any instruction in the
+original function body (i.e., not added by the allocator)
+conceptually generates a symbolic value “Vn” when storing to (or
+modifying) a virtual register.</p>
+<p>A symbolic value is logically a <em>set of virtual registers</em>,
+representing all virtual registers equal to the value in the given
+storage slot at a given program point. This representation (as
+opposed to tracking just one virtual register) is necessary
+because the regalloc may implement moves in the source program
+(via move instructions or blockparam assignments on edges) in
+“intelligent” ways, taking advantage of values that are already in
+the right place, so we need to know <em>all</em> names for a value.</p>
+<p>These symbolic values are precise but partial: in other words, if
+a physical register is described as containing a virtual register
+at a program point, it must actually contain the value of this
+register (modulo any analysis bugs); but it may describe fewer
+virtual registers even in cases where one <em>could</em> statically prove
+that it contains a certain register, because the analysis is not
+perfectly path-sensitive or value-sensitive. However, all
+assignments <em>produced by our register allocator</em> should be
+analyzed fully precisely. (This last point is important and bears
+repeating: we only need to verify the programs that we produce,
+not arbitrary programs.)</p>
+<p>Operand constraints (fixed register, register, any) are also checked
+at each operand.</p>
+<h3 id="formal-definition"><a href="#formal-definition">Formal Definition</a></h3>
+<p>The analysis lattice consists of the elements of 𝒫(V), the
+powerset (set of all subsets) of V (the set of all virtual
+registers). The ⊤ (top) value in the lattice is V itself, and the
+⊥ (bottom) value in the lattice is ∅ (the empty set). The lattice
+ordering relation is the subset relation: S ≤ U iff S ⊆ U. These
+definitions imply that the lattice meet-function (greatest lower
+bound) is set-intersection.</p>
+<p>(For efficiency, we represent ⊤ not by actually listing out all
+virtual registers, but by representing a special “top” value, but
+the semantics are the same.)</p>
+<p>The dataflow analysis state at each program point (each point
+before or after an instruction) is:</p>
+<ul>
+<li>map of: Allocation -&gt; lattice value</li>
+</ul>
+<p>And the transfer functions for instructions are (where <code>A</code> is the
+above map from allocated physical registers to lattice values):</p>
+<ul>
+<li>
+<p><code>Edit::Move</code> inserted by RA:       [ alloc_d := alloc_s ]</p>
+<p>A’ = A[alloc_d → A[alloc_s]]</p>
+</li>
+<li>
+<p>statement in pre-regalloc function [ V_i := op V_j, V_k, … ]
+with allocated form                [ A_i := op A_j, A_k, … ]</p>
+<p>A’ = { A_k → A[A_k] \ { V_i } for k ≠ i } ∪
+{ A_i -&gt; { V_i } }</p>
+<p>In other words, a statement, even after allocation, generates
+a symbol that corresponds to its original virtual-register
+def. Simultaneously, that same virtual register symbol is removed
+from all other allocs: they no longer carry the current value.</p>
+</li>
+<li>
+<p>Parallel moves or blockparam-assignments in original program
+[ V_d1 := V_s1, V_d2 := V_s2, … ]</p>
+<p>A’ = { A_k → subst(A[A_k]) for all k }
+where subst(S) removes symbols for overwritten virtual
+registers (V_d1 .. V_dn) and then adds V_di whenever
+V_si appeared prior to the removals.</p>
+</li>
+</ul>
+<p>To check correctness, we first find the dataflow fixpoint with the
+above lattice and transfer/meet functions. Then, at each op, we
+examine the dataflow solution at the preceding program point, and
+check that the allocation for each op arg (input/use) contains the
+symbol corresponding to the original virtual register specified
+for this arg.</p>
+</div></details><h2 id="structs" class="small-section-header"><a href="#structs">Structs</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.Checker.html" title="regalloc2::checker::Checker struct">Checker</a></div><div class="item-right docblock-short"></div></div><div class="item-row"><div class="item-left module-item"><a class="struct" href="struct.CheckerErrors.html" title="regalloc2::checker::CheckerErrors struct">CheckerErrors</a></div><div class="item-right docblock-short"><p>A set of errors detected by the regalloc checker.</p>
+</div></div></div><h2 id="enums" class="small-section-header"><a href="#enums">Enums</a></h2>
+<div class="item-table"><div class="item-row"><div class="item-left module-item"><a class="enum" href="enum.CheckerError.html" title="regalloc2::checker::CheckerError enum">CheckerError</a></div><div class="item-right docblock-short"><p>A single error detected by the regalloc checker.</p>
+</div></div></div></section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="regalloc2" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

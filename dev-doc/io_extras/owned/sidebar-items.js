@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["OwnedReadable","An owning I/O handle that implements [`Read`]."],["OwnedWriteable","An owning I/O handle that implements [`Write`]."]]});

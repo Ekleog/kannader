@@ -1,0 +1,1 @@
+initSidebarItems({"attr":[["async_trait",""]],"macro":[["from_witx","This macro expands to a set of `pub` Rust modules:"],["wasmtime_integration","Define the structs required to integrate a Wiggle implementation with Wasmtime."]]});

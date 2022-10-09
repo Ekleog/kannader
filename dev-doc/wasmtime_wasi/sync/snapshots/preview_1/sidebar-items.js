@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["add_wasi_snapshot_preview1_to_linker","Adds all instance items to the specified `Linker`."]]});

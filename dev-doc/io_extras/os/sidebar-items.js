@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["rustix","All Posix-ish platforms have `RawFd` and related traits. Re-export them so that users don’t need target-specific code to import them."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"attr":[["auto_enum","An attribute macro for to allow multiple return types by automatically generated enum."]]});

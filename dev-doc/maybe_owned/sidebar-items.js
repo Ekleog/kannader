@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["MaybeOwned","This type provides a way to store data to which you either have a reference to or which you do own."],["MaybeOwnedMut","This type is basically the same as `MaybeOwned`, but works with mutable references."]]});

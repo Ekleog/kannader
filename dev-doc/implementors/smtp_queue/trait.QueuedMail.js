@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["smtp_queue_fs"] = [{"text":"impl <a class=\"trait\" href=\"smtp_queue/trait.QueuedMail.html\" title=\"trait smtp_queue::QueuedMail\">QueuedMail</a> for <a class=\"struct\" href=\"smtp_queue_fs/struct.FsQueuedMail.html\" title=\"struct smtp_queue_fs::FsQueuedMail\">FsQueuedMail</a>","synthetic":false,"types":["smtp_queue_fs::FsQueuedMail"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

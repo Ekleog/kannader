@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["cap_primitives"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/os/unix/fs/trait.MetadataExt.html\" title=\"trait std::os::unix::fs::MetadataExt\">MetadataExt</a> for <a class=\"struct\" href=\"cap_primitives/fs/struct.Metadata.html\" title=\"struct cap_primitives::fs::Metadata\">Metadata</a>","synthetic":false,"types":["cap_primitives::fs::metadata::Metadata"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

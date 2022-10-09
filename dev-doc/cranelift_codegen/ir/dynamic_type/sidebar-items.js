@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["dynamic_to_fixed","Convert a dynamic-vector type to a fixed-vector type."]],"struct":[["DynamicTypeData","A dynamic type object which has a base vector type and a scaling factor."]],"type":[["DynamicTypes","All allocated dynamic types."]]});

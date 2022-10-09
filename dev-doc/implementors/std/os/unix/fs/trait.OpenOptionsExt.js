@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["cap_primitives"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/os/unix/fs/trait.OpenOptionsExt.html\" title=\"trait std::os::unix::fs::OpenOptionsExt\">OpenOptionsExt</a> for <a class=\"struct\" href=\"cap_primitives/fs/struct.OpenOptions.html\" title=\"struct cap_primitives::fs::OpenOptions\">OpenOptions</a>","synthetic":false,"types":["cap_primitives::fs::open_options::OpenOptions"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

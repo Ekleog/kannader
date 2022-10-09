@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["wasi_cap_std_sync"] = [{"text":"impl <a class=\"trait\" href=\"wasi_common/dir/trait.WasiDir.html\" title=\"trait wasi_common::dir::WasiDir\">WasiDir</a> for <a class=\"struct\" href=\"wasi_cap_std_sync/dir/struct.Dir.html\" title=\"struct wasi_cap_std_sync::dir::Dir\">Dir</a>","synthetic":false,"types":["wasi_cap_std_sync::dir::Dir"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

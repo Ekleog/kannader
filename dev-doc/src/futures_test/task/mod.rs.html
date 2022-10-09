@@ -1,0 +1,128 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/.cargo/registry/src/github.com-1ecc6299db9ec823/futures-test-0.3.21/src/task/mod.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Regular.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../FiraSans-Medium.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Regular.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceSerif4-Bold.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../SourceCodePro-Semibold.ttf.woff2"><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../ayu.css" disabled><link rel="stylesheet" type="text/css" href="../../../dark.css" disabled><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script id="default-settings" ></script><script src="../../../storage.js"></script><script src="../../../crates.js"></script><script defer src="../../../main.js"></script><script defer src="../../../source-script.js"></script><script defer src="../../../source-files.js"></script>
+    <noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="alternate icon" type="image/png" href="../../../favicon-16x16.png"><link rel="alternate icon" type="image/png" href="../../../favicon-32x32.png"><link rel="icon" type="image/svg+xml" href="../../../favicon.svg"></head><body class="rustdoc source"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="sidebar-logo" href="../../../futures_test/index.html"><div class="logo-container"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></div>
+        </a><h2 class="location"></h2>
+    </nav>
+    <nav class="sidebar"><a class="sidebar-logo" href="../../../futures_test/index.html"><div class="logo-container"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></div>
+        </a></nav><main><div class="width-limiter"><div class="sub-container"><a class="sub-logo-container" href="../../../futures_test/index.html"><img class="rust-logo" src="../../../rust-logo.svg" alt="logo"></a><nav class="sub"><div class="theme-picker hidden"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu" title="themes"><img width="22" height="22" alt="Pick another theme!" src="../../../brush.svg"></button><div id="theme-choices" role="menu"></div></div><form class="search-form"><div class="search-container"><span></span><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><button type="button" id="help-button" title="help">?</button><a id="settings-menu" href="../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../wheel.svg"></a></div></form></nav></div><section id="main-content" class="content"><div class="example-wrap"><pre class="line-numbers"><span id="1">1</span>
+<span id="2">2</span>
+<span id="3">3</span>
+<span id="4">4</span>
+<span id="5">5</span>
+<span id="6">6</span>
+<span id="7">7</span>
+<span id="8">8</span>
+<span id="9">9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+</pre><pre class="rust"><code><span class="comment">// TODO: note that paths like futures_core::task::Context actually get redirected to core::task::Context</span>
+<span class="comment">// in the rendered docs. Is this desirable? If so, should we change the paths here?</span>
+<span class="comment">//</span>
+<span class="comment">// Also, there is cross crate links in here. They are not going to work anytime soon. Do we put https links</span>
+<span class="comment">// in here? to here: https://rust-lang.github.io/futures-api-docs? The problem is these have a</span>
+<span class="comment">// version hardcoded in the url: 0.3.0-alpha.16 We could link to docs.rs, but currently that says:</span>
+<span class="comment">// docs.rs failed to build futures-0.3.0-alpha.16 -&gt; ok the reason seems to be that they are on</span>
+<span class="comment">// 2019-04-17 which does still have futures-api unstable feature, so that should get solved.</span>
+<span class="comment">//</span>
+<span class="doccomment">//! Task related testing utilities.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This module provides utilities for creating test</span>
+<span class="doccomment">//! [`Context`](futures_core::task::Context)s,</span>
+<span class="doccomment">//! [`Waker`](futures_core::task::Waker)s and</span>
+<span class="doccomment">//! [`Spawn`](futures_task::Spawn) implementations.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Test contexts:</span>
+<span class="doccomment">//! - [`noop_context`](crate::task::noop_context) creates a context that ignores calls to</span>
+<span class="doccomment">//!   [`cx.waker().wake_by_ref()`](futures_core::task::Waker).</span>
+<span class="doccomment">//! - [`panic_context`](crate::task::panic_context) creates a context that panics when</span>
+<span class="doccomment">//!   [`cx.waker().wake_by_ref()`](futures_core::task::Waker) is called.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Test wakers:</span>
+<span class="doccomment">//! - [`noop_waker`](crate::task::noop_waker) creates a waker that ignores calls to</span>
+<span class="doccomment">//!   [`wake`](futures_core::task::Waker).</span>
+<span class="doccomment">//! - [`panic_waker`](crate::task::panic_waker) creates a waker that panics when</span>
+<span class="doccomment">//!   [`wake`](futures_core::task::Waker) is called.</span>
+<span class="doccomment">//! - [`new_count_waker`](crate::task::new_count_waker) creates a waker that increments a counter whenever</span>
+<span class="doccomment">//!   [`wake`](futures_core::task::Waker) is called.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Test spawners:</span>
+<span class="doccomment">//! - [`NoopSpawner`](crate::task::NoopSpawner) ignores calls to</span>
+<span class="doccomment">//!   [`spawn`](futures_util::task::SpawnExt::spawn)</span>
+<span class="doccomment">//! - [`PanicSpawner`](crate::task::PanicSpawner) panics if [`spawn`](futures_util::task::SpawnExt::spawn) is</span>
+<span class="doccomment">//!   called.</span>
+<span class="doccomment">//! - [`RecordSpawner`](crate::task::RecordSpawner) records the spawned futures.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! For convenience there additionally exist various functions that directly</span>
+<span class="doccomment">//! return waker/spawner references: [`noop_waker_ref`](crate::task::noop_waker_ref),</span>
+<span class="doccomment">//! [`panic_waker_ref`](crate::task::panic_waker_ref), [`noop_spawner_mut`](crate::task::noop_spawner_mut) and [`panic_spawner_mut`](crate::task::panic_spawner_mut).</span>
+
+<span class="kw">mod</span> <span class="ident">context</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::context</span>::{<span class="ident">noop_context</span>, <span class="ident">panic_context</span>};
+
+<span class="kw">mod</span> <span class="ident">noop_spawner</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::noop_spawner</span>::{<span class="ident">noop_spawner_mut</span>, <span class="ident">NoopSpawner</span>};
+
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">futures_util::task</span>::{<span class="ident">noop_waker</span>, <span class="ident">noop_waker_ref</span>};
+
+<span class="kw">mod</span> <span class="ident">panic_spawner</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::panic_spawner</span>::{<span class="ident">panic_spawner_mut</span>, <span class="ident">PanicSpawner</span>};
+
+<span class="kw">mod</span> <span class="ident">panic_waker</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::panic_waker</span>::{<span class="ident">panic_waker</span>, <span class="ident">panic_waker_ref</span>};
+
+<span class="kw">mod</span> <span class="ident">record_spawner</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::record_spawner::RecordSpawner</span>;
+
+<span class="kw">mod</span> <span class="ident">wake_counter</span>;
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident"><span class="self">self</span>::wake_counter</span>::{<span class="ident">new_count_waker</span>, <span class="ident">AwokenCount</span>};
+</code></pre></div>
+</section><section id="search" class="content hidden"></section></div></main><div id="rustdoc-vars" data-root-path="../../../" data-current-crate="futures_test" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.61.0-nightly (285fa7ecd 2022-03-14)" ></div>
+</body></html>

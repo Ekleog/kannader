@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Duplex","Combine a reader + writer into a duplex of `Read` + `Write`."]]});

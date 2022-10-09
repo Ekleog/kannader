@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["MonotonicClockExt","Extension trait for `cap_std::time::MonotonicClock`."],["SystemClockExt","Extension trait for `cap_std::time::SystemClock`."]]});

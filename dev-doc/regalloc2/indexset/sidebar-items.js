@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["IndexSet","A conceptually infinite-length set of indices that allows union and efficient iteration over elements."],["SetBitsIter",""]]});
