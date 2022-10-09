@@ -517,21 +517,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "capnp"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c262726f68118392269a3f7a5546baf51dcfe5cb3c3f0957b502106bf1a065"
-
-[[package]]
-name = "capnpc"
-version = "0.14.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7ed9b80f792ac01a8b328ccbc509c2bd756fb5dec18af0163e7963dde23c0b5"
-dependencies = [
- "capnp",
-]
-
-[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1696,14 +1681,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "kannader-rpc"
-version = "0.1.0"
-dependencies = [
- "capnp",
- "capnpc",
 ]
 
 [[package]]
