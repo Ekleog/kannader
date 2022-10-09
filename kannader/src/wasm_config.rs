@@ -81,7 +81,7 @@ impl WasmConfig {
             alloc: None,
             dealloc: None,
         });
-        let mut linker = wasmtime::Linker::new(&engine);
+        let mut linker = wasmtime::Linker::new(engine);
 
         wasmtime_wasi::add_to_linker(&mut linker, |state: &mut WasmState| &mut state.wasi)
             .context("Adding WASI exports to the linker")?;

@@ -129,9 +129,9 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     debug!("Preparing the client configuration");
                     // TODO: see for configuring persistence, for more performance?
                     let tls_client_cfg = rustls::ClientConfig::builder()
-                        .with_cipher_suites(&rustls::ALL_CIPHER_SUITES)
+                        .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
                         .with_kx_groups(&rustls::ALL_KX_GROUPS)
-                        .with_protocol_versions(&rustls::ALL_VERSIONS)
+                        .with_protocol_versions(rustls::ALL_VERSIONS)
                         .context("Configuring the rustls client")?
                         .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
                         .with_no_client_auth();
@@ -212,9 +212,9 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         // TODO: see for configuring persistence, for more performance?
                         // TODO: support SNI
                         let tls_server_cfg = rustls::ServerConfig::builder()
-                            .with_cipher_suites(&rustls::ALL_CIPHER_SUITES)
+                            .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
                             .with_kx_groups(&rustls::ALL_KX_GROUPS)
-                            .with_protocol_versions(&rustls::ALL_VERSIONS)
+                            .with_protocol_versions(rustls::ALL_VERSIONS)
                             .context("Configuring the rustls server")?
                             .with_no_client_auth()
                             .with_single_cert(certs, key)
