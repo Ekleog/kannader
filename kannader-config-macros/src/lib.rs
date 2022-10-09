@@ -109,10 +109,10 @@ pub fn implement_guest(input: TokenStream) -> TokenStream {
 pub fn implement_host(_input: TokenStream) -> TokenStream {
     let fn_body = call_ffi_fn(
         &SETUP_FN(),
-        quote!(memory.data_ptr()),
-        quote!(memory.data_size()),
-        |s| quote!(allocate(#s)),
-        |p, s| quote!(wasm_fun(#p, #s)),
+        quote!(memory.data_ptr(&mut *ctx)),
+        quote!(memory.data_size(&mut *ctx)),
+        |s| quote!(allocate.call(&mut *ctx, #s)),
+        |p, s| quote!(wasm_fun.call(&mut *ctx, (#p, #s))),
         |_, s| {
             quote! {{
                 if #s == 0 {
@@ -137,27 +137,26 @@ pub fn implement_host(_input: TokenStream) -> TokenStream {
         // upstream)
         pub fn setup(
             path: &Path,
-            linker: &wasmtime::Linker,
-            allocate: Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
+            ctx: &mut wasmtime::Store<WasmState>,
+            linker: &wasmtime::Linker<WasmState>,
         ) -> anyhow::Result<()> {
+            let allocate = ctx.data().alloc.unwrap();
+
             // Recover memory instance
             let memory = linker
-                .get_one_by_name("config", Some("memory"))
+                .get(&mut *ctx, "config", "memory")
                 .context("Looking for an export for ‘memory’")?
                 .into_memory()
                 .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
 
             // Recover setup function
-            let wasm_fun = linker
-                .get_one_by_name("config", Some("setup"))
+            let wasm_fun: wasmtime::TypedFunc<(u32, u32), u64> = linker
+                .get(&mut *ctx, "config", "setup")
                 .context("Looking for an export for ‘setup’")?
                 .into_func()
                 .ok_or_else(|| anyhow!("Export for ‘setup’ is not a function"))?
-                .get2()
+                .typed(&mut *ctx)
                 .with_context(|| format!("Checking the type of ‘setup’"))?;
-
-            fn force_type<F: Fn(u32, u32) -> Result<u64, wasmtime::Trap>>(_: &F) {}
-            force_type(&wasm_fun);
 
             #fn_body
         }
@@ -200,7 +199,7 @@ fn make_trait(trait_type: TraitType, c: Communicator) -> TokenStream {
     };
     let first_param = match trait_type {
         TraitType::OnGuest => quote!(cfg: &Self::Cfg),
-        TraitType::OnHost => quote!(self: Rc<Self>),
+        TraitType::OnHost => quote!(self: Arc<Self>),
     };
     let funcs = c.funcs.into_iter().map(|f| {
         let fn_name = f.fn_name;
@@ -295,7 +294,7 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
             }
         });
         quote! {
-            pub #fn_name: Box<dyn Fn(#(#args),*) -> anyhow::Result<#ret>>,
+            pub #fn_name: Box<dyn Fn(&mut wasmtime::Store<WasmState> #(, #args)*) -> anyhow::Result<#ret>>,
         }
     });
     let func_gets = c.funcs.iter().map(|f| {
@@ -313,30 +312,27 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
         let checking_type = format!("Checking the type of ‘{}’", f.ffi_name);
         let fn_body = call_ffi_fn(
             f,
-            quote!(memory.data_ptr()),
-            quote!(memory.data_size()),
-            |s| quote!(allocate(#s)),
-            |p, s| quote!(wasm_fun(#p, #s)),
-            |p, s| quote!(deallocate(#p, #s)),
+            quote!(memory.data_ptr(&mut *ctx)),
+            quote!(memory.data_size(&mut *ctx)),
+            |s| quote!(allocate.call(&mut *ctx, #s)),
+            |p, s| quote!(wasm_fun.call(&mut *ctx, (#p, #s))),
+            |p, s| quote!(deallocate.call(&mut *ctx, (#p, #s))),
         );
         quote! {
             let #fn_name = {
                 let memory = memory.clone();
-                let allocate = allocate.clone();
-                let deallocate = deallocate.clone();
+                let allocate = ctx.data().alloc.unwrap();
+                let deallocate = ctx.data().dealloc.unwrap();
 
-                let wasm_fun = linker
-                    .get_one_by_name("config", Some(#ffi_name_str))
+                let wasm_fun: wasmtime::TypedFunc<(u32, u32), u64> = linker
+                    .get(&mut *ctx, "config", #ffi_name_str)
                     .context(#looking_for_export)?
                     .into_func()
                     .ok_or_else(|| anyhow::Error::msg(#export_is_not_function))?
-                    .get2()
+                    .typed(&mut *ctx)
                     .context(#checking_type)?;
 
-                fn force_type<F: Fn(u32, u32) -> Result<u64, wasmtime::Trap>>(_: &F) {}
-                force_type(&wasm_fun);
-
-                Box::new(move |#(#host_args),*| {
+                Box::new(move |ctx: &mut wasmtime::Store<WasmState>, #(#host_args),*| {
                     #fn_body
                 })
             };
@@ -350,14 +346,13 @@ fn make_host_client(struct_name: Ident, c: Communicator) -> TokenStream {
 
         impl #struct_name {
             pub fn build(
-                linker: &wasmtime::Linker,
-                allocate: std::rc::Rc<dyn Fn(u32) -> Result<u32, wasmtime::Trap>>,
-                deallocate: std::rc::Rc<dyn Fn(u32, u32) -> Result<(), wasmtime::Trap>>,
+                ctx: &mut wasmtime::Store<WasmState>,
+                linker: &wasmtime::Linker<WasmState>,
             ) -> anyhow::Result<Self> {
                 use anyhow::{anyhow, ensure, Context};
 
                 let memory = linker
-                    .get_one_by_name("config", Some("memory"))
+                    .get(&mut *ctx, "config", "memory")
                     .context("Looking for an export for ‘memory’")?
                     .into_memory()
                     .ok_or_else(|| anyhow!("Export for ‘memory’ is not a memory"))?;
@@ -441,49 +436,40 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
         // linker and actually getting out the allocate function
         let fn_body = run_ffi_fn(
             f,
-            quote!(unsafe { &memory.data_unchecked()[p as usize..(p + s) as usize] }),
-            quote!((deallocate.borrow().as_ref().unwrap())(p, s).unwrap()),
+            quote!(&memory.data(&mut ctx)[p as usize..(p + s) as usize]),
+            quote!(ctx.data().dealloc.unwrap().call(&mut ctx, (p, s)).unwrap()),
             |args| quote!(<Self as #trait_name>::#fn_name(this.clone(), #args)),
             |size| {
                 quote! {{
-                    let ptr: u32 = (allocate.borrow().as_ref().unwrap())(#size).unwrap();
-                    let slice = unsafe {
-                        &mut memory.data_unchecked_mut()[ptr as usize..(ptr + #size) as usize]
-                    };
+                    let ptr: u32 = ctx.data().alloc.unwrap().call(&mut ctx, #size).unwrap();
+                    let slice = &mut memory.data_mut(&mut ctx)[ptr as usize..(ptr + #size) as usize];
                     (ptr, slice)
                 }}
             },
         );
         quote! {{
-            let allocate = allocate.clone();
-            let deallocate = deallocate.clone();
             let this = self.clone();
 
-            let the_fn = move |c: wasmtime::Caller, p: u32, s: u32| {
-                let memory = c.get_export("memory")
+            let the_fn = move |mut ctx: wasmtime::Caller<WasmState>, p: u32, s: u32| {
+                let memory = ctx.get_export("memory")
                     .and_then(|m| m.into_memory())
                     .expect(#unable_to_find_memory);
 
-                assert!((p as usize).saturating_add(s as usize) <= memory.data_size(), #input_slice_oob);
+                assert!((p as usize).saturating_add(s as usize) <= memory.data_size(&mut ctx), #input_slice_oob);
 
                 #fn_body
             };
 
-            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(l.store(), the_fn))?;
+            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(&mut *ctx, the_fn))?;
         }}
     });
     let res = quote! {
         impl #impl_name {
-            pub fn add_to_linker<Alloc, Dealloc>(
-                self: Rc<Self>,
-                allocate: Rc<RefCell<Option<Alloc>>>,
-                deallocate: Rc<RefCell<Option<Dealloc>>>,
-                l: &mut wasmtime::Linker,
-            ) -> anyhow::Result<()>
-            where
-                Alloc: 'static + Fn(u32) -> Result<u32, wasmtime::Trap>,
-                Dealloc: 'static + Fn(u32, u32) -> Result<(), wasmtime::Trap>,
-            {
+            pub fn add_to_linker(
+                self: Arc<Self>,
+                ctx: &mut wasmtime::Store<WasmState>,
+                l: &mut wasmtime::Linker<WasmState>,
+            ) -> anyhow::Result<()> {
                 #(#linker_add)*
 
                 Ok(())

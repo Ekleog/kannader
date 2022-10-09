@@ -7,7 +7,7 @@
 // TODO: make everything configurable, and actually implement the wasm scheme
 // described in the docs
 
-use std::{convert::TryFrom, io, path::PathBuf, sync::Arc};
+use std::{convert::TryFrom, io, path::PathBuf, sync::Arc, time::SystemTime};
 
 use anyhow::Context;
 use easy_parallel::Parallel;
@@ -38,15 +38,17 @@ pub struct Meta;
 
 struct NoCertVerifier;
 
-impl rustls::ServerCertVerifier for NoCertVerifier {
+impl rustls::client::ServerCertVerifier for NoCertVerifier {
     fn verify_server_cert(
         &self,
-        _roots: &rustls::RootCertStore,
-        _presented_certs: &[rustls::Certificate],
-        _dns_name: webpki::DNSNameRef,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::client::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
-    ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-        Ok(rustls::ServerCertVerified::assertion())
+        _now: SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
     }
 }
 
@@ -125,13 +127,15 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                 smol::block_on(async move {
                     // Prepare the clients
                     debug!("Preparing the client configuration");
-                    let mut tls_client_cfg =
-                        rustls::ClientConfig::with_ciphersuites(&rustls::ALL_CIPHERSUITES);
                     // TODO: see for configuring persistence, for more performance?
-                    tls_client_cfg
-                        .dangerous()
-                        .set_certificate_verifier(Arc::new(NoCertVerifier));
-                    let connector = async_tls::TlsConnector::from(tls_client_cfg);
+                    let tls_client_cfg = rustls::ClientConfig::builder()
+                        .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
+                        .with_kx_groups(&rustls::ALL_KX_GROUPS)
+                        .with_protocol_versions(rustls::ALL_VERSIONS)
+                        .context("Configuring the rustls client")?
+                        .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
+                        .with_no_client_auth();
+                    let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_client_cfg));
                     let client = smtp_client::Client::new(
                         async_std_resolver::resolver_from_system_conf()
                             .await
@@ -141,8 +145,11 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
 
                     // Spawn the queue
                     debug!("Preparing the queue configuration");
-                    let storage = (wasm_config.queue_config.storage_type)()
-                        .context("Retrieving storage type")?;
+                    let storage = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.queue_config.storage_type)(&mut *store)
+                            .context("Retrieving storage type")?
+                    };
                     let storage = match storage {
                         kannader_types::QueueStorage::Fs(path) => FsStorage::new(Arc::new(path))
                             .await
@@ -160,21 +167,19 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     // TODO: introduce some tests that make sure that starting kannader with an
                     // invalid config does result in a user-visible error
                     debug!("Preparing the TLS configuration");
-                    let cert_file = (wasm_config.server_config.tls_cert_file)()
-                        .context("Getting the path to the TLS cert file")?;
-                    let keys_file = (wasm_config.server_config.tls_key_file)()
-                        .context("Getting the path to the TLS key file")?;
+                    let cert_file = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.server_config.tls_cert_file)(&mut *store)
+                            .context("Getting the path to the TLS cert file")?
+                    };
+                    let keys_file = {
+                        let mut store = wasm_config.store.borrow_mut();
+                        (wasm_config.server_config.tls_key_file)(&mut *store)
+                            .context("Getting the path to the TLS key file")?
+                    };
                     let tls_server_cfg = unblock(move || {
-                        // Configure rustls
-                        let mut tls_server_cfg = rustls::ServerConfig::with_ciphersuites(
-                            rustls::NoClientAuth::new(),
-                            &rustls::ALL_CIPHERSUITES,
-                        );
-                        // TODO: see for configuring persistence, for more performance?
-                        // TODO: support SNI
-
                         // Load the certificates and keys
-                        let cert = rustls_pemfile::certs(&mut io::BufReader::new(
+                        let certs = rustls_pemfile::certs(&mut io::BufReader::new(
                             std::fs::File::open(&cert_file).with_context(|| {
                                 format!("Opening the certificate file ‘{}’", cert_file.display())
                             })?,
@@ -185,7 +190,7 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         .into_iter()
                         .map(rustls::Certificate)
                         .collect::<Vec<_>>();
-                        debug!(num_certs = cert.len(), "Parsed certificates");
+                        debug!(num_certs = certs.len(), "Parsed certificates");
 
                         let keys = rustls_pemfile::pkcs8_private_keys(&mut io::BufReader::new(
                             std::fs::File::open(&keys_file).with_context(|| {
@@ -203,14 +208,22 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         );
                         let key = rustls::PrivateKey(keys.into_iter().next().unwrap());
 
-                        tls_server_cfg
-                            .set_single_cert(cert, key)
-                            .context("Setting the key and certificate")?;
+                        // Configure rustls
+                        // TODO: see for configuring persistence, for more performance?
+                        // TODO: support SNI
+                        let tls_server_cfg = rustls::ServerConfig::builder()
+                            .with_cipher_suites(rustls::ALL_CIPHER_SUITES)
+                            .with_kx_groups(&rustls::ALL_KX_GROUPS)
+                            .with_protocol_versions(rustls::ALL_VERSIONS)
+                            .context("Configuring the rustls server")?
+                            .with_no_client_auth()
+                            .with_single_cert(certs, key)
+                            .context("Setting the key and certificates")?;
 
                         Ok(tls_server_cfg)
                     })
                     .await?;
-                    let acceptor = async_tls::TlsAcceptor::from(tls_server_cfg);
+                    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls_server_cfg));
 
                     debug!("Reopening the listener as async");
                     let server_cfg = Arc::new(ServerConfig::new(acceptor, queue));

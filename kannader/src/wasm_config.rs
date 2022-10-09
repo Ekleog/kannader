@@ -1,24 +1,38 @@
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
-    rc::Rc,
+    sync::Arc,
 };
 
 use anyhow::{anyhow, Context};
+use wasmtime_wasi::{ambient_authority, Dir};
+
+pub struct WasmState {
+    wasi: wasmtime_wasi::WasiCtx,
+    // Parameter: size of the block to allocate
+    // Return: address of the allocated block
+    alloc: Option<wasmtime::TypedFunc<u32, u32>>,
+    // Parameters: (address, size) of the block to deallocate
+    dealloc: Option<wasmtime::TypedFunc<(u32, u32), ()>>,
+}
 
 pub mod setup {
+    use super::WasmState;
     kannader_config_macros::implement_host!();
 }
 
 pub mod client_config {
+    use super::WasmState;
     kannader_config_macros::client_config_implement_host_client!(WasmFuncs);
 }
 
 pub mod queue_config {
+    use super::WasmState;
     kannader_config_macros::queue_config_implement_host_client!(WasmFuncs);
 }
 
 pub mod server_config {
+    use super::WasmState;
     kannader_config_macros::server_config_implement_host_client!(WasmFuncs);
 }
 
@@ -26,6 +40,7 @@ pub struct WasmConfig {
     pub client_config: client_config::WasmFuncs,
     pub queue_config: queue_config::WasmFuncs,
     pub server_config: server_config::WasmFuncs,
+    pub store: RefCell<wasmtime::Store<WasmState>>,
 }
 
 impl WasmConfig {
@@ -39,79 +54,76 @@ impl WasmConfig {
         engine: &wasmtime::Engine,
         module: &wasmtime::Module,
     ) -> anyhow::Result<WasmConfig> {
-        // Variables used to refer to allocator / deallocator while
-        // they aren't ready yet. The RefCell's will be filled once a
-        // bit below in this function, and then never changed again.
-        let early_alloc = Rc::new(RefCell::new(None));
-        let early_dealloc = Rc::new(RefCell::new(None));
-
-        let store = wasmtime::Store::new(engine);
-        let mut linker = wasmtime::Linker::new(&store);
-
         let mut b = wasmtime_wasi::WasiCtxBuilder::new();
         for (guest, host) in dirs {
             // TODO: this is bad! replace with something that only
             // adds the necessary stuff
             // TODO: this should be async files, but let's keep
             // that for the day async wasi is implemented upstream
-            b.preopened_dir(
-                std::fs::File::open(&host)
-                    .with_context(|| format!("Preopening ‘{}’ for the guest", host.display()))?,
-                guest,
-            );
+            b = b
+                .preopened_dir(
+                    Dir::open_ambient_dir(&host, ambient_authority()).with_context(|| {
+                        format!("Preopening ‘{}’ for the guest", host.display())
+                    })?,
+                    guest,
+                )
+                .with_context(|| {
+                    format!(
+                        "Registering ‘{}’ as preopened dir pointing to ‘{}‘ for the guest",
+                        guest.display(),
+                        host.display()
+                    )
+                })?;
         }
-        wasmtime_wasi::Wasi::new(&store, b.build().context("Preparing WASI context")?)
-            .add_to_linker(&mut linker)
+
+        let mut store = wasmtime::Store::new(engine, WasmState {
+            wasi: b.build(),
+            alloc: None,
+            dealloc: None,
+        });
+        let mut linker = wasmtime::Linker::new(engine);
+
+        wasmtime_wasi::add_to_linker(&mut linker, |state: &mut WasmState| &mut state.wasi)
             .context("Adding WASI exports to the linker")?;
 
-        let tracing_serv = Rc::new(TracingServer);
+        let tracing_serv = Arc::new(TracingServer);
         tracing_serv
-            .add_to_linker(early_alloc.clone(), early_dealloc.clone(), &mut linker)
+            .add_to_linker(&mut store, &mut linker)
             .context("Adding ‘tracing’ module to the linker")?;
 
         linker
-            .module("config", module)
+            .module(&mut store, "config", module)
             .context("Instantiating the wasm configuration blob")?;
 
         macro_rules! get_func {
-            ($getter:ident, $function:expr) => {
+            ($function:expr) => {
                 linker
-                    .get_one_by_name("config", Some($function))
-                    .with_context(|| format!("Looking for an export for ‘{}’", $function))?
+                    .get(&mut store, "config", $function)
+                    .ok_or_else(|| anyhow!("No export for ‘{}’", $function))?
                     .into_func()
                     .ok_or_else(|| anyhow!("Export for ‘{}’ is not a function", $function))?
-                    .$getter()
+                    .typed(&mut store)
                     .with_context(|| format!("Checking the type of ‘{}’", $function))?
             };
         }
 
-        // Parameter: size of the block to allocate
-        // Return: address of the allocated block
-        let allocate = Rc::new(get_func!(get1, "allocate"));
-        *early_alloc.borrow_mut() = Some(get_func!(get1, "allocate"));
-
-        // Parameters: (address, size) of the block to deallocate
-        let deallocate = Rc::new(get_func!(get2, "deallocate"));
-        *early_dealloc.borrow_mut() = Some(get_func!(get2, "deallocate"));
+        store.data_mut().alloc = Some(get_func!("allocate"));
+        store.data_mut().dealloc = Some(get_func!("deallocate"));
 
         let res = WasmConfig {
-            client_config: client_config::WasmFuncs::build(
-                &linker,
-                allocate.clone(),
-                deallocate.clone(),
-            )
-            .context("Getting client configuration")?,
-            queue_config: queue_config::WasmFuncs::build(
-                &linker,
-                allocate.clone(),
-                deallocate.clone(),
-            )
-            .context("Getting queue configuration")?,
-            server_config: server_config::WasmFuncs::build(&linker, allocate.clone(), deallocate)
+            client_config: client_config::WasmFuncs::build(&mut store, &linker)
+                .context("Getting client configuration")?,
+            queue_config: queue_config::WasmFuncs::build(&mut store, &linker)
+                .context("Getting queue configuration")?,
+            server_config: server_config::WasmFuncs::build(&mut store, &linker)
                 .context("Getting server configuration")?,
+            store: RefCell::new(store),
         };
 
-        setup::setup(cfg, &linker, allocate).context("Running the setup hook")?;
+        {
+            let mut store = res.store.borrow_mut();
+            setup::setup(cfg, &mut *store, &linker).context("Running the setup hook")?;
+        }
 
         Ok(res)
     }
@@ -125,7 +137,7 @@ struct TracingServer;
 kannader_config_macros::tracing_implement_trait!();
 
 impl TracingConfig for TracingServer {
-    fn trace(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
+    fn trace(self: Arc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
         if meta.is_empty() {
             tracing::trace!("{}", msg);
         } else {
@@ -133,7 +145,7 @@ impl TracingConfig for TracingServer {
         }
     }
 
-    fn debug(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
+    fn debug(self: Arc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
         if meta.is_empty() {
             tracing::debug!("{}", msg);
         } else {
@@ -141,7 +153,7 @@ impl TracingConfig for TracingServer {
         }
     }
 
-    fn info(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
+    fn info(self: Arc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
         if meta.is_empty() {
             tracing::info!("{}", msg);
         } else {
@@ -149,7 +161,7 @@ impl TracingConfig for TracingServer {
         }
     }
 
-    fn warn(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
+    fn warn(self: Arc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
         if meta.is_empty() {
             tracing::warn!("{}", msg);
         } else {
@@ -157,7 +169,7 @@ impl TracingConfig for TracingServer {
         }
     }
 
-    fn error(self: Rc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
+    fn error(self: Arc<Self>, meta: std::collections::HashMap<String, String>, msg: String) {
         if meta.is_empty() {
             tracing::error!("{}", msg);
         } else {

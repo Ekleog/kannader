@@ -12,11 +12,11 @@ pub type DynAsyncReadWrite =
     duplexify::Duplex<Pin<Box<dyn Send + AsyncRead>>, Pin<Box<dyn Send + AsyncWrite>>>;
 
 pub struct ClientConfig {
-    connector: async_tls::TlsConnector,
+    connector: tokio_rustls::TlsConnector,
 }
 
 impl ClientConfig {
-    pub fn new(connector: async_tls::TlsConnector) -> ClientConfig {
+    pub fn new(connector: tokio_rustls::TlsConnector) -> ClientConfig {
         ClientConfig { connector }
     }
 }
@@ -25,7 +25,8 @@ impl ClientConfig {
 macro_rules! run_hook {
     ($fn:ident($($arg:expr),*) || $res:expr) => {
         WASM_CONFIG.with(|wasm_config| {
-            match (wasm_config.client_config.$fn)($($arg),*) {
+            let mut store = wasm_config.store.borrow_mut();
+            match (wasm_config.client_config.$fn)(&mut *store, $($arg),*) {
                 Ok(res) => res,
                 Err(e) => {
                     error!(error = ?e, "Internal server in ‘client_config_{}’", stringify!($fn));
@@ -60,8 +61,17 @@ impl smtp_client::Config for ClientConfig {
         match handler {
             TlsHandler::Rustls => {
                 // TODO: what should `nodomainyet` be here? for SNI maybe?
-                let io = self.connector.connect("nodomainyet", io).await?;
-                let (r, w) = io.split();
+                // TODO: switch everywhere to tokio?
+                use async_compat::CompatExt;
+                use std::convert::TryFrom;
+                let io = self
+                    .connector
+                    .connect(
+                        rustls::ServerName::try_from("nodomainyet").unwrap(),
+                        io.compat(),
+                    )
+                    .await?;
+                let (r, w) = io.compat().split();
                 let io = duplexify::Duplex::new(
                     Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
                     Box::pin(w) as Pin<Box<dyn Send + AsyncWrite>>,

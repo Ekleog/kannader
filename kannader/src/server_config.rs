@@ -15,7 +15,7 @@ pub type ConnMeta = smtp_server::ConnectionMetadata<Vec<u8>>;
 pub type MailMeta = smtp_server::MailMetadata<Vec<u8>>;
 
 pub struct ServerConfig<T> {
-    acceptor: async_tls::TlsAcceptor,
+    acceptor: tokio_rustls::TlsAcceptor,
     queue: smtp_queue::Queue<Meta, QueueConfig, FsStorage<Meta>, T>,
 }
 
@@ -24,7 +24,7 @@ where
     T: smtp_queue::Transport<Meta>,
 {
     pub fn new(
-        acceptor: async_tls::TlsAcceptor,
+        acceptor: tokio_rustls::TlsAcceptor,
         queue: smtp_queue::Queue<Meta, QueueConfig, FsStorage<Meta>, T>,
     ) -> ServerConfig<T> {
         ServerConfig { acceptor, queue }
@@ -42,7 +42,8 @@ macro_rules! run_hook {
 
     ($fn:ident($($arg:expr),*) || $res:expr) => {
         WASM_CONFIG.with(|wasm_config| {
-            let res = (wasm_config.server_config.$fn)($($arg),*);
+            let mut store = wasm_config.store.borrow_mut();
+            let res = (wasm_config.server_config.$fn)(&mut *store, $($arg),*);
             match res {
                 Ok(res) => res.into(),
                 Err(e) => {
@@ -119,8 +120,10 @@ where
         // implementation? and then also make the rustls parameters in main.rs
         // configurable... anyway we have to think about having multiple TLS certs for
         // multiple SNI hostnames / multiple IP addresses
-        let io = self.acceptor.accept(io).await?;
-        let (r, w) = io.split();
+        // TODO: switch everything to tokio?
+        use async_compat::CompatExt;
+        let io = self.acceptor.accept(io.compat()).await?;
+        let (r, w) = io.compat().split();
         let io = duplexify::Duplex::new(
             Box::pin(r) as Pin<Box<dyn Send + AsyncRead>>,
             Box::pin(w) as Pin<Box<dyn Send + AsyncWrite>>,
