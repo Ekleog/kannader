@@ -1449,6 +1449,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "idna"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e14ddfc70884202db2244c223200c204c2bda1bc6e0998d11b5e024d657209e6"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2627,7 +2637,7 @@ checksum = "03c8a8e4530f2f72db71cd33e0d9eb7d04db6d2a2552a6dd28f6f5b8335b0dae"
 dependencies = [
  "base64",
  "encoding",
- "idna",
+ "idna 0.2.3",
  "nom 6.1.2",
 ]
 
@@ -2833,7 +2843,7 @@ version = "0.1.0"
 dependencies = [
  "auto_enums",
  "futures",
- "idna",
+ "idna 0.3.0",
  "itertools",
  "lazy_static",
  "maplit",
@@ -3313,7 +3323,7 @@ dependencies = [
  "futures-channel",
  "futures-io",
  "futures-util",
- "idna",
+ "idna 0.2.3",
  "ipnet",
  "lazy_static",
  "log 0.4.14",
@@ -3401,7 +3411,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507c383b2d33b5fc35d1861e77e6b383d158b2da5e14fe51b83dfedf6fd578c"
 dependencies = [
  "form_urlencoded",
- "idna",
+ "idna 0.2.3",
  "matches",
  "percent-encoding",
 ]
