@@ -23,8 +23,8 @@ bincode = "1.3"
 serde-error = "0.1.0"
 static_assertions = "1.1"
 
-kannader-config-macros = { path = "../kannader-config-macros" }
-kannader-types = { path = "../kannader-types" }
-smtp-message = { path = "../smtp-message" }
-smtp-queue-types = { path = "../smtp-queue-types" }
-smtp-server-types = { path = "../smtp-server-types" }
+kannader-config-macros = { path = "../kannader-config-macros", version = "0.1.0" }
+kannader-types = { path = "../kannader-types", version = "0.1.0" }
+smtp-message = { path = "../smtp-message", version = "0.1.0" }
+smtp-queue-types = { path = "../smtp-queue-types", version = "0.1.0" }
+smtp-server-types = { path = "../smtp-server-types", version = "0.1.0" }

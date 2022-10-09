@@ -22,4 +22,4 @@ thiserror = "1.0"
 tracing = "0.1.22"
 trust-dns-resolver = { version = "0.21.2", default-features = false }
 
-smtp-message = { path = "../smtp-message" }
+smtp-message = { path = "../smtp-message", version = "0.1.0" }

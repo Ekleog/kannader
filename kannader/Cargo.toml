@@ -36,12 +36,12 @@ wasmtime = "1.0"
 wasmtime-wasi = "1.0"
 webpki = "0.22.0"
 
-kannader-config-macros = { path = "../kannader-config-macros" }
-kannader-types = { path = "../kannader-types" }
-smtp-client = { path = "../smtp-client" }
-smtp-queue = { path = "../smtp-queue" }
-smtp-queue-fs = { path = "../smtp-queue-fs" }
-smtp-queue-types = { path = "../smtp-queue-types" }
-smtp-message = { path = "../smtp-message" }
-smtp-server = { path = "../smtp-server" }
-smtp-server-types = { path = "../smtp-server-types" }
+kannader-config-macros = { path = "../kannader-config-macros", version = "0.1.0" }
+kannader-types = { path = "../kannader-types", version = "0.1.0" }
+smtp-client = { path = "../smtp-client", version = "0.1.0" }
+smtp-queue = { path = "../smtp-queue", version = "0.1.0" }
+smtp-queue-fs = { path = "../smtp-queue-fs", version = "0.1.0" }
+smtp-queue-types = { path = "../smtp-queue-types", version = "0.1.0" }
+smtp-message = { path = "../smtp-message", version = "0.1.0" }
+smtp-server = { path = "../smtp-server", version = "0.1.0" }
+smtp-server-types = { path = "../smtp-server-types", version = "0.1.0" }
