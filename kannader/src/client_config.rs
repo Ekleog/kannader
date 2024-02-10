@@ -67,7 +67,7 @@ impl smtp_client::Config for ClientConfig {
                 let io = self
                     .connector
                     .connect(
-                        rustls::ServerName::try_from("nodomainyet").unwrap(),
+                        rustls_pki_types::ServerName::try_from("nodomainyet").unwrap(),
                         io.compat(),
                     )
                     .await?;
