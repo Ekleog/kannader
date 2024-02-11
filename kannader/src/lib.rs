@@ -47,7 +47,8 @@ impl tokio_rustls::rustls::client::danger::ServerCertVerifier for NoCertVerifier
         _server_name: &tokio_rustls::rustls::pki_types::ServerName,
         _ocsp_response: &[u8],
         _now: tokio_rustls::rustls::pki_types::UnixTime,
-        ) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error> {
+    ) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error>
+    {
         Ok(tokio_rustls::rustls::client::danger::ServerCertVerified::assertion())
     }
 
@@ -55,18 +56,23 @@ impl tokio_rustls::rustls::client::danger::ServerCertVerifier for NoCertVerifier
         &self,
         _message: &[u8],
         _cert: &tokio_rustls::rustls::pki_types::CertificateDer,
-        _dss: &tokio_rustls::rustls::DigitallySignedStruct
-        ) -> Result<tokio_rustls::rustls::client::danger::HandshakeSignatureValid, tokio_rustls::rustls::Error> {
+        _dss: &tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<
+        tokio_rustls::rustls::client::danger::HandshakeSignatureValid,
+        tokio_rustls::rustls::Error,
+    > {
         Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
     }
-
 
     fn verify_tls13_signature(
         &self,
         _message: &[u8],
         _cert: &tokio_rustls::rustls::pki_types::CertificateDer,
-        _dss: &tokio_rustls::rustls::DigitallySignedStruct
-    ) -> Result<tokio_rustls::rustls::client::danger::HandshakeSignatureValid, tokio_rustls::rustls::Error> {
+        _dss: &tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<
+        tokio_rustls::rustls::client::danger::HandshakeSignatureValid,
+        tokio_rustls::rustls::Error,
+    > {
         Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
     }
 
@@ -154,16 +160,18 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                     debug!("Preparing the client configuration");
                     // TODO: see for configuring persistence, for more performance?
                     let provider = tokio_rustls::rustls::crypto::CryptoProvider {
-                        cipher_suites: tokio_rustls::rustls::crypto::ring::ALL_CIPHER_SUITES.to_vec(),
+                        cipher_suites: tokio_rustls::rustls::crypto::ring::ALL_CIPHER_SUITES
+                            .to_vec(),
                         kx_groups: tokio_rustls::rustls::crypto::ring::ALL_KX_GROUPS.to_vec(),
                         ..tokio_rustls::rustls::crypto::ring::default_provider()
                     };
-                    let tls_client_cfg = tokio_rustls::rustls::ClientConfig::builder_with_provider(provider.into())
-                        .with_protocol_versions(tokio_rustls::rustls::ALL_VERSIONS)
-                        .context("Configuring the rustls client")?
-                        .dangerous()
-                        .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
-                        .with_no_client_auth();
+                    let tls_client_cfg =
+                        tokio_rustls::rustls::ClientConfig::builder_with_provider(provider.into())
+                            .with_protocol_versions(tokio_rustls::rustls::ALL_VERSIONS)
+                            .context("Configuring the rustls client")?
+                            .dangerous()
+                            .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
+                            .with_no_client_auth();
                     let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_client_cfg));
                     let client = smtp_client::Client::new(
                         async_std_resolver::resolver_from_system_conf()
@@ -240,11 +248,15 @@ pub fn run(opt: &Opt, shutdown: smol::channel::Receiver<()>) -> anyhow::Result<(
                         // TODO: see for configuring persistence, for more performance?
                         // TODO: support SNI
                         let provider = tokio_rustls::rustls::crypto::CryptoProvider {
-                            cipher_suites: tokio_rustls::rustls::crypto::ring::ALL_CIPHER_SUITES.to_vec(),
+                            cipher_suites: tokio_rustls::rustls::crypto::ring::ALL_CIPHER_SUITES
+                                .to_vec(),
                             kx_groups: tokio_rustls::rustls::crypto::ring::ALL_KX_GROUPS.to_vec(),
                             ..tokio_rustls::rustls::crypto::ring::default_provider()
                         };
-                        let tls_server_cfg = tokio_rustls::rustls::ServerConfig::builder_with_provider(provider.into())
+                        let tls_server_cfg =
+                            tokio_rustls::rustls::ServerConfig::builder_with_provider(
+                                provider.into(),
+                            )
                             .with_protocol_versions(tokio_rustls::rustls::ALL_VERSIONS)
                             .context("Configuring the rustls server")?
                             .with_no_client_auth()
