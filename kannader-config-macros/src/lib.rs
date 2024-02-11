@@ -460,7 +460,7 @@ fn make_host_server(impl_name: Ident, c: Communicator) -> TokenStream {
                 #fn_body
             };
 
-            l.define(#link_name, #ffi_name, wasmtime::Func::wrap(&mut *ctx, the_fn))?;
+            l.func_wrap(#link_name, #ffi_name, the_fn)?;
         }}
     });
     let res = quote! {

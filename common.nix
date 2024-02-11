@@ -1,18 +1,18 @@
 rec {
   pkgsSrc = builtins.fetchTarball {
-    # The following is for nixos-unstable on 2022-03-15
-    url = "https://github.com/NixOS/nixpkgs/archive/73ad5f9e147c0d2a2061f1d4bd91e05078dc0b58.tar.gz";
-    sha256 = "01j7nhxbb2kjw38yk4hkjkkbmz50g3br7fgvad6b1cjpdvfsllds";
+    # The following is for nixos-unstable on 2024-02-09
+    url = "https://github.com/NixOS/nixpkgs/archive/8a3e1cf40a6eaeb122c8321b97a0518cfa6ed779.tar.gz";
+    sha256 = "000k9dvgnhd6f6599w1pdxlj7f616p82hd12i3g013684873kcrh";
   };
   naerskSrc = builtins.fetchTarball {
-    # The following is the latest version as of 2022-03-15
-    url = "https://github.com/nmattia/naersk/archive/2fc8ce9d3c025d59fee349c1f80be9785049d653.tar.gz";
-    sha256 = "0qjyfmw5v7s6ynjns4a61vlyj9cghj7vbpgrp9147ngb1f8krz3c";
+    # The following is the latest version as of 2024-02-09
+    url = "https://github.com/nmattia/naersk/archive/aeb58d5e8faead8980a807c840232697982d47b9.tar.gz";
+    sha256 = "0qjyfmw5v7s6ynjns4a61vlyj9cghj7vbpgrp9147ngb1f8krz32";
   };
   rustOverlaySrc = builtins.fetchTarball {
-    # The following is the latest version as of 2022-03-15
-    url = "https://github.com/mozilla/nixpkgs-mozilla/archive/15b7a05f20aab51c4ffbefddb1b448e862dccb7d.tar.gz";
-    sha256 = "0admybxrjan9a04wq54c3zykpw81sc1z1nqclm74a7pgjdp7iqv1";
+    # The following is the latest version as of 2024-02-09
+    url = "https://github.com/mozilla/nixpkgs-mozilla/archive/9b11a87c0cc54e308fa83aac5b4ee1816d5418a2.tar.gz";
+    sha256 = "1f41psqw00mdcwm28y1frjhssybg6r8i7rpa8jq0jiannksbj27s";
   };
   rustOverlay = import rustOverlaySrc;
   pkgs = import pkgsSrc {
@@ -24,9 +24,10 @@ rec {
     ];
   };
   rustNightlyChannelRaw = pkgs.rustChannelOf {
-    date = "2022-03-15";
+    date = "2024-02-04";
     channel = "nightly";
-    sha256 = "0wgn87di2bz901iv2gspg935qgyzc3c2fg5jszckxl4q47jzvd8b";
+    hash = "sha256-MR0rZ9wid6oc0sGwg4/MnOkPSQ06qVtYjV6X8a+BZA8=";
+    #sha256 = "0wgn87di2bz901iv2gspg935qgyzc3c2fg5jszckxl4q47jzvd8c";
   };
   rustNightlyChannel = rustNightlyChannelRaw // {
     rust = rustNightlyChannelRaw.rust.override {

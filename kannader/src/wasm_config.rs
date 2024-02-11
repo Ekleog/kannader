@@ -60,20 +60,18 @@ impl WasmConfig {
             // adds the necessary stuff
             // TODO: this should be async files, but let's keep
             // that for the day async wasi is implemented upstream
-            b = b
-                .preopened_dir(
-                    Dir::open_ambient_dir(&host, ambient_authority()).with_context(|| {
-                        format!("Preopening ‘{}’ for the guest", host.display())
-                    })?,
-                    guest,
+            b.preopened_dir(
+                Dir::open_ambient_dir(&host, ambient_authority())
+                    .with_context(|| format!("Preopening ‘{}’ for the guest", host.display()))?,
+                guest,
+            )
+            .with_context(|| {
+                format!(
+                    "Registering ‘{}’ as preopened dir pointing to ‘{}‘ for the guest",
+                    guest.display(),
+                    host.display()
                 )
-                .with_context(|| {
-                    format!(
-                        "Registering ‘{}’ as preopened dir pointing to ‘{}‘ for the guest",
-                        guest.display(),
-                        host.display()
-                    )
-                })?;
+            })?;
         }
 
         let mut store = wasmtime::Store::new(engine, WasmState {

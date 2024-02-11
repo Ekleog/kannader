@@ -915,10 +915,10 @@ mod tests {
     #[test]
     fn hostname_invalid() {
         let tests: &[&[u8]] = &[
-            b"-foo.bar>",                 // No sub-domain starting with a dash
-            b"\xFF>",                     // No invalid utf-8
+            b"-foo.bar>",               // No sub-domain starting with a dash
+            b"\xFF>",                   // No invalid utf-8
             "élégance.-fr>".as_bytes(), // No dashes in utf-8 either
-            b"foo.bar!>",                 // For parse: reject when there is trailing data
+            b"foo.bar!>",               // For parse: reject when there is trailing data
         ];
         for inp in tests {
             // Test parse_until
